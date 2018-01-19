@@ -45,6 +45,10 @@
   <ItemGroup>
     <Compile Include="ExtractFactsFromParsing.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Sentence.cs" />
+    <Compile Include="Sentences.cs" />
+    <Compile Include="SNode.cs" />
+    <Compile Include="SToken.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
