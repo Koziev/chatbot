@@ -321,7 +321,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         best_premise = reslist[0][0]
 
         if self.trace_enabled:
-            print(u'Best premise={}'.format(best_premise))
+            print(u'Best premise is "{}" with similarity={}'.format(best_premise, reslist[0][1]))
 
 
         # Определяем способ генерации ответа

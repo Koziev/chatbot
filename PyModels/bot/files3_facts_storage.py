@@ -61,6 +61,29 @@ class Files3FactsStorage(BaseFactsStorage):
                   8:u'осень', 9:u'осень', 10:u'осень'}[cur_month]
         memory_phrases.append( (u'сейчас '+season, '3', 'current_season') )
 
+        # Добавляем текущее время с точностью до минуты
+        current_minute = datetime.datetime.now().minute
+        current_hour = datetime.datetime.now().hour
+        current_time = u'Сейчас ' + str(current_hour)
+        if (current_hour % 10) == 1:
+            current_time += u' час '
+        elif (current_hour % 10) in [2, 3, 4]:
+            current_time += u' часа '
+        else:
+            current_time += u' часов '
+
+        current_time += str(current_minute)
+        if (current_minute % 10) == 1:
+            current_time += u' минута '
+        elif (current_minute % 10) in [2, 3, 4]:
+            current_time += u' минуты '
+        else:
+            current_time += u' минут '
+
+        memory_phrases.append((current_time, '3', 'current_time'))
+
+        # возвращаем список фактов (потом надо переделать на выдачу по мере чтения из файла и
+        # генерации через yield).
         for f in itertools.chain(self.new_facts, memory_phrases):
             yield f
 
