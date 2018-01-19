@@ -1,8 +1,19 @@
-﻿using System;
+﻿/*
+ * Вспомогательная утилита для чат-бота https://github.com/Koziev/chatbot
+ * Генерирует датасет с тройками предложение ПРЕДПОСЫЛКА-ВОПРОС-ОТВЕТ, например как тут https://github.com/Koziev/NLP_Datasets/blob/master/QA/premise_question_answer4.txt
+ * 
+ * Использует результаты работы утилиты https://github.com/Koziev/chatbot/tree/master/CSharpCode/ExtractFactsFromParsing
+ * 
+ * Для морфологического разбора фактов используется API Грамматического Словаря (http://solarix.ru/api/ru/list.shtml),
+ * исходные тексты на C# и C++ лежат в отдельном репозитории здесь https://github.com/Koziev/GrammarEngine/tree/master/src/demo/ai/solarix/engines
+ * 
+ * Частеречная разметка требует наличия русской словарной базы. Можно взять готовые файлы здесь https://github.com/Koziev/GrammarEngine/tree/master/src/bin-windows64 или
+ * собрать ее самостоятельно из исходных текстов, которые лежат здесь https://github.com/Koziev/GrammarEngine/tree/master/src/dictionary.src
+ */
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Xml;
 using System.Security.Cryptography;
 using System.Diagnostics.Contracts;
 
