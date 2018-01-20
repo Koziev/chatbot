@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Проверка работы простого диалогового движка в консоли.
+Консольный фронтэнд для диалогового движка (https://github.com/Koziev/chatbot).
 """
 
 from files3_facts_storage import Files3FactsStorage
