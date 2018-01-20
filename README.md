@@ -10,3 +10,4 @@
 
 Реализован в файле [test_telegram_bot.py](https://github.com/Koziev/chatbot/blob/master/PyModels/bot/test_telegram_bot.py)
 
+![Telegram frontend for chatbot](chatbot-telegram.png)
