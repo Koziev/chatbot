@@ -65,7 +65,9 @@ class Files3FactsStorage(BaseFactsStorage):
         current_minute = datetime.datetime.now().minute
         current_hour = datetime.datetime.now().hour
         current_time = u'Сейчас ' + str(current_hour)
-        if (current_hour % 10) == 1:
+        if (20>=current_hour>=5):
+            current_time += u' часов '
+        elif current_hour in [1, 21]:
             current_time += u' час '
         elif (current_hour % 10) in [2, 3, 4]:
             current_time += u' часа '

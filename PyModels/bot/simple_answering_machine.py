@@ -27,7 +27,7 @@ from simple_dialog_session_factory import SimpleDialogSessionFactory
 from word_embeddings import WordEmbeddings
 from xgb_relevancy_detector import XGB_RelevancyDetector
 from xgb_yes_no_model import XGB_YesNoModel
-
+from nn_model_selector import NN_ModelSelector
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -68,10 +68,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.yes_no_model = XGB_YesNoModel()
         self.yes_no_model.load(models_folder)
 
+        # Модель для выбора способа генерации ответа
+        self.model_selector = NN_ModelSelector()
+        self.model_selector.load(models_folder)
+
         # нейросетевые модели для выбора способа генерации ответа.
         self.models = dict()
         # for model_label in ['model_selector', 'yes_no', 'word_copy']:
-        for model_label in ['model_selector', 'word_copy3']:
+        for model_label in ['word_copy3']:
             arch_filepath = os.path.join(models_folder, 'qa_{}.arch'.format(model_label))
             weights_path = os.path.join(models_folder, 'qa_{}.weights'.format(model_label))
             with open(arch_filepath, 'r') as f:
@@ -222,16 +226,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             logging.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
 
-        # Определяем способ генерации ответа
         max_wordseq_len2 = int(self.qa_model_config['max_inputseq_len'])
-        X1_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
-        X2_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
         premise_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
         question_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(question), max_wordseq_len2)
-        self.vectorize_words(premise_words, X1_probe, 0)
-        self.vectorize_words(question_words, X2_probe, 0)
-        y_probe = self.models['model_selector'].predict({'input_words1': X1_probe, 'input_words2': X2_probe})
-        model_selector = np.argmax( y_probe[0] )
+
+        # Определяем способ генерации ответа
+        model_selector = self.model_selector.select_model(premise_str=best_premise,
+                                                          question_str=question,
+                                                          text_utils=self.text_utils,
+                                                          word_embeddings=self.word_embeddings)
         if self.trace_enabled:
             logging.debug('model_selector={}'.format(model_selector))
 
@@ -251,6 +254,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # wordcopy #3
             # эта модель имеет 2 классификатора на выходе.
             # первый классификатор выбирает позицию начала цепочки, второй - конца.
+
+            X1_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
+            X2_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
+            self.vectorize_words(premise_words, X1_probe, 0)
+            self.vectorize_words(question_words, X2_probe, 0)
+
             premise_words = self.text_utils.rpad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
             question_words = self.text_utils.rpad_wordseq(self.text_utils.tokenize(question), max_wordseq_len2)
 
