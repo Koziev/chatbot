@@ -4,6 +4,7 @@ import xgboost
 from scipy.sparse import lil_matrix
 import json
 import os
+import logging
 
 from relevancy_detector import RelevancyDetector
 
@@ -13,9 +14,14 @@ class XGB_RelevancyDetector(RelevancyDetector):
     Модель для определения релевантности предпосылки и вопроса на базе XGBoost.
     """
     def __init__(self):
-        pass
+        super(XGB_RelevancyDetector, self).__init__()
+        self.logger = logging.getLogger('XGB_RelevancyDetector')
+
+    def unknown_shingle(self, shingle):
+        self.logger.error(u'Shingle "{}" is unknown'.format(shingle))
 
     def load(self, models_folder):
+        self.logger.info('Loading XGB_RelevancyDetector model files')
         # Определение релевантности предпосылки и вопроса на основе XGB модели
         with open(os.path.join(models_folder, 'xgb_relevancy.config'), 'r') as f:
             model_config = json.load(f)
@@ -74,20 +80,20 @@ class XGB_RelevancyDetector(RelevancyDetector):
         icol = 0
         for shingle in common_shingles:
             if shingle not in shingle2id:
-                self.unknwon_shingle(shingle)
+                self.unknown_shingle(shingle)
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
         icol += nb_shingles
         for shingle in notmatched_ps:
             if shingle not in shingle2id:
-                self.unknwon_shingle(shingle)
+                self.unknown_shingle(shingle)
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
         icol += nb_shingles
         for shingle in notmatched_qs:
             if shingle not in shingle2id:
-                self.unknwon_shingle(shingle)
+                self.unknown_shingle(shingle)
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True

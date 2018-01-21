@@ -1,24 +1,11 @@
 # -*- coding: utf-8 -*-
 
 from keras.models import model_from_json
-from keras.layers import Embedding
-from keras.layers.merge import concatenate, add, multiply
-from keras.layers import Lambda
-from keras import backend as K
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, MaxPooling1D, AveragePooling1D
-from keras.models import Model
-from keras.layers.core import Activation, RepeatVector, Dense, Masking
-from keras.layers.wrappers import Bidirectional
-from keras.layers import Input
-import keras.callbacks
-from keras.layers import recurrent
-from keras.callbacks import ModelCheckpoint, EarlyStopping
 import xgboost
 from scipy.sparse import lil_matrix
 import json
 import os
 import pickle
-import gensim
 import numpy as np
 import logging
 
@@ -41,6 +28,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.trace_enabled = False
         self.session_factory = SimpleDialogSessionFactory(self.facts_storage)
         self.text_utils = text_utils
+        self.logger = logging.getLogger('SimpleAnsweringMachine')
 
     def get_model_filepath(self, models_folder, old_filepath):
         _, tail = os.path.split(old_filepath)
@@ -48,6 +36,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
 
     def load_models(self, models_folder):
+        self.logger.info(u'Loading models from {}'.format(models_folder))
         self.models_folder = models_folder
         # Общие параметры для сеточных моделей
         with open(os.path.join(models_folder, 'qa_model.config'), 'r') as f:
@@ -155,9 +144,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return u' '.join(outwords)
 
-    def unknwon_shingle(self, shingle):
-        logging.error(u'Shingle "{}" is unknown'.format(shingle))
-
     def get_session_factory(self):
         return self.session_factory
 
@@ -193,7 +179,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         person = ['1s', '2s', '3'][ int(y[0]) ]
 
         if self.trace_enabled:
-            logging.debug('detected person={}'.format(person))
+            self.logger.debug('detected person={}'.format(person))
 
         #person = get_person(question, tokenizer)
         if person=='1s':
@@ -216,7 +202,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             return
 
         if self.trace_enabled:
-            logging.debug(u'Question to process={}'.format(question))
+            self.logger.debug(u'Question to process={}'.format(question))
 
         question_words = self.text_utils.tokenize(question)
 
@@ -224,7 +210,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
         best_premise, best_rel = self.relevancy_detector.get_most_relevant(question, memory_phrases, self.text_utils, self.word_embeddings)
         if self.trace_enabled:
-            logging.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
+            self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
 
         max_wordseq_len2 = int(self.qa_model_config['max_inputseq_len'])
         premise_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
@@ -236,7 +222,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                           text_utils=self.text_utils,
                                                           word_embeddings=self.word_embeddings)
         if self.trace_enabled:
-            logging.debug('model_selector={}'.format(model_selector))
+            self.logger.debug('model_selector={}'.format(model_selector))
 
         answer = u''
 

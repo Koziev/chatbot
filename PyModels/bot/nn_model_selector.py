@@ -6,14 +6,18 @@
 import os
 import json
 import numpy as np
+import logging
 from keras.models import model_from_json
 from model_selector import ModelSelector
 
 class NN_ModelSelector(ModelSelector):
     def __init__(self):
-        pass
+        super(NN_ModelSelector, self).__init__()
+        self.logger = logging.getLogger('NN_ModelSelector')
 
     def load(self, models_folder):
+        self.logger.info('Loading NN_ModelSelector model files')
+
         arch_filepath = os.path.join(models_folder, 'qa_model_selector.arch')
         weights_path = os.path.join(models_folder, 'qa_model_selector.weights')
         with open(arch_filepath, 'r') as f:

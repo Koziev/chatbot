@@ -9,7 +9,10 @@ from simple_answering_machine import SimpleAnsweringMachine
 import colorama  # https://pypi.python.org/pypi/colorama
 import platform
 import sys
+import logging
 
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 user_id = 'test'
 

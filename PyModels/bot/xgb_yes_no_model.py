@@ -2,6 +2,7 @@
 
 import os
 import json
+import logging
 import xgboost
 from scipy.sparse import lil_matrix
 
@@ -10,9 +11,12 @@ from yes_no_model import YesNoModel
 
 class XGB_YesNoModel(YesNoModel):
     def __init__(self):
-        pass
+        super(XGB_YesNoModel, self).__init__()
+        self.logger = logging.getLogger('XGB_YesNoModel')
 
     def load(self, models_folder):
+        self.logger.info('Loading XGB_YesNoModel model files')
+
         with open(os.path.join(models_folder, 'xgb_yes_no.config'), 'r') as f:
             model_config = json.load(f)
 
