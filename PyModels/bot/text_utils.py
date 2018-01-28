@@ -2,7 +2,7 @@
 
 import itertools
 import re
-from Tokenizer import Tokenizer
+from utils.tokenizer import Tokenizer
 
 
 BEG_WORD = u'\b'

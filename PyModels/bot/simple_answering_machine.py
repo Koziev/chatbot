@@ -15,6 +15,7 @@ from word_embeddings import WordEmbeddings
 from xgb_relevancy_detector import XGB_RelevancyDetector
 from xgb_yes_no_model import XGB_YesNoModel
 from nn_model_selector import NN_ModelSelector
+from nn_word_copy_model import NN_WordCopyModel
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -62,16 +63,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.model_selector.load(models_folder)
 
         # нейросетевые модели для выбора способа генерации ответа.
-        self.models = dict()
-        # for model_label in ['model_selector', 'yes_no', 'word_copy']:
-        for model_label in ['word_copy3']:
-            arch_filepath = os.path.join(models_folder, 'qa_{}.arch'.format(model_label))
-            weights_path = os.path.join(models_folder, 'qa_{}.weights'.format(model_label))
-            with open(arch_filepath, 'r') as f:
-                m = model_from_json(f.read())
-
-            m.load_weights(weights_path)
-            self.models[model_label] = m
+        self.word_copy_model = NN_WordCopyModel();
+        self.word_copy_model.load(models_folder)
 
         with open(os.path.join(models_folder, 'qa_model.config'), 'r') as f:
             self.qa_model_config = json.load(f)
@@ -213,8 +206,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
 
         max_wordseq_len2 = int(self.qa_model_config['max_inputseq_len'])
-        premise_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
-        question_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(question), max_wordseq_len2)
 
         # Определяем способ генерации ответа
         model_selector = self.model_selector.select_model(premise_str=best_premise,
@@ -224,42 +215,29 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             self.logger.debug('model_selector={}'.format(model_selector))
 
+        premise_words = self.text_utils.tokenize(best_premise)
+        question_words = self.text_utils.tokenize(question)
+
         answer = u''
 
         if model_selector==0:
             # yes/no
 
             # Модель классификации ответа на базе XGB
-            y = self.yes_no_model.calc_yes_no(premise_words, question_words, self.text_utils, self.word_embeddings)
+            y = self.yes_no_model.calc_yes_no(premise_words,
+                                              question_words,
+                                              self.text_utils,
+                                              self.word_embeddings)
             if y<0.5:
                 answer = u'нет'
             else:
                 answer = u'да'
 
         elif model_selector==1:
-            # wordcopy #3
-            # эта модель имеет 2 классификатора на выходе.
-            # первый классификатор выбирает позицию начала цепочки, второй - конца.
-
-            X1_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
-            X2_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
-            self.vectorize_words(premise_words, X1_probe, 0)
-            self.vectorize_words(question_words, X2_probe, 0)
-
-            premise_words = self.text_utils.rpad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
-            question_words = self.text_utils.rpad_wordseq(self.text_utils.tokenize(question), max_wordseq_len2)
-
-            X1_probe.fill(0)
-            X2_probe.fill(0)
-
-            self.vectorize_words(premise_words, X1_probe, 0)
-            self.vectorize_words(question_words, X2_probe, 0)
-
-            (y1_probe, y2_probe) = self.models['word_copy3'].predict({'input_words1': X1_probe, 'input_words2': X2_probe})
-            beg_pos = np.argmax(y1_probe[0])
-            end_pos = np.argmax(y2_probe[0])
-            words = premise_words[beg_pos:end_pos+1]
-            answer = u' '.join(words)
+            answer = self.word_copy_model.copy_words(premise_words,
+                                                     question_words,
+                                                     self.text_utils,
+                                                     self.word_embeddings)
 
         else:
             answer = 'ERROR: answering model for {} is not implemented'.format(model_selector)

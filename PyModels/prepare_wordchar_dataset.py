@@ -7,12 +7,13 @@
 '''
 
 from __future__ import print_function
+
 import codecs
 import itertools
-import random
-from Tokenizer import Tokenizer
+
 import pandas as pd
 
+from utils.tokenizer import Tokenizer
 
 #data_folder = '../data'
 result_path = '../tmp/known_words.txt' # путь к файлу, где будет сохранен список слов

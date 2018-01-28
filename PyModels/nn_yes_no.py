@@ -6,40 +6,31 @@
 Датасет должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py)
 '''
 
-from __future__ import print_function
 from __future__ import division  # for python2 compatibility
+from __future__ import print_function
 
-import pandas as pd
-import numpy as np
-import numpy.linalg
-import sys
 import gc
-import gensim
-from sklearn.model_selection import train_test_split
-from keras.layers import Permute, Flatten, Reshape, Dropout
-from keras.layers.wrappers import TimeDistributed
-from keras.models import model_from_json
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, MaxPooling1D, AveragePooling1D
-from keras.models import Model
-from keras.layers.core import Activation, RepeatVector, Dense, Masking
-from keras.layers.wrappers import Bidirectional
-from keras.layers import Input
-from keras.layers import BatchNormalization
-import keras.callbacks
-from keras.layers import recurrent
-from keras.callbacks import ModelCheckpoint, EarlyStopping
-from keras.layers import Lambda
-from keras import backend as K
-
 import itertools
-import tqdm
-import os
 import json
+import os
+import sys
 
-from Tokenizer import Tokenizer
-import random
-import scipy.spatial.distance
-import numpy.linalg
+import gensim
+import keras.callbacks
+import numpy as np
+import pandas as pd
+import tqdm
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras.layers import Conv1D, GlobalMaxPooling1D
+from keras.layers import Input
+from keras.layers import recurrent
+from keras.layers.core import Dense
+from keras.layers.wrappers import Bidirectional
+from keras.models import Model
+from keras.models import model_from_json
+from sklearn.model_selection import train_test_split
+
+from utils.tokenizer import Tokenizer
 
 input_path = '../data/premise_question_answer.csv'
 tmp_folder = '../tmp'

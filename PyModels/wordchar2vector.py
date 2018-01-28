@@ -1,19 +1,24 @@
 # -*- coding: utf-8 -*-
-'''
+u"""
 Тренировка модели для превращения символьной цепочки слова в вектор.
-RNN и CNN варианты энкодера.
+RNN и CNN варианты энкодера. Реализовано на Keras.
 
-Список слов, для которых строится модель, читается из файла ../tmp/words.txt
+Список слов, для которых строится модель, читается из файла ../tmp/known_words.txt
 и должен быть предварительно сформирован скриптом prepare_wordchar_dataset.py
-
-(c) by Koziev Ilya inkoziev@gmail.com
-'''
+"""
 
 from __future__ import print_function
+
+__author__ = "Ilya Koziev"
+
 import argparse
-from keras.layers.core import Activation, RepeatVector, Dense, Masking
-#from keras.layers.wrappers import TimeDistributed
+import numpy as np
+import os
+import codecs
+import random
+
 import keras.callbacks
+from keras.layers.core import Activation, RepeatVector, Dense, Masking
 from keras.layers import recurrent
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Embedding
@@ -23,10 +28,6 @@ from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
 from keras.callbacks import CSVLogger
-import numpy as np
-import os
-import codecs
-import random
 
 
 ARCH_TYPE = 'rnn' # архитектура модели: cnn - сверточный энкодер, rnn - рекуррентный энкодер
@@ -37,9 +38,9 @@ parser = argparse.ArgumentParser(description='Training the wordchar2vector embed
 parser.add_argument('--input_file', default='../tmp/known_words.txt', help='input text file with words to be processed')
 parser.add_argument('--out_file', default='../tmp/wordchar2vector.dat', help='output text file containing with word vectors in word2vec text format')
 parser.add_argument('--model_dir', help='folder with model files', default='../tmp')
-parser.add_argument('--train', default=0, type=int )
-parser.add_argument('--vectorize', default=0, type=int )
-parser.add_argument('--dims', default=56, type=int )
+parser.add_argument('--train', default=0, type=int)
+parser.add_argument('--vectorize', default=0, type=int)
+parser.add_argument('--dims', default=56, type=int)
 
 args = parser.parse_args()
 
@@ -52,6 +53,9 @@ vec_size = args.dims # размер вектора представления с
 
 # -------------------------------------------------------------------
 
+# Для упрощения отладки без задания параметров запуска - запросим с консоли
+# выбор режима - перетренировка модели с нуля или только векторизация с использованием
+# ранее натренированной модели.
 if not do_train and not do_vectorize:
     while True:
         a1 = raw_input('0-train model\n1-calculate embeddings using pretrained model\n[0/1]: ')
@@ -68,15 +72,14 @@ if not do_train and not do_vectorize:
         else:
             print('Unrecognized choice "{}"'.format(a1))
 
+# ---------------------------------------------------------------
 
 FILLER_CHAR = u' '
 BEG_CHAR = u'['
 END_CHAR = u']'
 
-# ---------------------------------------------------------------
 
-
-def pad_word( word, max_word_len ):
+def pad_word(word, max_word_len):
     return BEG_CHAR + word + END_CHAR + (max_word_len-len(word))*FILLER_CHAR
 
 
@@ -84,8 +87,8 @@ def unpad_word(word):
     return word.strip()[1:-1]
 
 
-def raw_wordset( wordset, max_word_len ):
-    return [ (pad_word(word, max_word_len),pad_word(word, max_word_len)) for word in wordset ]
+def raw_wordset(wordset, max_word_len):
+    return [(pad_word(word, max_word_len),pad_word(word, max_word_len)) for word in wordset]
 
 
 known_words = set()
@@ -97,13 +100,13 @@ with codecs.open(input_path, 'r', 'utf-8') as rdr:
 
 print('There are {} known words'.format(len(known_words)))
 
-max_word_len = max( map(len,known_words) )
+max_word_len = max(map(len,known_words))
 seq_len = max_word_len+2 # 2 символа добавляются к каждому слову для маркировки начала и конца последовательности
 print('max_word_len={}'.format(max_word_len))
 
 val_share = 0.3
-train_words = set( filter( lambda z:random.random()>val_share, known_words ) )
-val_words = set( filter( lambda z:z not in train_words, known_words) )
+train_words = set(filter(lambda z:random.random()>val_share, known_words))
+val_words = set(filter(lambda z:z not in train_words, known_words))
 
 train_words = raw_wordset(train_words, max_word_len)
 val_words = raw_wordset(val_words, max_word_len )
@@ -111,29 +114,29 @@ val_words = raw_wordset(val_words, max_word_len )
 print('train set contains {} words'.format(len(train_words)))
 print('val set contains {} words'.format(len(val_words)))
 
-all_chars = { FILLER_CHAR, BEG_CHAR, END_CHAR }
+all_chars = {FILLER_CHAR, BEG_CHAR, END_CHAR}
 for word in known_words:
     all_chars.update(word)
 
-char2index = { FILLER_CHAR:0 }
+char2index = {FILLER_CHAR:0}
 for i,c in enumerate(all_chars):
-    if c!=FILLER_CHAR:
+    if c != FILLER_CHAR:
         char2index[c] = len(char2index)
 
-index2char = dict( [ (i,c) for c,i in char2index.iteritems() ])
+index2char = dict([(i,c) for c,i in char2index.iteritems()])
 
 nb_chars = len(all_chars)
 print('nb_chars={}'.format(nb_chars))
 
 # -----------------------------------------------------------------
 
-def vectorize_word( word, corrupt_word, X_batch, y_batch, irow, char2index ):
+def vectorize_word(word, corrupt_word, X_batch, y_batch, irow, char2index):
     for ich, (ch, corrupt_ch) in enumerate(zip(word, corrupt_word)):
         X_batch[irow, ich] = char2index[corrupt_ch]
         y_batch[irow, ich, char2index[ch]] = True
 
 
-def generate_rows( wordset, batch_size, char2index, mode ):
+def generate_rows(wordset, batch_size, char2index, mode):
     batch_index = 0
     batch_count = 0
 
@@ -166,7 +169,7 @@ def generate_rows( wordset, batch_size, char2index, mode ):
                 batch_index = 0
 
 
-def build_test( wordset, max_word_len, char2index ):
+def build_test(wordset, max_word_len, char2index):
     ndata = len(wordset)
     nb_chars = len(char2index)
     X_data = np.zeros((ndata, max_word_len+2), dtype=np.int32)
@@ -175,10 +178,10 @@ def build_test( wordset, max_word_len, char2index ):
     for irow, (word, corrupt_word) in enumerate(wordset):
         vectorize_word(word, corrupt_word, X_data, y_data, irow, char2index)
 
-    return (X_data, y_data)
+    return X_data, y_data
 
 
-def build_input( wordset, max_word_len, char2index ):
+def build_input(wordset, max_word_len, char2index):
     X,y_unused = build_test(wordset, max_word_len, char2index )
     return X
 
@@ -191,9 +194,9 @@ class colors:
     fail = '\033[91m'
     close = '\033[0m'
 
-class VisualizeCallback(keras.callbacks.Callback):
 
-    """
+class VisualizeCallback(keras.callbacks.Callback):
+    u"""
     Класс занимается как визуализацией качества сетки в конце каждой эпохи обучения,
     так и выполняет функции EarlyStopping и ModelCheckpoint колбэков, контролируя
     per install accuracy для валидационного набора.
@@ -211,10 +214,8 @@ class VisualizeCallback(keras.callbacks.Callback):
         self.stopped_epoch = 0
         self.patience = 20
 
-
     def decode_char_indeces(self, char_indeces):
         return u''.join([ self.index2char[c] for c in char_indeces ]).strip()
-
 
     def on_epoch_end(self, batch, logs={}):
         self.epoch = self.epoch+1
@@ -245,8 +246,8 @@ class VisualizeCallback(keras.callbacks.Callback):
                 nb_errors += 1
 
         val_acc = float(nb_samples-nb_errors)/nb_samples
-        if val_acc>self.best_val_acc:
-            print(colors.ok +'\nInstance accuracy improved from {} to {}, saving model to {}\n'.format(self.best_val_acc, val_acc, self.weights_path)+ colors.close)
+        if val_acc > self.best_val_acc:
+            print(colors.ok + '\nInstance accuracy improved from {} to {}, saving model to {}\n'.format(self.best_val_acc, val_acc, self.weights_path) + colors.close)
             self.best_val_acc = val_acc
             self.model.save_weights(self.weights_path)
             self.wait = 0
@@ -263,7 +264,7 @@ class VisualizeCallback(keras.callbacks.Callback):
 
 # -----------------------------------------------------------------
 
-mask_zero = ARCH_TYPE=='rnn'
+mask_zero = ARCH_TYPE == 'rnn'
 
 word_dims = nb_chars
 
@@ -278,11 +279,8 @@ embedding = Embedding(output_dim=word_dims,
                       mask_zero=mask_zero,
                       trainable=tunable_char_embeddings)
 
-
-
 input_chars = Input(shape=(seq_len,), dtype='int32', name='input')
 encoder = embedding(input_chars)
-
 
 if ARCH_TYPE=='cnn':
     conv_list = []
@@ -302,7 +300,7 @@ if ARCH_TYPE=='cnn':
 
     encoder = keras.layers.concatenate(inputs=conv_list)
     encoder = Dense(units=vec_size, activation='sigmoid')(encoder)
-elif ARCH_TYPE=='rnn':
+elif ARCH_TYPE == 'rnn':
     encoder = recurrent.LSTM(units=vec_size, return_sequences=False)(encoder)
     #encoder = Bidirectional(recurrent.LSTM(units=int(vec_size/2), return_sequences=False))(encoder)
     #encoder = Dense(units=vec_size, activation='relu')(encoder)
@@ -317,9 +315,11 @@ decoder = TimeDistributed(Dense(nb_chars, activation='softmax'), name='output')(
 
 model = Model(inputs=input_chars, outputs=decoder)
 model.compile(loss='categorical_crossentropy', optimizer='nadam')
-#model.compile(loss='categorical_crossentropy', optimizer='adamax')
 
-keras.utils.plot_model(model, to_file='../tmp/wordchar2vector.arch.png', show_shapes=False, show_layer_names=True)
+keras.utils.plot_model(model,
+                       to_file=os.path.join(model_dir,'wordchar2vector.arch.png'),
+                       show_shapes=False,
+                       show_layer_names=True)
 
 weigths_path = os.path.join(model_dir, 'wordcharsvector.model')
 
@@ -336,7 +336,7 @@ weigths_path = os.path.join(model_dir, 'wordcharsvector.model')
 #                                mode='auto')
 
 
-X_viz, y_viz = build_test( list(val_words)[0:1000], max_word_len, char2index )
+X_viz, y_viz = build_test(list(val_words)[0:1000], max_word_len, char2index)
 
 visualizer = VisualizeCallback(X_viz, y_viz, model, index2char, weigths_path)
 
@@ -393,8 +393,8 @@ if do_vectorize:
             X_data = build_input(batch_words, max_word_len, char2index)
             y_pred = model.predict( x=X_data, batch_size=nw, verbose=0 )
 
-            for iword,(word,corrupt_word) in enumerate(batch_words):
-                word_vect = y_pred[iword,:]
+            for iword, (word,corrupt_word) in enumerate(batch_words):
+                word_vect = y_pred[iword, :]
                 naked_word = unpad_word(word)
                 wrt.write(u'{} {}\n'.format(naked_word, u' '.join([str(x) for x in word_vect]) ))
 

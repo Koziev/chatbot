@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 '''
-Готовим датасет для обучения модели, определяющей релевантность вопроса и предпосылки.
+Готовим датасет для обучения модели, определяющей релевантность
+вопроса и предпосылки для проекта чатбота (https://github.com/Koziev/chatbot)
 
 Используется несколько входных датасетов.
 paraphrases.txt - отсюда получаем релевантные и нерелевантные перефразировки
@@ -8,39 +9,44 @@ qa.txt и premise_question_answer5.txt - отсюда получаем реле�
 questions.txt - список вопросов для негативного сэмплинга
 и т.д.
 
-Создаваемый датасет в формате CSV представляет из себя три колонки.
+Создаваемый датасет в формате CSV представляет из себя четыре колонки.
 Первые две - текст сравниваемых фраз.
 Третья содержит целое число:
 0 - не релевантны
 1 - есть полная семантическая релевантность
 2 - есть релевантность вопроса и предпосылки
+Четвертая - вес сэмпла, 1 для автоматически сгенерированных, >1 для сэмплов
+из вручную сформированных файлов.
 
 (c) by Koziev Ilya inkoziev@gmail.com
 '''
 
-from __future__ import print_function
 from __future__ import division  # for python2 compatability
+from __future__ import print_function
 
 import codecs
+import collections
 import itertools
-import random
 import os
+import random
 
-from Tokenizer import Tokenizer
+from utils.tokenizer import Tokenizer
 
+HANDCRAFTED_WEIGHT = 10 # вес для сэмплов, которые в явном виде созданы вручную
+AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, сгенерированных автоматически
 
 tmp_folder = '../tmp'
 data_folder = '../data'
 paraphrases_path = '../data/paraphrases.txt'
-qa_paths = ['qa.txt',
-            'current_time_pqa.txt',
-            'premise_question_answer6.txt',
-            'premise_question_answer5.txt',
-            'premise_question_answer4.txt',
-            'premise_question_answer4_1s.txt',
-            'premise_question_answer4_2s.txt',
-            'premise_question_answer5_1s.txt',
-            'premise_question_answer5_2s.txt',
+qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT),
+            ('current_time_pqa.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer6.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer5.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer4.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer4_1s.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer4_2s.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer5_1s.txt', AUTOGEN_WEIGHT),
+            ('premise_question_answer5_2s.txt', AUTOGEN_WEIGHT),
             ]
 questions_path = '../data/questions.txt'
 
@@ -74,11 +80,6 @@ def normalize_qline( line ):
 tokenizer = Tokenizer()
 
 # ------------------------------------------------------------------------
-
-
-
-# ------------------------------------------------------------------------
-
 
 random_questions = []
 random_facts = set()
@@ -129,23 +130,53 @@ print('{} random facts in set'.format(len(random_facts)))
 print('{} random questions in set'.format(len(random_questions)))
 # ------------------------------------------------------------------------
 
-str_pairs = [] # предпосылки и вопросы
-relevancy = [] # релевантность вопросов и предпосылок в парах
+class ResultantDataset(object):
+    def __init__(self):
+        self.str_pairs = [] # предпосылки и вопросы
+        self.relevancy = [] # релевантность вопросов и предпосылок в парах
+        self.weights   = [] # вес сэмпла, 1 для автоматически созданных сэмплов
+        self.added_pairs_set = set() # для предотвращения повторов
 
-added_pairs_set = set() # для предотвращения повторов
+    def add_pair( self, x1, x2, rel, weight ):
+        s1 = x1.replace(u'\t', u'').strip()
+        s2 = x2.replace(u'\t', u'').strip()
+        s12 = s1+'|'+s2
+        if s12 not in self.added_pairs_set:
+            self.added_pairs_set.add(s12)
+            self.str_pairs.append((s1, s2))
+            self.relevancy.append(rel)
+            self.weights.append(weight)
 
-def add_pair( x1, x2, rel ):
+    def positive_count(self):
+        return sum(self.relevancy)
 
-    s1 = x1.replace(u'\t', u'').strip()
-    s2 = x2.replace(u'\t', u'').strip()
+    def save_csv(self, filepath):
+        # сохраним получившийся датасет в CSV
+        with codecs.open(filepath, 'w', 'utf-8') as wrt:
+            wrt.write(u'premise\tquestion\trelevance\tweight\n')
+            for (s1, s2), r, w in itertools.izip(self.str_pairs, self.relevancy, self.weights):
+                wrt.write(u'{}\t{}\t{}\t{}\n'.format(s1, s2, r, w))
 
-    s12 = s1+'|'+s2
-    if s12 not in added_pairs_set:
-        added_pairs_set.add(s12)
-        str_pairs.append((s1, s2))
-        relevancy.append(rel)
+    def print_stat(self):
+        print('Total number of samples={}'.format(len(self.str_pairs)))
+
+        for y in range(3):
+            print('rel={} number of samples={}'.format(y, len(filter(lambda z: z == y, self.relevancy))))
+
+        weight2count = collections.Counter()
+        for w in self.weights:
+            weight2count[w] += 1
+
+        print('number of handcrafted samples={}'.format(weight2count[HANDCRAFTED_WEIGHT]))
+
+        print('premise  max len={}'.format(max(map(lambda z: len(z[0]), self.str_pairs))))
+        print('question max len={}'.format(max(map(lambda z: len(z[1]), self.str_pairs))))
+
 
 # ------------------------------------------------------------------------
+
+res_dataset = ResultantDataset()
+
 
 print('Parsing {}'.format(paraphrases_path))
 lines = []
@@ -166,18 +197,18 @@ with codecs.open(paraphrases_path, "r", "utf-8") as inf:
 
                 for i1 in range(len(posit_lines)):
                     for i2 in range(len(posit_lines)):
-                        if i1 == i2 and include_repeats == False:
+                        if i1 == i2 and not include_repeats:
                             continue
-                        add_pair( posit_lines[i1], posit_lines[i2], 1 )
+                        res_dataset.add_pair( posit_lines[i1], posit_lines[i2], 1, HANDCRAFTED_WEIGHT )
                         posit_pairs_count += 1
 
                     for negat in negat_lines:
-                        add_pair( posit_lines[i1], negat, 0 )
+                        res_dataset.add_pair( posit_lines[i1], negat, 0, HANDCRAFTED_WEIGHT )
                         negat_pairs_count += 1
 
                     # добавим пары со случайными фактами в качестве негативных сэмплов
                     for _ in range(n_negative_per_positive):
-                        add_pair( posit_lines[i1], random.choice(random_facts), 0 )
+                        res_dataset.add_pair( posit_lines[i1], random.choice(random_facts), 0, AUTOGEN_WEIGHT )
                         negat_pairs_count += 1
 
                     # добавим пары со случайными фактами, отобранными по критерию наличия общих слов.
@@ -205,7 +236,7 @@ with codecs.open(paraphrases_path, "r", "utf-8") as inf:
                                     break
 
                             if not found_in_posit:
-                                add_pair(posit_lines[i1], neg_fact, 0)
+                                res_dataset.add_pair(posit_lines[i1], neg_fact, 0, AUTOGEN_WEIGHT)
                                 negat_pairs_count += 1
 
             lines = []
@@ -218,7 +249,7 @@ print('done, posit_pairs_count={} negat_pairs_count={}'.format(posit_pairs_count
 
 if INCLUDE_PREMISE_QUESTION:
 
-    for qa_path in qa_paths:
+    for qa_path, qa_weight in qa_paths:
         print('Parsing {}'.format(qa_path))
         premise_questions = []
         posit_pairs_count = 0
@@ -245,13 +276,13 @@ if INCLUDE_PREMISE_QUESTION:
 
                             for premise in text:
                                 for question in questions:
-                                    add_pair( premise, question, 1 )
+                                    res_dataset.add_pair( premise, question, 1, qa_weight )
                                     posit_pairs_count += 1
 
                                 # Добавим несколько нерелевантных вопросов
                                 for _ in range(len(questions)*n_negative_per_positive):
                                     random_question = random.choice(random_questions)
-                                    add_pair( premise, random_question, 0)
+                                    res_dataset.add_pair( premise, random_question, 0, AUTOGEN_WEIGHT)
                                     negat_pairs_count += 1
 
                         loading_state = 'T'
@@ -271,7 +302,7 @@ if INCLUDE_PREMISE_QUESTION:
                 rnd_index = random.choice(rnd_pool)
                 for random_question in premise_questions[rnd_index][1]:
                     if random_question not in questions:
-                        add_pair(premise, random_question, 0)
+                        res_dataset.add_pair(premise, random_question, 0, AUTOGEN_WEIGHT)
                         negat_pairs_count += 1
                         n_added_random += 1
 
@@ -280,7 +311,7 @@ if INCLUDE_PREMISE_QUESTION:
 
 # Добавим негативные пары из случайных источников.
 
-N_NEGATIVE = sum( relevancy )*n_negative_per_positive
+N_NEGATIVE = res_dataset.positive_count()*n_negative_per_positive
 # кол-во добавляемых рандомных негативных будет равно числу
 # имеющихся позитивных с заданным коэффициентом.
 
@@ -301,7 +332,7 @@ while negative_pairs < N_NEGATIVE:
     line2 = random.choice(srclines)
     # выбираем строки из разных групп
     if( line1[1]!=line2[1] ):
-        add_pair( line1[0], line2[0], 0)
+        res_dataset.add_pair( line1[0], line2[0], 0, AUTOGEN_WEIGHT)
         negative_pairs += 1
 
 print( 'random negatives count=', negative_pairs )
@@ -309,14 +340,16 @@ print( 'random negatives count=', negative_pairs )
 # ---------------------------------------------------------------------------
 
 
-# Добавляем перестановочные перефразировки
+# Добавляем перестановочные перефразировки.
+# Подготовка датасетов с перестановочными перефразировками выполняется
+# C# кодом, находящимся здесь: https://github.com/Koziev/NLP_Datasets/tree/master/ParaphraseDetection
 
 srcpaths = ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']
 
-nb_permut = sum(relevancy)/len(srcpaths) # кол-во перестановочных перефразировок одной длины,
+nb_permut = res_dataset.positive_count()/len(srcpaths) # кол-во перестановочных перефразировок одной длины,
                                          # чтобы в итоге кол-во перестановочных пар не превысило число
                                          # явно заданных положительных пар.
-
+print('nb_permut={}'.format(nb_permut))
 total_permutations = 0
 include_repeats = False # включать ли нулевые перефразировки - когда левая и правая части идентичны
 emitted_perm = set()
@@ -341,7 +374,7 @@ for srcpath in srcpaths:
                                 emitted_perm.add(k1)
                                 emitted_perm.add(k2)
 
-                                add_pair( lines[i1], lines[i2], 1 )
+                                res_dataset.add_pair(lines[i1], lines[i2], 1, AUTOGEN_WEIGHT)
                                 total_permutations += 1
                                 nperm += 1
                                 if nperm>nb_permut:
@@ -355,18 +388,7 @@ print( 'total_permutations={}'.format(total_permutations) )
 
 # ---------------------------------------------------------------------------
 
-print('Total number of samples={}'.format(len(str_pairs)))
-
-for y in range(3):
-    print('rel={} number of samples={}'.format(y, len(filter( lambda z:z==y, relevancy))))
-
-print('premise  max len={}'.format(max(map( lambda z:len(z[0]), str_pairs ))))
-print('question max len={}'.format(max(map( lambda z:len(z[1]), str_pairs ))))
-
-# ---------------------------------------------------------------------------
+res_dataset.print_stat()
 
 # сохраним получившийся датасет в CSV
-with codecs.open(os.path.join(data_folder,'premise_question_relevancy.csv'), 'w', 'utf-8') as wrt:
-    wrt.write(u'premise\tquestion\trelevance\n')
-    for (s1,s2),r in itertools.izip(str_pairs, relevancy):
-        wrt.write(u'{}\t{}\t{}\n'.format(s1, s2, r))
+res_dataset.save_csv( os.path.join(data_folder,'premise_question_relevancy.csv') )

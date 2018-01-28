@@ -6,22 +6,23 @@
 Датасет должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py)
 '''
 
-from __future__ import print_function
 from __future__ import division  # for python2 compatibility
+from __future__ import print_function
 
-import pandas as pd
-import numpy as np
 import codecs
-from sklearn.model_selection import train_test_split
 import itertools
-import tqdm
-import os
 import json
+import os
 
-from Tokenizer import Tokenizer
-from scipy.sparse import lil_matrix
-import xgboost
+import numpy as np
+import pandas as pd
 import sklearn.metrics
+import tqdm
+import xgboost
+from scipy.sparse import lil_matrix
+from sklearn.model_selection import train_test_split
+
+from utils.tokenizer import Tokenizer
 
 # Основной гиперпараметр модели - число символов в N-граммах, мешок которых
 # представляет анализируемое предложение.

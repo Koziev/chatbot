@@ -5,17 +5,15 @@
 (c) by Koziev Ilya inkoziev@gmail.com
 '''
 
-from __future__ import print_function
 from __future__ import division  # for python2 compatability
+from __future__ import print_function
 
 import codecs
-import itertools
-import random
 import os
+
 import pandas as pd
 
-from Tokenizer import Tokenizer
-
+from utils.tokenizer import Tokenizer
 
 tmp_folder = '../tmp'
 data_folder = '../data'

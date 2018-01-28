@@ -9,7 +9,7 @@ import re
 
 class Tokenizer(object):
     def __init__(self):
-        self.regex = re.compile(r'[%s\s]+' % re.escape(u'[ +<>`~; .,?？!-…№”“„{}/\'"–—_:«»*]()）》\t'))
+        self.regex = re.compile(r'[%s\s]+' % re.escape(u'[  +<>`~; .,?？!-…№”“„{}/\'"–—_:«»*]()）》\t'))
 
     def normalize_word(self, w):
         i = w.find(u'°')
