@@ -30,8 +30,8 @@ from keras.models import Model
 from keras.callbacks import CSVLogger
 
 
-ARCH_TYPE = 'rnn' # архитектура модели: cnn - сверточный энкодер, rnn - рекуррентный энкодер
-tunable_char_embeddings = False # делать ли настраиваемые векторы символов (True) или 1-hot (False)
+ARCH_TYPE = 'rnn'  # архитектура модели: cnn - сверточный энкодер, rnn - рекуррентный энкодер
+tunable_char_embeddings = False  # делать ли настраиваемые векторы символов (True) или 1-hot (False)
 batch_size = 250
 
 parser = argparse.ArgumentParser(description='Training the wordchar2vector embeddings for words')
@@ -44,12 +44,12 @@ parser.add_argument('--dims', default=56, type=int)
 
 args = parser.parse_args()
 
-model_dir = args.model_dir # каталог для файлов модели - при тренировке туда записываются, при векторизации - оттуда загружаются
-input_path = args.input_file # из этого файла прочитаем список слов, на которых учится модель
-out_file = args.out_file # в этот файл будет сохранены векторы слов в word2vec-совместимом формате
-do_train = args.train # тренировать ли модель с нуля
-do_vectorize = args.vectorize # векторизовать ли входной список слов
-vec_size = args.dims # размер вектора представления слова для тренировки модели
+model_dir = args.model_dir  # каталог для файлов модели - при тренировке туда записываются, при векторизации - оттуда загружаются
+input_path = args.input_file  # из этого файла прочитаем список слов, на которых учится модель
+out_file = args.out_file  # в этот файл будет сохранены векторы слов в word2vec-совместимом формате
+do_train = args.train  # тренировать ли модель с нуля
+do_vectorize = args.vectorize  # векторизовать ли входной список слов
+vec_size = args.dims  # размер вектора представления слова для тренировки модели
 
 # -------------------------------------------------------------------
 
@@ -101,7 +101,7 @@ with codecs.open(input_path, 'r', 'utf-8') as rdr:
 print('There are {} known words'.format(len(known_words)))
 
 max_word_len = max(map(len,known_words))
-seq_len = max_word_len+2 # 2 символа добавляются к каждому слову для маркировки начала и конца последовательности
+seq_len = max_word_len+2  # 2 символа добавляются к каждому слову для маркировки начала и конца последовательности
 print('max_word_len={}'.format(max_word_len))
 
 val_share = 0.3
@@ -196,7 +196,7 @@ class colors:
 
 
 class VisualizeCallback(keras.callbacks.Callback):
-    u"""
+    """
     Класс занимается как визуализацией качества сетки в конце каждой эпохи обучения,
     так и выполняет функции EarlyStopping и ModelCheckpoint колбэков, контролируя
     per install accuracy для валидационного набора.
@@ -208,9 +208,9 @@ class VisualizeCallback(keras.callbacks.Callback):
         self.y_test = y_test
         self.model = model
         self.index2char = index2char
-        self.best_val_acc = 0.0 # для сохранения самой точной модели
+        self.best_val_acc = 0.0  # для сохранения самой точной модели
         self.weights_path = weights_path
-        self.wait = 0 # для early stopping по критерию общей точности
+        self.wait = 0  # для early stopping по критерию общей точности
         self.stopped_epoch = 0
         self.patience = 20
 
@@ -224,15 +224,11 @@ class VisualizeCallback(keras.callbacks.Callback):
         nb_errors = 0
 
         print('')
-        #with open( self.output_path, 'a' ) as fsamples:
-            #fsamples.write( u'\n' + '='*50 + u'\nepoch=' + str(self.epoch) + u'\n' );
         for ind in range(len(self.X_test)):
             rowX, rowy = self.X_test[np.array([ind])], self.y_test[np.array([ind])]
             preds = self.model.predict(rowX, verbose=0)
 
             correct = self.decode_char_indeces(rowy[0,:,:].argmax(axis=-1))
-            #guess = self.ctable.decode(preds[0], calc_argmax=False)
-
             predicted_char_indeces = preds[0,:,:].argmax(axis=-1)
             guess = self.decode_char_indeces(predicted_char_indeces)
 
@@ -240,7 +236,6 @@ class VisualizeCallback(keras.callbacks.Callback):
                 print(colors.ok + '☑ ' + colors.close if correct == guess else colors.fail + '☒ ' + colors.close, end='')
                 print(u'wordform={} model_output={}'.format(correct, guess) )
 
-            #fsamples.write( (correct + u' ==> ' + guess + u'\n').encode('utf-8') )
             nb_samples += 1
             if guess!=correct:
                 nb_errors += 1
