@@ -10,15 +10,15 @@ RNN и CNN варианты энкодера.
 '''
 
 from __future__ import print_function
+import argparse
 from keras.layers.core import Activation, RepeatVector, Dense, Masking
-from keras.layers.wrappers import TimeDistributed
+#from keras.layers.wrappers import TimeDistributed
 import keras.callbacks
 from keras.layers import recurrent
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Embedding
 from keras.layers.wrappers import Bidirectional
 from keras.layers import Dense, Dropout, Input, Permute, Flatten, Reshape
-from keras.layers import concatenate
 from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
@@ -26,44 +26,52 @@ from keras.callbacks import CSVLogger
 import numpy as np
 import os
 import codecs
-import itertools
-import pickle
-import re
-import zipfile
 import random
-from Tokenizer import Tokenizer
-import pandas as pd
-
-
-tmp_folder = '../tmp'
-words_filepath = '../tmp/known_words.txt'
 
 
 ARCH_TYPE = 'rnn' # архитектура модели: cnn - сверточный энкодер, rnn - рекуррентный энкодер
-vec_size = 56 # размер вектора представления слова
-n_misspelling_per_word = 0 # кол-во добавляемых вариантов с опечатками на одно исходное слово
 tunable_char_embeddings = False # делать ли настраиваемые векторы символов (True) или 1-hot (False)
 batch_size = 250
 
-FILLER_CHAR =u' '
+parser = argparse.ArgumentParser(description='Training the wordchar2vector embeddings for words')
+parser.add_argument('--input_file', default='../tmp/known_words.txt', help='input text file with words to be processed')
+parser.add_argument('--out_file', default='../tmp/wordchar2vector.dat', help='output text file containing with word vectors in word2vec text format')
+parser.add_argument('--model_dir', help='folder with model files', default='../tmp')
+parser.add_argument('--train', default=0, type=int )
+parser.add_argument('--vectorize', default=0, type=int )
+parser.add_argument('--dims', default=56, type=int )
+
+args = parser.parse_args()
+
+model_dir = args.model_dir # каталог для файлов модели - при тренировке туда записываются, при векторизации - оттуда загружаются
+input_path = args.input_file # из этого файла прочитаем список слов, на которых учится модель
+out_file = args.out_file # в этот файл будет сохранены векторы слов в word2vec-совместимом формате
+do_train = args.train # тренировать ли модель с нуля
+do_vectorize = args.vectorize # векторизовать ли входной список слов
+vec_size = args.dims # размер вектора представления слова для тренировки модели
+
+# -------------------------------------------------------------------
+
+if not do_train and not do_vectorize:
+    while True:
+        a1 = raw_input('0-train model\n1-calculate embeddings using pretrained model\n[0/1]: ')
+        if a1=='0':
+            do_train = True
+            do_vectorize = True
+            print('Training the model...')
+            break
+        elif a1=='1':
+            do_train = False
+            do_vectorize = True
+            print('Calculating the word embeddings...')
+            break
+        else:
+            print('Unrecognized choice "{}"'.format(a1))
+
+
+FILLER_CHAR = u' '
 BEG_CHAR = u'['
 END_CHAR = u']'
-
-
-TRAIN = True
-
-while True:
-    a1 = raw_input('0-train model\n1-calculate embeddings using pretrained model\n[0/1]: ')
-    if a1=='0':
-        TRAIN = True
-        print('Train model')
-        break
-    elif a1=='1':
-        TRAIN = False
-        print('Calculate embeddings')
-        break
-    else:
-        print('Unrecognized choice "{}"'.format(a1))
 
 # ---------------------------------------------------------------
 
@@ -81,7 +89,7 @@ def raw_wordset( wordset, max_word_len ):
 
 
 known_words = set()
-with codecs.open(words_filepath, 'r', 'utf-8') as rdr:
+with codecs.open(input_path, 'r', 'utf-8') as rdr:
     line_count = 0
     for line0 in rdr:
         word = line0.strip()
@@ -311,7 +319,9 @@ model = Model(inputs=input_chars, outputs=decoder)
 model.compile(loss='categorical_crossentropy', optimizer='nadam')
 #model.compile(loss='categorical_crossentropy', optimizer='adamax')
 
-weigths_path = os.path.join(tmp_folder, 'wordcharsvector.model')
+keras.utils.plot_model(model, to_file='../tmp/wordchar2vector.arch.png', show_shapes=False, show_layer_names=True)
+
+weigths_path = os.path.join(model_dir, 'wordcharsvector.model')
 
 
 # model_checkpoint = ModelCheckpoint( weigths_path,
@@ -330,11 +340,11 @@ X_viz, y_viz = build_test( list(val_words)[0:1000], max_word_len, char2index )
 
 visualizer = VisualizeCallback(X_viz, y_viz, model, index2char, weigths_path)
 
-learning_curve_filename = os.path.join( tmp_folder, 'learning_curve_{}_n_misspell={}_vecsize={}_tunable_char_embeddings={}.csv'.format(ARCH_TYPE, n_misspelling_per_word, vec_size, tunable_char_embeddings) )
+learning_curve_filename = os.path.join( model_dir, 'learning_curve_{}_vecsize={}_tunable_char_embeddings={}.csv'.format(ARCH_TYPE, vec_size, tunable_char_embeddings) )
 csv_logger = CSVLogger(learning_curve_filename, append=True, separator='\t')
 
 
-if TRAIN:
+if do_train:
     hist = model.fit_generator(generator=generate_rows(train_words, batch_size, char2index, 1),
                                steps_per_epoch=int(len(train_words)/batch_size),
                                epochs=200,
@@ -355,39 +365,40 @@ if TRAIN:
 model = Model(inputs=input_chars, outputs=encoder)
 
 # Сохраним эту модель
-with open(os.path.join(tmp_folder, 'wordchar2vector.arch'), 'w') as f:
+with open(os.path.join(model_dir, 'wordchar2vector.arch'), 'w') as f:
     f.write(model.to_json())
 
-if TRAIN:
+if do_train:
     model.save_weights(weigths_path)
 else:
     model.load_weights(weigths_path)
 
-output_words = set(known_words)
-nb_words = len(output_words)
+if do_vectorize:
+    output_words = set(known_words)
+    nb_words = len(output_words)
 
-with codecs.open( os.path.join( tmp_folder, 'wordchar2vector.dat'), 'w', 'utf-8') as wrt:
-    wrt.write('{} {}\n'.format(nb_words, vec_size))
+    with codecs.open( out_file, 'w', 'utf-8') as wrt:
+        wrt.write('{} {}\n'.format(nb_words, vec_size))
 
-    nb_batch = int(nb_words/batch_size) + (0 if (nb_words%batch_size)==0 else 1)
-    wx = list(output_words)
-    words = raw_wordset( wx, max_word_len )
+        nb_batch = int(nb_words/batch_size) + (0 if (nb_words%batch_size)==0 else 1)
+        wx = list(output_words)
+        words = raw_wordset( wx, max_word_len )
 
-    words_remainder = nb_words
-    word_index=0
-    while words_remainder>0:
-        print('words_remainder={}        '.format(words_remainder), end='\r')
-        nw = min( batch_size, words_remainder )
-        batch_words = words[word_index:word_index+nw]
-        X_data = build_input(batch_words, max_word_len, char2index)
-        y_pred = model.predict( x=X_data, batch_size=nw, verbose=0 )
+        words_remainder = nb_words
+        word_index=0
+        while words_remainder>0:
+            print('words_remainder={}        '.format(words_remainder), end='\r')
+            nw = min( batch_size, words_remainder )
+            batch_words = words[word_index:word_index+nw]
+            X_data = build_input(batch_words, max_word_len, char2index)
+            y_pred = model.predict( x=X_data, batch_size=nw, verbose=0 )
 
-        for iword,(word,corrupt_word) in enumerate(batch_words):
-            word_vect = y_pred[iword,:]
-            naked_word = unpad_word(word)
-            wrt.write(u'{} {}\n'.format(naked_word, u' '.join([str(x) for x in word_vect]) ))
+            for iword,(word,corrupt_word) in enumerate(batch_words):
+                word_vect = y_pred[iword,:]
+                naked_word = unpad_word(word)
+                wrt.write(u'{} {}\n'.format(naked_word, u' '.join([str(x) for x in word_vect]) ))
 
-        word_index += nw
-        words_remainder -= nw
+            word_index += nw
+            words_remainder -= nw
 
 print('\nDone.')
