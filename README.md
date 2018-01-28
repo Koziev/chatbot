@@ -76,3 +76,6 @@ python ../PyModels/wordchar2vector.py --train 0 --vectorize 1 --i ../tmp/known_w
 Этот режим позволяет быстро векторизовать лексикон после добавления новых
 предложений в исходные датасеты, не переучивая нейросеть.
 
+### Где используется модель wordchar2vector
+
+Загрузка и использование векторых моделей слов в чатботе инкапсулировано в классе [WordEmbeddings](https://github.com/Koziev/chatbot/blob/master/PyModels/bot/word_embeddings.py)
