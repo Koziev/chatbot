@@ -21,7 +21,7 @@ from collections import Counter
 
 import keras
 from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
-from keras.layers import Conv1D, GlobalMaxPooling1D
+from keras.layers import Conv1D, GlobalMaxPooling1D, MaxPool1D
 from keras.layers import Input
 from keras.layers import recurrent
 from keras.layers.core import Dense
@@ -37,8 +37,20 @@ input_path = '../data/premise_question_answer.csv'
 tmp_folder = '../tmp'
 data_folder = '../data'
 
+# Вариант архитектуры нейросетки:
+# lstm - один общий bidir LSTM слой упаковывает слова предпосылки и вопроса в векторы. Затем два
+#        получившихся вектора поступают на афинные слои классификатора.
+# lstm+cnn - параллельно с LSTM слоями из первого варианта работают сверточные слои. Затем
+#        все векторы соединяются и поступают на классификатор.
+# cnn*lstm - сначала группа сверточных слоев выделяет словосочетания, затем после пулинга
+#        эти признаки поступают на LSTM и далее на классификатор.
 #NET_ARCH = 'lstm'
-NET_ARCH = 'lstm+cnn'
+#NET_ARCH = 'lstm+cnn'
+NET_ARCH = 'cnn*lstm'
+
+# Размер минибатчей.
+# Менять следует с осторожностью, так как по результатам экспериментов
+# уменьшение этого параметра модель обучается медленнее, но становится точнее.
 BATCH_SIZE = 30
 
 # -------------------------------------------------------------------
@@ -231,7 +243,7 @@ if RUN_MODE == 'train':
         repr_size += rnn_size*2
 
         # добавляем входы со сверточными слоями
-        for kernel_size in range(2, 4):
+        for kernel_size in range(1, 4):
             conv = Conv1D(filters=nb_filters,
                           kernel_size=kernel_size,
                           padding='valid',
@@ -257,6 +269,42 @@ if RUN_MODE == 'train':
         encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
         encoder_size = repr_size
 
+    # --------------------------------------------------------------------------
+
+    if NET_ARCH == 'cnn*lstm':
+
+        conv1 = []
+        conv2 = []
+        encoder_size = 0
+
+        for kernel_size in range(1, 4):
+            # сначала идут сверточные слои, образующие детекторы словосочетаний
+            # и синтаксических конструкций
+            conv = Conv1D(filters=nb_filters,
+                          kernel_size=kernel_size,
+                          padding='valid',
+                          activation='relu',
+                          strides=1,
+                          name='shared_conv_{}'.format(kernel_size))
+
+            lstm = recurrent.LSTM(rnn_size, return_sequences=False)
+
+            conv_layer1 = conv(words_net1)
+            conv_layer1 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer1)
+            conv_layer1 = lstm(conv_layer1)
+            conv1.append(conv_layer1)
+
+            conv_layer2 = conv(words_net2)
+            conv_layer2 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer2)
+            conv_layer2 = lstm(conv_layer2)
+            conv2.append(conv_layer2)
+
+            encoder_size += rnn_size
+
+        encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
+        encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
+
+
     # финальный классификатор определяет длину ответа
     output_dims = max_outputseq_len
     decoder = Dense(rnn_size, activation='relu')(encoder_final)
@@ -268,6 +316,11 @@ if RUN_MODE == 'train':
 
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
+
+    keras.utils.plot_model(model,
+                           to_file=os.path.join(tmp_folder, 'nn_answer_length-{}.arch.png'.format(NET_ARCH)),
+                           show_shapes=False,
+                           show_layer_names=True)
 
 
 # -------------------------------------------------------------------------
@@ -388,9 +441,9 @@ if RUN_MODE == 'train':
 
     model_checkpoint = ModelCheckpoint(weights_path, monitor=monitor_metric,
                                        verbose=1, save_best_only=True, mode='auto')
-    early_stopping = EarlyStopping(monitor=monitor_metric, patience=20, verbose=1, mode='auto')
+    early_stopping = EarlyStopping(monitor=monitor_metric, patience=10, verbose=1, mode='auto')
 
-    reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.2, patience=5, min_lr=0.0001)
+    reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.2, patience=5, min_lr=0.00001)
 
     callbacks = [reduce_lr, model_checkpoint, early_stopping]
 
