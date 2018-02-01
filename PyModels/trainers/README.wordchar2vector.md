@@ -124,7 +124,7 @@ python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordch
 В этом варианте кодирующая часть нейросетки представлена сверточными и рекуррентным слоями,
 работающими параллельно:
 
-![wordchar2vector LSTM+conv model architecture](wordchar2vector.cnn+lstm.arch.png)
+![wordchar2vector LSTM+conv model architecture](wordchar2vector.lstm_plus_cnn.arch.png)
 
 Запуск из командной строки:
 ```
