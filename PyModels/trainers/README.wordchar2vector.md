@@ -15,11 +15,6 @@
 
 Архитектура нейросети задается опцией --arch_type при запуске программы [wordchar2vector.py](https://github.com/Koziev/chatbot/blob/master/PyModels/wordchar2vector.py).
 
-Только сверточные слои:
-```
---arch_type cnn
-```
-
 Простой и эффективный сжимающий рекуррентный автоэнкодер на базе LSTM:
 ```
 --arch_type rnn
@@ -28,6 +23,11 @@
 Аналогичный вариант с bidirectional LSTM в кодирующей части сетки включается опцией:
 ```
 --arch_type bidir_lstm
+```
+
+Только сверточные слои:
+```
+--arch_type cnn
 ```
 
 
@@ -71,7 +71,7 @@
 python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordchar2vector.dat --model_dir ../tmp --arch_type rnn --tunable_char_embeddings 0 --char_dims 0 --batch_size 250 --dims 56
 ```
 
-Как видно по кривым обучения, данная архитектура дает хорошее качество при достаточно быстрой
+Как видно по кривым обучения (см. ниже), данная архитектура дает хорошее качество при достаточно быстрой
 сходимости.
 
 Вместо одного слоя LSTM в кодирующей части можно использовать bidirectional LSTM, заменив
@@ -142,6 +142,11 @@ python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordch
 Качество и сложность модели и использующих ее алгоритмов регулируется параметром "размер вектора слова",
 который задается опцией --dims NN в командой строке. По умолчанию этот параметр равен 56.
 
+### Настраиваемость векторов символов
+
+---todo---
+
+
 ### Тренировка модели wordchar2vector
 
 Для тренировки посимвольных встраиваний необходимо выполнить два шага.
@@ -176,7 +181,7 @@ python ../PyModels/wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o .
 файла будут векторизованы и сохранены в выходном файле.
 
 ```
-python ../PyModels/wordchar2vector.py --train 0 --vectorize 1 --i ../tmp/known_words.txt --o ../tmp/wordchar2vector.dat --model_dir ../tmp --dims 56
+python ../PyModels/wordchar2vector.py --train 0 --vectorize 1 --i ../tmp/known_words.txt --o ../tmp/wordchar2vector.dat --model_dir ../tmp
 ```
 
 Этот режим позволяет быстро векторизовать лексикон после добавления новых
