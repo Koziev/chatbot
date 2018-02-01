@@ -14,12 +14,12 @@ import itertools
 import json
 import os
 import sys
-
 import gensim
 import keras.callbacks
 import numpy as np
 import pandas as pd
 import tqdm
+
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import Input
@@ -28,6 +28,7 @@ from keras.layers.core import Dense
 from keras.layers.wrappers import Bidirectional
 from keras.models import Model
 from keras.models import model_from_json
+
 from sklearn.model_selection import train_test_split
 
 from utils.tokenizer import Tokenizer
@@ -36,8 +37,16 @@ input_path = '../data/premise_question_answer.csv'
 tmp_folder = '../tmp'
 data_folder = '../data'
 
+# Вариант архитектуры нейросетки:
+# lstm - один общий bidir LSTM слой упаковывает слова предпосылки и вопроса в векторы. Затем два
+#        получившихся вектора поступают на афинные слои классификатора.
+# lstm+cnn - параллельно с LSTM слоями из первого варианта работают сверточные слои. Затем
+#        все векторы соединяются и поступают на классификатор.
+# cnn*lstm - сначала группа сверточных слоев выделяет словосочетания, затем после пулинга
+#        эти признаки поступают на LSTM и далее на классификатор.
 #NET_ARCH = 'lstm'
-NET_ARCH = 'lstm+cnn'
+#NET_ARCH = 'lstm+cnn'
+NET_ARCH = 'cnn*lstm'
 
 #BATCH_SIZE = 1000
 BATCH_SIZE = 64
@@ -51,6 +60,7 @@ PAD_WORD = u''
 RUN_MODE = ''
 TRAIN_MODEL = 'yes_no'
 
+# TODO: переделать на argparse
 while True:
     print('t - train yes/no answering model')
     print('q - query the trained model')
@@ -92,7 +102,7 @@ nb_yes = 0 # кол-во ответов "да"
 nb_no = 0 # кол-во ответов "нет"
 
 tokenizer = Tokenizer()
-for i,record in df.iterrows():
+for i, record in df.iterrows():
     for phrase in [record['premise'], record['question']]:
         all_chars.update( phrase )
         words = tokenizer.tokenize(phrase)
@@ -106,9 +116,9 @@ for i,record in df.iterrows():
     max_outputseq_len = max(max_outputseq_len, len(words))
 
     answer = record['answer'].lower().strip()
-    if answer==u'да':
+    if answer == u'да':
         nb_yes +=1
-    elif answer==u'нет':
+    elif answer == u'нет':
         nb_no += 1
 
 
@@ -119,13 +129,12 @@ for word in wc2v.vocab:
 print('max_inputseq_len={}'.format(max_inputseq_len))
 print('max_outputseq_len={}'.format(max_outputseq_len))
 
-word2id = dict( [(c,i) for i,c in enumerate( itertools.chain([PAD_WORD], filter(lambda z:z!=PAD_WORD,all_words)))] )
+word2id = dict([(c,i) for i,c in enumerate( itertools.chain([PAD_WORD], filter(lambda z:z!=PAD_WORD,all_words)))])
 
 nb_chars = len(all_chars)
 nb_words = len(all_words)
 print('nb_chars={}'.format(nb_chars))
 print('nb_words={}'.format(nb_words))
-
 
 print('nb_yes={}'.format(nb_yes))
 print('nb_no={}'.format(nb_no))
@@ -193,14 +202,14 @@ weights_path = os.path.join(tmp_folder, 'qa_{}.weights'.format(TRAIN_MODEL))
 
 padding = 'left'
 
-if RUN_MODE=='train':
+if RUN_MODE == 'train':
 
     print('Building the NN computational graph...')
 
     words_net1 = Input(shape=(max_inputseq_len, word_dims,), dtype='float32', name='input_words1')
     words_net2 = Input(shape=(max_inputseq_len, word_dims,), dtype='float32', name='input_words2')
 
-    if NET_ARCH=='lstm':
+    if NET_ARCH == 'lstm':
         # энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
         # предложения.
         shared_words_rnn = Bidirectional(recurrent.LSTM(rnn_size,
@@ -216,7 +225,7 @@ if RUN_MODE=='train':
 
     # --------------------------------------------------------------------------
 
-    if NET_ARCH=='lstm+cnn':
+    if NET_ARCH == 'lstm+cnn':
         conv1 = []
         conv2 = []
         conv3 = []
@@ -265,6 +274,42 @@ if RUN_MODE=='train':
         encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
         encoder_size = repr_size
 
+    # --------------------------------------------------------------------------
+
+    if NET_ARCH == 'cnn*lstm':
+
+        conv1 = []
+        conv2 = []
+        encoder_size = 0
+
+        for kernel_size in range(1, 4):
+            # сначала идут сверточные слои, образующие детекторы словосочетаний
+            # и синтаксических конструкций
+            conv = Conv1D(filters=nb_filters,
+                          kernel_size=kernel_size,
+                          padding='valid',
+                          activation='relu',
+                          strides=1,
+                          name='shared_conv_{}'.format(kernel_size))
+
+            lstm = recurrent.LSTM(rnn_size, return_sequences=False)
+
+            conv_layer1 = conv(words_net1)
+            conv_layer1 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer1)
+            conv_layer1 = lstm(conv_layer1)
+            conv1.append(conv_layer1)
+
+            conv_layer2 = conv(words_net2)
+            conv_layer2 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer2)
+            conv_layer2 = lstm(conv_layer2)
+            conv2.append(conv_layer2)
+
+            encoder_size += rnn_size
+
+        encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
+        encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
+
+
     # Тренируем модель, которая будет выдавать ответы yes или no.
     # Предполагается, что модель не будет запускаться для вопросов, ответы на которые
     # предполагают другие слова.
@@ -295,6 +340,7 @@ if RUN_MODE=='train':
 def pad_wordseq(words, n):
     return list( itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ) )
 
+
 # Справа добавляем пустые слова
 def rpad_wordseq(words, n):
     return list( itertools.chain( words, itertools.repeat(PAD_WORD, n-len(words)) ) )
@@ -317,18 +363,21 @@ for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phra
         question_words = rpad_wordseq( tokenizer.tokenize(question), max_inputseq_len )
 
     answer_words = tokenizer.tokenize(answer)
-    input_data.append( (premise_words, question_words, premise, question) )
-    output_data.append( (answer_words, answer) )
+    input_data.append((premise_words, question_words, premise, question))
+    output_data.append((answer_words, answer))
 
 SEED = 123456
 TEST_SHARE = 0.2
-train_input, val_input, train_output, val_output = train_test_split( input_data, output_data, test_size=TEST_SHARE, random_state=SEED )
+train_input, val_input, train_output, val_output = train_test_split( input_data,
+                                                                     output_data,
+                                                                     test_size=TEST_SHARE,
+                                                                     random_state=SEED )
 
 # -----------------------------------------------------------------
 
 
 def vectorize_words( words, M, irow, word2vec ):
-    for iword,word in enumerate( words ):
+    for iword, word in enumerate( words ):
         if word in word2vec:
             M[irow, iword, :] = word2vec[word]
 
@@ -340,7 +389,7 @@ def select_patterns( sequences, targets ):
     targets1 = []
 
     for seq, target in itertools.izip(sequences, targets):
-        premise = seq[0]
+        #premise = seq[0]
         answer = target[0]
 
         copy_pattern = False
@@ -371,12 +420,12 @@ def generate_rows( sequences, targets, batch_size, mode ):
     weights.fill(1.0)
 
     while True:
-        for irow, (seq,target) in enumerate(itertools.izip(sequences,targets)):
+        for irow, (seq, target) in enumerate(itertools.izip(sequences,targets)):
             vectorize_words(seq[0], X1_batch, batch_index, word2vec )
             vectorize_words(seq[1], X2_batch, batch_index, word2vec )
 
             answer = target[0]
-            if answer[0]==u'нет':
+            if answer[0] == u'нет':
                 y_batch[batch_index, 0] = True
                 weights[batch_index] = nb_yes/float(nb_no)
             else:
@@ -420,7 +469,6 @@ class VisualizeCallback_YesNo(keras.callbacks.Callback):
         self.val_inputs = val_inputs
         self.val_outputs = val_outputs
 
-
     def on_epoch_end(self, batch, logs={}):
         self.epoch = self.epoch+1
 
@@ -463,7 +511,7 @@ class VisualizeCallback_YesNo(keras.callbacks.Callback):
         indexes = np.random.permutation(range(len(self.val_inputs)))[:batch_size]
         X1_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
         X2_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
-        for batch_index,i in enumerate(indexes):
+        for batch_index, i in enumerate(indexes):
             premise_words, question_words, premise, question = self.val_inputs[i]
 
             premise_words = pad_wordseq(premise_words, max_inputseq_len)
