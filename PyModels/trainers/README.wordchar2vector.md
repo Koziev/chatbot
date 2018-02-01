@@ -75,7 +75,8 @@ python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordch
 сходимости.
 
 Вместо одного слоя LSTM в кодирующей части можно использовать bidirectional LSTM, заменив
-опцию -arch_type rnn на -arch_type bidir_lstm.
+опцию -arch_type rnn на -arch_type bidir_lstm. Этот вариант дает немного лучшее качество, чем
+просто LSTM слой, но обучается немного дольше.
 
 ### Рекуррентный автоэнкодер поверх сверточных слоев
 
@@ -144,7 +145,25 @@ python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordch
 
 ### Настраиваемость векторов символов
 
----todo---
+Символы представляются векторами фиксированной длины. По умолчанию длина вектора для символов
+принимается такой, чтобы вместить 1-hot представление всех используемых в корпусе символов.
+Также по умолчанию эти вектора не подстраиваются по ходу обучения модели.
+
+Чтобы явно задать другой размер векторов символов, используйте опцию --char_dims NN.
+Разрешить настраиваемость векторов символов можно опцией --tunable_char_embeddings 1.
+
+В коде настраиваемость векторов символов задается как параметр trainable=True для
+конструктора класса [keras.layers.Embedding](https://keras.io/layers/embeddings/).
+
+Пример командной строки запуска обучения:
+
+```
+python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordchar2vector.dat --model_dir ../tmp --arch_type bidir_lstm --char_dims 0 --tunable_char_embeddings 1 --batch_size 250 --dims 56
+```
+
+Кривые обучения при включенном и отключенном обучении векторов символов:
+
+![wordchar2vector learning curves](wordchar2vector_learning_curves_trainable_char_embeddings.png)
 
 
 ### Тренировка модели wordchar2vector

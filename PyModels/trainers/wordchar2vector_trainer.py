@@ -229,7 +229,10 @@ class Wordchar2Vector_Trainer(object):
 
         mask_zero = self.arch_type == 'rnn'
 
-        if self.tunable_char_embeddings:
+        if self.char_dims>0:
+            # Символы будут представляться векторами заданной длины,
+            # и по мере обучения вектора будут корректироваться для
+            # уменьшения общего лосса.
             embedding = Embedding(output_dim=self.char_dims,
                                   input_dim=nb_chars,
                                   input_length=seq_len,
@@ -237,7 +240,8 @@ class Wordchar2Vector_Trainer(object):
                                   trainable=True)
         else:
             # 1-hot encoding of characters.
-            # these embeddings will not be tuned
+            # длина векторов пользователем не указана, поэтому задаем ее так, что
+            # поместилось 1-hot представление.
             self.char_dims = nb_chars
 
             char_matrix = np.zeros((nb_chars, self.char_dims))
