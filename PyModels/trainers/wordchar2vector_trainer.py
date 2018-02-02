@@ -343,10 +343,12 @@ class Wordchar2Vector_Trainer(object):
         model = Model(inputs=input_chars, outputs=decoder)
         model.compile(loss='categorical_crossentropy', optimizer='nadam')
 
-        keras.utils.plot_model(model,
-                               to_file=os.path.join(self.model_dir, 'wordchar2vector.arch.png'),
-                               show_shapes=False,
-                               show_layer_names=True)
+        # временно отключаю визуализацию графа модели
+        if False:
+            keras.utils.plot_model(model,
+                                   to_file=os.path.join(self.model_dir, 'wordchar2vector.arch.png'),
+                                   show_shapes=False,
+                                   show_layer_names=True)
 
         weigths_path = os.path.join(self.model_dir, 'wordchar2vector.model')
         arch_filepath = os.path.join(self.model_dir, 'wordchar2vector.arch')
