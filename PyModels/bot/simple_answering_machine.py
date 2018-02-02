@@ -15,7 +15,7 @@ from word_embeddings import WordEmbeddings
 from xgb_relevancy_detector import XGB_RelevancyDetector
 from xgb_yes_no_model import XGB_YesNoModel
 from nn_model_selector import NN_ModelSelector
-from nn_word_copy_model import NN_WordCopyModel
+from xgb_person_classifier_model import XGB_PersonClassifierModel
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -62,27 +62,28 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.model_selector = NN_ModelSelector()
         self.model_selector.load(models_folder)
 
-        # нейросетевые модели для выбора способа генерации ответа.
-        self.word_copy_model = NN_WordCopyModel();
-        self.word_copy_model.load(models_folder)
+        # нейросетевые модели для генерации ответа.
+        self.models = dict()
+        # for model_label in ['model_selector', 'yes_no', 'word_copy']:
+        for model_label in ['word_copy3']:
+            arch_filepath = os.path.join(models_folder, 'qa_{}.arch'.format(model_label))
+            weights_path = os.path.join(models_folder, 'qa_{}.weights'.format(model_label))
+            with open(arch_filepath, 'r') as f:
+                m = model_from_json(f.read())
+
+            m.load_weights(weights_path)
+            self.models[model_label] = m
 
         with open(os.path.join(models_folder, 'qa_model.config'), 'r') as f:
             self.qa_model_config = json.load(f)
 
         # --------------------------------------------------------------------------
         # Классификатор грамматического лица на базе XGB
-        config_path = os.path.join(models_folder, 'xgb_person_classifier.config')
-        with open(config_path, 'r') as f:
-            person_classifier_config = json.load(f)
+        self.person_classifier = XGB_PersonClassifierModel()
+        self.person_classifier.load(models_folder)
 
-        self.xgb_person_classifier_shingle_len = person_classifier_config['shingle_len']
-        self.xgb_person_classifier_shingle2id = person_classifier_config['shingle2id']
-        self.xgb_person_classifier_nb_features = person_classifier_config['nb_features']
-        self.xgb_person_classifier = xgboost.Booster()
-        self.xgb_person_classifier.load_model(self.get_model_filepath( models_folder, person_classifier_config['model_filename']))
 
         # ------------------------------------------------------------------------------
-
         # Нейросетевые модели для манипуляции с грамматическим лицом
 
         # for model_label in ['person_classifier', 'changeable_word']:
@@ -115,14 +116,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def vectorize_words(self, words, X_batch, irow):
         self.word_embeddings.vectorize_words(words, X_batch, irow )
-
-    def get_person(self, phrase, tokenizer):
-        for word in self.text_utils.tokenize(phrase):
-            if word in self.w1s:
-                return '1s'
-            elif word in self.w2s:
-                return '2s'
-        return '3'
 
     def change_person(self, phrase, target_person):
         inwords = self.text_utils.tokenize(phrase)
@@ -157,29 +150,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         question0 = question
 
-        question_words = self.text_utils.tokenize(question)
+        #question_words = self.text_utils.tokenize(question)
 
         # Может потребоваться смена грамматического лица.
         # Сначала определим грамматическое лицо введенного предложения.
-        # Для определения грамматического лица вопроса используем XGB классификатор.
-        question_wx = self.text_utils.words2str(question_words)
-        shingles = self.text_utils.ngrams(question_wx, self.xgb_person_classifier_shingle_len)
-        X_data = lil_matrix((1, self.xgb_person_classifier_nb_features), dtype='bool')
-        for shingle in shingles:
-            X_data[0, self.xgb_person_classifier_shingle2id[shingle]] = True
-        D_data = xgboost.DMatrix(X_data)
-        y = self.xgb_person_classifier.predict(D_data)
-        person = ['1s', '2s', '3'][ int(y[0]) ]
-
+        person = self.person_classifier.detect_person(question, self.text_utils, self.word_embeddings)
         if self.trace_enabled:
             self.logger.debug('detected person={}'.format(person))
 
-        #person = get_person(question, tokenizer)
         if person=='1s':
             question = self.change_person(question, '2s')
         elif person=='2s':
             question = self.change_person(question, '1s')
-
 
         if question0[-1]==u'.':
             # Утверждение добавляем как факт в базу знаний
@@ -197,7 +179,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             self.logger.debug(u'Question to process={}'.format(question))
 
-        question_words = self.text_utils.tokenize(question)
+        #question_words = self.text_utils.tokenize(question)
 
         # определяем наиболее релевантную предпосылку
         memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
@@ -206,6 +188,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
 
         max_wordseq_len2 = int(self.qa_model_config['max_inputseq_len'])
+        premise_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
+        question_words = self.text_utils.pad_wordseq(self.text_utils.tokenize(question), max_wordseq_len2)
 
         # Определяем способ генерации ответа
         model_selector = self.model_selector.select_model(premise_str=best_premise,
@@ -215,29 +199,42 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             self.logger.debug('model_selector={}'.format(model_selector))
 
-        premise_words = self.text_utils.tokenize(best_premise)
-        question_words = self.text_utils.tokenize(question)
-
         answer = u''
 
         if model_selector==0:
             # yes/no
 
             # Модель классификации ответа на базе XGB
-            y = self.yes_no_model.calc_yes_no(premise_words,
-                                              question_words,
-                                              self.text_utils,
-                                              self.word_embeddings)
+            y = self.yes_no_model.calc_yes_no(premise_words, question_words, self.text_utils, self.word_embeddings)
             if y<0.5:
                 answer = u'нет'
             else:
                 answer = u'да'
 
         elif model_selector==1:
-            answer = self.word_copy_model.copy_words(premise_words,
-                                                     question_words,
-                                                     self.text_utils,
-                                                     self.word_embeddings)
+            # wordcopy #3
+            # эта модель имеет 2 классификатора на выходе.
+            # первый классификатор выбирает позицию начала цепочки, второй - конца.
+
+            X1_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
+            X2_probe = np.zeros((1, max_wordseq_len2, self.word_dims), dtype=np.float32)
+            self.vectorize_words(premise_words, X1_probe, 0)
+            self.vectorize_words(question_words, X2_probe, 0)
+
+            premise_words = self.text_utils.rpad_wordseq(self.text_utils.tokenize(best_premise), max_wordseq_len2)
+            question_words = self.text_utils.rpad_wordseq(self.text_utils.tokenize(question), max_wordseq_len2)
+
+            X1_probe.fill(0)
+            X2_probe.fill(0)
+
+            self.vectorize_words(premise_words, X1_probe, 0)
+            self.vectorize_words(question_words, X2_probe, 0)
+
+            (y1_probe, y2_probe) = self.models['word_copy3'].predict({'input_words1': X1_probe, 'input_words2': X2_probe})
+            beg_pos = np.argmax(y1_probe[0])
+            end_pos = np.argmax(y2_probe[0])
+            words = premise_words[beg_pos:end_pos+1]
+            answer = u' '.join(words)
 
         else:
             answer = 'ERROR: answering model for {} is not implemented'.format(model_selector)

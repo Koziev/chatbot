@@ -171,7 +171,9 @@ python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordch
 Во-первых, сгенерировать список слов. Эту задачу выполняет скрипт [prepare_wordchar_dataset.py](https://github.com/Koziev/chatbot/blob/master/PyModels/prepare_wordchar_dataset.py).
 Он читает несколько других датасетов и текстовых файлов и сохраняет итоговый список
 слов в файле [../tmp/known_words.txt](https://github.com/Koziev/chatbot/blob/master/tmp/known_words.txt).
-Вариант этого файла выложен в репозиторий, поэтому первый шаг можно пропустить.
+Вариант этого файла выложен в репозиторий, поэтому первый шаг можно пропустить. Также можно
+обучать модель на своем наборе слов, сформировав текстовый файл в кодировке utf-8, в котором
+на каждой строке находится одно слово.
 
 Во-вторых, запустить тренировку модели скриптом [wordchar2vector.py](https://github.com/Koziev/chatbot/blob/master/PyModels/wordchar2vector.py)
 примерно такой командой:
