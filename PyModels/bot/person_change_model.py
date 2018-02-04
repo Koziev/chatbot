@@ -3,9 +3,9 @@
 import os
 from model_applicator import ModelApplicator
 
-class YesNoModel(ModelApplicator):
+class PersonChangeModel(ModelApplicator):
     def __init__(self):
         pass
 
-    def calc_yes_no(self, premise_str, question_str, text_utils, word_embeddings):
+    def change_person(self, sentence_str, target_person, text_utils, word_embeddings):
         raise NotImplemented()

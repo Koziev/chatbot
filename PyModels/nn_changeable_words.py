@@ -248,23 +248,25 @@ if RUN_MODE=='train':
     print('number of classif_ys==1 ==> {}'.format( sum([1 for y in classif_ys if y==1]) ) )
 
 
+    # В этих файлах будем сохранять натренированную сетку
+    arch_filepath = os.path.join(tmp_folder, 'nn_changeable_words.arch')
+    weights_path = os.path.join(tmp_folder, 'nn_changeable_words.weights')
+
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
-        'model': 'nn',
+        'engine': 'nn',
         'max_inputseq_len': max_inputseq_len,
         'w2v_path': w2v_path,
         'wordchar2vector_path': wordchar2vector_path,
         'PAD_WORD': PAD_WORD,
         'model_folder': tmp_folder,
-        'word_dims': word_dims
+        'word_dims': word_dims,
+        'arch_filepath': arch_filepath,
+        'weights_path': weights_path
     }
 
     with open(config_path, 'w') as f:
         json.dump(model_config, f)
-
-    # В этих файлах будем сохранять натренированную сетку
-    arch_filepath = os.path.join(tmp_folder, 'nn_changeable_words.arch')
-    weights_path = os.path.join(tmp_folder, 'nn_changeable_words.weights')
 
     # --------------------------------------------------------------------------------
 

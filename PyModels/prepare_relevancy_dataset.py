@@ -51,7 +51,7 @@ qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT),
 questions_path = '../data/questions.txt'
 
 include_repeats = True
-n_negative_per_positive = 5
+n_negative_per_positive = 1
 
 # Добавлять ли сэмплы, в которых задается релевантность предпосылки и вопроса,
 # например:

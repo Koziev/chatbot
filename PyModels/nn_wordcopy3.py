@@ -167,6 +167,7 @@ final_merge_size = 0
 
 # сохраним конфиг модели, чтобы ее использовать в чат-боте
 model_config = {
+                'engine': 'nn',
                 'max_inputseq_len': max_inputseq_len,
                 'max_outputseq_len': max_outputseq_len,
                 'w2v_path': w2v_path,
@@ -176,14 +177,14 @@ model_config = {
                 'word_dims': word_dims
                }
 
-with open(os.path.join(tmp_folder,'qa_model.config'), 'w') as f:
+with open(os.path.join(tmp_folder,'nn_wordcopy3.config'), 'w') as f:
     json.dump(model_config, f)
 
 # ------------------------------------------------------------------
 
 # В этих файлах будем сохранять натренированную сетку
-arch_filepath = os.path.join(tmp_folder, 'qa_{}.arch'.format(TRAIN_MODEL))
-weights_path = os.path.join(tmp_folder, 'qa_{}.weights'.format(TRAIN_MODEL))
+arch_filepath = os.path.join(tmp_folder, 'nn_wordcopy3.arch')
+weights_path = os.path.join(tmp_folder, 'nn_wordcopy3.weights')
 
 # ------------------------------------------------------------------
 
@@ -280,13 +281,15 @@ if RUN_MODE=='train':
 
             lstm = recurrent.LSTM(rnn_size, return_sequences=False)
 
+            pooler = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')
+
             conv_layer1 = conv(words_net1)
-            conv_layer1 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer1)
+            conv_layer1 = pooler(conv_layer1)
             conv_layer1 = lstm(conv_layer1)
             conv1.append(conv_layer1)
 
             conv_layer2 = conv(words_net2)
-            conv_layer2 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer2)
+            conv_layer2 = pooler(conv_layer2)
             conv_layer2 = lstm(conv_layer2)
             conv2.append(conv_layer2)
 
@@ -467,12 +470,8 @@ if RUN_MODE=='train':
     train_input1, train_output1 = select_patterns(train_input, train_output)
     val_input1, val_output1 = select_patterns(val_input, val_output)
 
-    if train_word_copy2:
-        nb_train_patterns = sum( [count_words(seq[0]) for seq in train_input1])
-        nb_valid_patterns = sum( [count_words(seq[0]) for seq in val_input1])
-    else:
-        nb_train_patterns = len(train_input1)
-        nb_valid_patterns = len(val_input1)
+    nb_train_patterns = len(train_input1)
+    nb_valid_patterns = len(val_input1)
 
     print('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
 

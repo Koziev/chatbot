@@ -50,7 +50,14 @@ class XGB_YesNoModel(YesNoModel):
         for shingle in notmatched_qs:
             X_data[idata, icol + shingle2id[shingle]] = True
 
-    def calc_yes_no(self, premise_words, question_words, text_utils, word_embeddings):
+    def calc_yes_no(self, premise_str, question_str, text_utils, word_embeddings):
+
+        #premise_words = self.text_utils.pad_wordseq(text_utils.tokenize(best_premise), max_wordseq_len2)
+        #question_words = self.text_utils.pad_wordseq(text_utils.tokenize(question), max_wordseq_len2)
+
+        premise_words = text_utils.tokenize(premise_str)
+        question_words = text_utils.tokenize(question_str)
+
         premise_wx = text_utils.words2str(premise_words)
         question_wx = text_utils.words2str(question_words)
 

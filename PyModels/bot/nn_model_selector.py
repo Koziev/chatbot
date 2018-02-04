@@ -26,7 +26,7 @@ class NN_ModelSelector(ModelSelector):
         m.load_weights(weights_path)
         self.model = m
 
-        with open(os.path.join(models_folder, 'qa_model.config'), 'r') as f:
+        with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
             self.model_config = json.load(f)
 
         self.word_dims = self.model_config['word_dims']
