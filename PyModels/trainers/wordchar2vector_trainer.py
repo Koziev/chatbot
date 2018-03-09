@@ -24,6 +24,7 @@ from keras.layers import Dense, Dropout, Input, Permute, Flatten, Reshape
 from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
+from keras.models import model_from_json
 
 # ---------------------------------------------------------------
 
@@ -343,12 +344,10 @@ class Wordchar2Vector_Trainer(object):
         model = Model(inputs=input_chars, outputs=decoder)
         model.compile(loss='categorical_crossentropy', optimizer='nadam')
 
-        # временно отключаю визуализацию графа модели
-        if False:
-            keras.utils.plot_model(model,
-                                   to_file=os.path.join(self.model_dir, 'wordchar2vector.arch.png'),
-                                   show_shapes=False,
-                                   show_layer_names=True)
+        keras.utils.plot_model(model,
+                               to_file=os.path.join(self.model_dir, 'wordchar2vector.arch.png'),
+                               show_shapes=False,
+                               show_layer_names=True)
 
         weigths_path = os.path.join(self.model_dir, 'wordchar2vector.model')
         arch_filepath = os.path.join(self.model_dir, 'wordchar2vector.arch')
@@ -413,9 +412,21 @@ class Wordchar2Vector_Trainer(object):
         model.save_weights(weigths_path)
 
     def vectorize(self, words_filepath, result_path):
+        '''
+        Векторизуем слова из списка (указан путь к текстовому файлу со списком).
+        Созданные векторы слов сохраняем по указанному пути как текстовый файл
+        в w2v-совместимом формате.
+        '''
+
         # читаем конфиг модели
-        with open(os.path.join(self.models_folder, self.config_filename), 'r') as f:
+        with open(os.path.join(self.model_dir, self.config_filename), 'r') as f:
             model_config = json.load(f)
+
+        # грузим готовую модель
+        with open(model_config['arch_filepath'], 'r') as f:
+            model = model_from_json(f.read())
+
+        model.load_weights(model_config['weights_path'])
 
         self.vec_size = model_config['vec_size']
         self.max_word_len = model_config['max_word_len']
