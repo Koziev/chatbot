@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser(description='Training the wordchar2vector embed
 parser.add_argument('--input_file', default='../tmp/known_words.txt', help='input text file with words to be processed')
 parser.add_argument('--out_file', default='../tmp/wordchar2vector.dat', help='output text file containing with word vectors in word2vec text format')
 parser.add_argument('--model_dir', help='folder with model files', default='../tmp')
+parser.add_argument('--tmp_dir', default='../tmp', help='folder for learning history data')
 parser.add_argument('--train', default=1, type=int)
 parser.add_argument('--vectorize', default=0, type=int)
 parser.add_argument('--dims', default=56, type=int)
@@ -26,10 +27,12 @@ parser.add_argument('--char_dims', default=0, type=int)
 parser.add_argument('--tunable_char_embeddings', default=0, type=int)
 parser.add_argument('--arch_type', default='rnn', type=str)
 parser.add_argument('--batch_size', default=250, type=int)
+parser.add_argument('--seed', default=123456, type=int, help='Random generator seed for train/test validation splitting')
 
 args = parser.parse_args()
 
 model_dir = args.model_dir  # каталог для файлов модели - при тренировке туда записываются, при векторизации - оттуда загружаются
+tmp_dir = args.tmp_dir  # каталог для всяких сводок по процессу обучения
 input_path = args.input_file  # из этого файла прочитаем список слов, на которых учится модель
 out_file = args.out_file  # в этот файл будет сохранены векторы слов в word2vec-совместимом формате
 do_train = args.train  # тренировать ли модель с нуля
@@ -38,12 +41,13 @@ vec_size = args.dims  # размер вектора представления �
 char_dims = args.char_dims  # если векторы символов будут меняться при тренировке, то явно надо задавать размерность векторов символов
 batch_size = args.batch_size  # размер минибатчей существенно влияет на точность, поэтому разрешаем задавать его
 tunable_char_embeddings = args.tunable_char_embeddings  # делать ли настраиваемые векторы символов (True) или 1-hot (False)
+seed = args.seed
 
 # архитектура модели:
 # cnn - сверточный энкодер
 # rnn - рекуррентный энкодер
 # lstm+cnn - гибридная сетка с параллельными рекуррентными и сверточными слоями
-# cnn*lstm - сверточные слои и поверх них рекуррентные.
+# lstm(cnn) - сверточные слои и поверх них рекуррентные слои.
 arch_type = args.arch_type
 
 # -------------------------------------------------------------------
@@ -74,10 +78,11 @@ trainer = Wordchar2Vector_Trainer(arch_type,
                                   char_dims,
                                   model_dir,
                                   vec_size,
-                                  batch_size)
+                                  batch_size,
+                                  seed=seed)
 
 if do_train:
-    trainer.train(input_path)
+    trainer.train(input_path, tmp_dir)
 
 if do_vectorize:
     trainer.vectorize(input_path, out_file)

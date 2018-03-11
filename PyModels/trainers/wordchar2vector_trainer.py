@@ -121,7 +121,7 @@ class VisualizeCallback(keras.callbacks.Callback):
         self.y_test = y_test
         self.model = model
         self.index2char = index2char
-        self.best_val_acc = 0.0  # для сохранения самой точной модели
+        self.best_val_acc = -np.inf  # для сохранения самой точной модели
         self.weights_path = weights_path
         self.learning_curve_filename = learning_curve_filename
         self.wait = 0  # для early stopping по критерию общей точности
@@ -167,7 +167,7 @@ class VisualizeCallback(keras.callbacks.Callback):
             self.model.save_weights(self.weights_path)
             self.wait = 0
         else:
-            print('\nTotal instance accuracy={} did not improve\n'.format(val_acc))
+            print('\nTotal instance accuracy={} did not improve (current best acc={})\n'.format(val_acc, self.best_val_acc))
             self.wait += 1
             if self.wait >= self.patience:
                 self.stopped_epoch = self.epoch
@@ -177,10 +177,14 @@ class VisualizeCallback(keras.callbacks.Callback):
         if self.stopped_epoch > 0:
             print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
 
+    def get_best_accuracy(self):
+        return self.best_val_acc
+
 # -----------------------------------------------------------------
 
 class Wordchar2Vector_Trainer(object):
-    def __init__(self, arch_type, tunable_char_embeddings, char_dims, model_dir, vec_size, batch_size ):
+    def __init__(self, arch_type, tunable_char_embeddings, char_dims,
+                 model_dir, vec_size, batch_size, seed ):
         self.arch_type = arch_type
         self.tunable_char_embeddings = tunable_char_embeddings
         self.char_dims = char_dims
@@ -188,6 +192,7 @@ class Wordchar2Vector_Trainer(object):
         self.vec_size = vec_size
         self.batch_size = batch_size
         self.config_filename = 'wordchar2vector.config'
+        self.seed = seed
 
     def load_words(self, words_filepath):
         # из указанного текстового файла загружаем список слов без повторов
@@ -195,8 +200,15 @@ class Wordchar2Vector_Trainer(object):
         with codecs.open(words_filepath, 'r', 'utf-8') as rdr:
             return set([line.strip() for line in rdr])
 
-    def train(self, words_filepath):
-        # составляем список сдлов для тренировки и валидации
+    def train(self, words_filepath, tmp_dir):
+        '''
+        Тренируем модель на словах в указанном файле.
+        :param words_filepath: путь к plain text utf8 файлу со списком слов (одно слово на строку)
+        :param tmp_dir: путь к каталогу, куда будем сохранять всякие сводки по процессу обучения
+        для визуализации и прочего контроля
+        '''
+
+        # составляем список слов для тренировки и валидации
         known_words = self.load_words(words_filepath)
         print('There are {} known words'.format(len(known_words)))
 
@@ -205,6 +217,7 @@ class Wordchar2Vector_Trainer(object):
         print('max_word_len={}'.format(max_word_len))
 
         val_share = 0.3
+        random.seed(self.seed)
         train_words = set(filter(lambda z: random.random() > val_share, known_words))
         val_words = set(filter(lambda z: z not in train_words, known_words))
 
@@ -259,6 +272,7 @@ class Wordchar2Vector_Trainer(object):
         input_chars = Input(shape=(seq_len,), dtype='int32', name='input')
         encoder = embedding(input_chars)
 
+        print('Building "{}" neural network'.format(self.arch_type))
         if self.arch_type == 'cnn':
             conv_list = []
             merged_size = 0
@@ -280,9 +294,6 @@ class Wordchar2Vector_Trainer(object):
 
         elif self.arch_type == 'rnn':
             encoder = recurrent.LSTM(units=self.vec_size, return_sequences=False)(encoder)
-            # encoder = Bidirectional(recurrent.LSTM(units=int(vec_size/2), return_sequences=False))(encoder)
-            # encoder = Dense(units=vec_size, activation='relu')(encoder)
-            # encoder = Dense(units=vec_size, activation='relu')(encoder)
 
         elif self.arch_type == 'bidir_lstm':
             encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size/2), return_sequences=False))(encoder)
@@ -309,7 +320,7 @@ class Wordchar2Vector_Trainer(object):
             encoder = keras.layers.concatenate(inputs=conv_list)
             encoder = Dense(units=self.vec_size, activation='sigmoid')(encoder)
 
-        elif self.arch_type == 'cnn*lstm':
+        elif self.arch_type == 'lstm(cnn)':
 
             conv_list = []
             merged_size = 0
@@ -335,7 +346,7 @@ class Wordchar2Vector_Trainer(object):
             encoder = Dense(units=self.vec_size, activation='sigmoid')(encoder)
 
         else:
-            raise RuntimeError()
+            raise RuntimeError('Unknown architecture of neural net: {}'.format(self.arch_type))
 
         decoder = RepeatVector(seq_len)(encoder)
         decoder = recurrent.LSTM(self.vec_size, return_sequences=True)(decoder)
@@ -382,10 +393,12 @@ class Wordchar2Vector_Trainer(object):
 
         X_viz, y_viz = build_test(list(val_words)[0:1000], max_word_len, char2index)
 
-        learning_curve_filename = os.path.join(self.model_dir,
-                                               'learning_curve_{}_vecsize={}_tunable_char_embeddings={}.csv'.format(
-                                                   self.arch_type, self.vec_size, self.tunable_char_embeddings))
-        visualizer = VisualizeCallback(X_viz, y_viz, model, index2char, weigths_path, learning_curve_filename)
+        learning_curve_filename = os.path.join(tmp_dir,
+                                               'learning_curve__{}_vecsize={}_tunable_char_embeddings={}_chardims={}_batchsize={}_seed={}.csv'.format(
+                                                   self.arch_type, self.vec_size, self.tunable_char_embeddings,
+                                                   self.char_dims, self.batch_size, self.seed))
+        visualizer = VisualizeCallback(X_viz, y_viz, model, index2char, weigths_path,
+                                       learning_curve_filename)
 
         # csv_logger = CSVLogger(learning_curve_filename, append=True, separator='\t')
 
@@ -397,6 +410,7 @@ class Wordchar2Vector_Trainer(object):
                                    validation_data=generate_rows(val_words, self.batch_size, char2index, seq_len, 1),
                                    validation_steps=int(len(val_words) / self.batch_size),
                                    )
+        print('Training complete, best_accuracy={}'.format(visualizer.get_best_accuracy()))
 
         # Загружаем наилучшее состояние модели
         model.load_weights(weigths_path)
