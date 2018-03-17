@@ -141,6 +141,8 @@ python wordchar2vector.py --train 1 --i ../tmp/known_words.txt --o ../tmp/wordch
 на выходе декодера. Поэтому ошибка в восстановлении одного символа засчитывается как
 ошибка модели.
 
+Тетрадка с кодом визуализации влияния batch_size на обучения доступна по [ссылке](https://github.com/Koziev/chatbot/blob/master/PyModels/%D0%92%D0%B8%D0%B7%D1%83%D0%B0%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%20%D0%B2%D0%BB%D0%B8%D1%8F%D0%BD%D0%B8%D1%8F%20batch_size%20%D0%BD%D0%B0%20%D0%BE%D0%B1%D1%83%D1%87%D0%B5%D0%BD%D0%B8%D0%B5%20wordchar2vector.ipynb).
+
 
 ### Основной настроечный параметр модели
 
