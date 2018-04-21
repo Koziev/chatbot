@@ -9,9 +9,10 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>ExtractFactsFromParsing</RootNamespace>
     <AssemblyName>ExtractFactsFromParsing</AssemblyName>
-    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -22,6 +23,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -33,6 +35,15 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="gren_consts">
+      <HintPath>..\..\..\..\..\MVoice\lem\lib64\gren_consts.dll</HintPath>
+    </Reference>
+    <Reference Include="gren_fx">
+      <HintPath>..\..\..\..\..\MVoice\lem\lib64\gren_fx.dll</HintPath>
+    </Reference>
+    <Reference Include="gren_fx2">
+      <HintPath>..\..\..\..\..\MVoice\lem\lib64\gren_fx2.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -43,17 +54,30 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AdverbCategory.cs" />
     <Compile Include="ExtractFactsFromParsing.cs" />
+    <Compile Include="FootPrint.cs" />
+    <Compile Include="FootPrintToken.cs" />
+    <Compile Include="FootPrintTrie.cs" />
+    <Compile Include="FootPrintTrieNode.cs" />
+    <Compile Include="Preprocessor.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Sentence.cs" />
     <Compile Include="Sentences.cs" />
     <Compile Include="SNode.cs" />
+    <Compile Include="SolarixExtender.cs" />
     <Compile Include="SToken.cs" />
+    <Compile Include="StringExtender.cs" />
+    <Compile Include="SyntaxChecker.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>copy e:\MVoice\lem\lib64\solarix_grammar_engine.dll $(TargetDir)
+copy e:\MVoice\lem\lib64\sqlite.dll $(TargetDir)</PostBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

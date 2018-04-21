@@ -17,12 +17,14 @@ using System.Security.Cryptography;
 
 class ExtractFactsFromParsing
 {
+    private static Preprocessor preprocessor;
+    private static SyntaxChecker syntax_checker = new SyntaxChecker();
+
     private static int sample_count = 0;
 
     private static string last_contituents = "";
 
-
-    static System.IO.StreamWriter wrt_samples;
+    static System.IO.StreamWriter wrt_samples, wrt_skipped;
 
 
     static HashSet<string> stop_words3;
@@ -37,6 +39,10 @@ class ExtractFactsFromParsing
     }
 
 
+    static string Preprocess(string phrase, SolarixGrammarEngineNET.GrammarEngine2 gren)
+    {
+        return preprocessor.Preprocess(phrase, gren);
+    }
 
     static bool IsSuitableNode(SNode n)
     {
@@ -117,17 +123,30 @@ class ExtractFactsFromParsing
         return;
     }
 
+    static int nb_stored = 0;
     static void WriteSample(string sample)
     {
         if (IsUniqueSample(sample))
         {
             wrt_samples.WriteLine(sample);
+            nb_stored++;
         }
         return;
     }
 
-    static void ProcessSentence(Sentence sent, int max_len, string filter)
+    static void SkippedSample(string sample)
     {
+        wrt_skipped.WriteLine(sample);
+        wrt_skipped.Flush();
+        return;
+    }
+
+
+    static void ProcessSentence(SolarixGrammarEngineNET.GrammarEngine2 gren, Sentence sent, int max_len, string filter)
+    {
+        //ProcessSentence2("Я вам перезвоню", gren, max_len);
+
+
         if (sent.root.IsPartOfSpeech("ГЛАГОЛ") || sent.root.IsPartOfSpeech("БЕЗЛИЧ_ГЛАГОЛ"))
         {
             if (filter == "3")
@@ -140,7 +159,8 @@ class ExtractFactsFromParsing
 
                 if (sbj.Count == 1 && sbj[0].IsPartOfSpeech("СУЩЕСТВИТЕЛЬНОЕ"))
                 {
-                    WriteSample(sent.GetText());
+                    //WriteSample(sent.GetText());
+                    ProcessSentence2(sent.GetText(), gren, max_len);
                 }
             }
             else if (filter == "1s")
@@ -150,7 +170,8 @@ class ExtractFactsFromParsing
 
                 if (sbj.Count == 1 && sbj[0].IsPartOfSpeech("МЕСТОИМЕНИЕ") && sbj[0].word.word.Equals("я", StringComparison.OrdinalIgnoreCase))
                 {
-                    WriteSample(sent.GetText());
+                    //WriteSample(sent.GetText());
+                    ProcessSentence2(sent.GetText(), gren, max_len);
                 }
             }
             else if (filter == "2s")
@@ -160,7 +181,8 @@ class ExtractFactsFromParsing
 
                 if (sbj.Count == 1 && sbj[0].IsPartOfSpeech("МЕСТОИМЕНИЕ") && sbj[0].word.word.Equals("ты", StringComparison.OrdinalIgnoreCase))
                 {
-                    WriteSample(sent.GetText());
+                    //WriteSample(sent.GetText());
+                    ProcessSentence2(sent.GetText(), gren, max_len);
                 }
             }
         }
@@ -168,6 +190,119 @@ class ExtractFactsFromParsing
         wrt_samples.Flush();
         return;
     }
+
+
+    private static List<SolarixGrammarEngineNET.SyntaxTreeNode> GetTerms(SolarixGrammarEngineNET.SyntaxTreeNode n)
+    {
+        List<SolarixGrammarEngineNET.SyntaxTreeNode> res = new List<SolarixGrammarEngineNET.SyntaxTreeNode>();
+        res.Add(n);
+
+        foreach (var child in n.leafs)
+        {
+            res.AddRange(GetTerms(child));
+        }
+
+        return res;
+    }
+
+
+    private static string TermToString(SolarixGrammarEngineNET.GrammarEngine2 gren, SolarixGrammarEngineNET.SyntaxTreeNode term)
+    {
+        int id_entry = term.GetEntryID();
+
+        if (gren.GetEntryName(id_entry) == "???")
+        {
+            return term.GetWord();
+        }
+
+        string res_word = gren.RestoreCasing(id_entry, term.GetWord());
+
+        return res_word;
+    }
+
+
+    private static string TermsToString(SolarixGrammarEngineNET.GrammarEngine2 gren, IEnumerable<SolarixGrammarEngineNET.SyntaxTreeNode> terms)
+    {
+        return string.Join(" ", terms.Select(z => TermToString(gren, z)));
+    }
+
+    private static string TermsToString(SolarixGrammarEngineNET.GrammarEngine2 gren, SolarixGrammarEngineNET.SyntaxTreeNode term)
+    {
+        return TermToString(gren, term);
+    }
+
+
+    static int nb_processed = 0;
+    static HashSet<string> processed_phrases = new HashSet<string>();
+    static void ProcessSentence2(string phrase, SolarixGrammarEngineNET.GrammarEngine2 gren, int max_len)
+    {
+        nb_processed += 1;
+
+        if (phrase.Length > 2 && phrase.Last() != '?')
+        {
+            bool used = false;
+
+            if (phrase.Last() == '.' || phrase.Last() == '!' || phrase.Last() == ';')
+            {
+                // Удалим финальные символы . и !
+                int finalizers = 1;
+                for (int i = phrase.Length - 2; i > 0; --i)
+                {
+                    if (phrase[i] == '.' || phrase[i] == '!' || phrase[i] == ';')
+                    {
+                        finalizers++;
+                    }
+                }
+
+                phrase = phrase.Substring(0, phrase.Length - finalizers);
+            }
+
+            if (!processed_phrases.Contains(phrase))
+            {
+                processed_phrases.Add(phrase);
+
+                string phrase2 = Preprocess(phrase, gren);
+
+                int id_language = SolarixGrammarEngineNET.GrammarEngineAPI.RUSSIAN_LANGUAGE;
+                SolarixGrammarEngineNET.GrammarEngine.MorphologyFlags morph_flags = SolarixGrammarEngineNET.GrammarEngine.MorphologyFlags.SOL_GREN_COMPLETE_ONLY | SolarixGrammarEngineNET.GrammarEngine.MorphologyFlags.SOL_GREN_MODEL;
+                SolarixGrammarEngineNET.GrammarEngine.SyntaxFlags syntax_flags = SolarixGrammarEngineNET.GrammarEngine.SyntaxFlags.DEFAULT;
+                int MaxAlt = 40;
+                int constraints = 600000 | (MaxAlt << 22);
+
+                using (SolarixGrammarEngineNET.AnalysisResults linkages = gren.AnalyzeSyntax(phrase2, id_language, morph_flags, syntax_flags, constraints))
+                {
+                    if (linkages.Count == 3)
+                    {
+                        SolarixGrammarEngineNET.SyntaxTreeNode root = linkages[1];
+                        List<SolarixGrammarEngineNET.SyntaxTreeNode> terms = GetTerms(root).OrderBy(z => z.GetWordPosition()).ToList();
+
+                        FootPrint footprint = new FootPrint(gren, terms);
+
+                        // Проверим синтаксическую структуру фразы, чтобы отсеять разговорную некондицию.
+                        bool good = syntax_checker.IsGoodSyntax(footprint);
+
+                        if (good)
+                        {
+                            used = true;
+                            WriteSample(phrase);
+                            wrt_samples.Flush();
+                        }
+                        else
+                        {
+                            SkippedSample(phrase);
+                        }
+                    }
+                }
+            }
+        }
+
+        Console.Write("{0} processed, {1} stored\r", nb_processed, nb_stored);
+
+        return;
+    }
+
+
+
 
 
     static HashSet<Int64> sample_hashes = new HashSet<Int64>();
@@ -205,6 +340,8 @@ class ExtractFactsFromParsing
         int MAX_SAMPLE = int.MaxValue;
         int MAX_LEN = int.MaxValue;
         string filter = "3";
+        string dictionary_path = "";
+        string syntax_templates = "";
 
         #region Command_Line_Options
         for (int i = 0; i < args.Length; ++i)
@@ -212,6 +349,16 @@ class ExtractFactsFromParsing
             if (args[i] == "-parsing")
             {
                 parsed_sentences.Add(args[i + 1]);
+                i++;
+            }
+            else if (args[i] == "-dict")
+            {
+                dictionary_path = args[i + 1];
+                i++;
+            }
+            else if (args[i] == "-templates")
+            {
+                syntax_templates = args[i + 1];
                 i++;
             }
             else if (args[i] == "-output")
@@ -246,7 +393,18 @@ class ExtractFactsFromParsing
         }
         #endregion Command_Line_Options
 
+        preprocessor = new Preprocessor();
+        syntax_checker.LoadTemplates(syntax_templates);
+
+        Console.WriteLine("Loading dictionary {0}", dictionary_path);
+        SolarixGrammarEngineNET.GrammarEngine2 gren = new SolarixGrammarEngineNET.GrammarEngine2();
+        gren.Load(dictionary_path, true);
+
+        // Файл для сохранения отобранных предложений-фактов.
         wrt_samples = new System.IO.StreamWriter(System.IO.Path.Combine(result_folder, "facts.txt"));
+
+        // Предложения, которые не прошли детальную проверку синтаксической структуры
+        wrt_skipped = new System.IO.StreamWriter(System.IO.Path.Combine(result_folder, "skipped.txt"));
 
 
         DateTime start_time = DateTime.Now;
@@ -292,7 +450,7 @@ class ExtractFactsFromParsing
                             Console.Write("{0} samples extracted\r", sample_count);
                         }
 
-                        ProcessSentence(sent, MAX_LEN, filter);
+                        ProcessSentence(gren, sent, MAX_LEN, filter);
                     }
                 }
             }
@@ -301,6 +459,7 @@ class ExtractFactsFromParsing
 
 
         wrt_samples.Close();
+        wrt_skipped.Close();
 
         return;
     }

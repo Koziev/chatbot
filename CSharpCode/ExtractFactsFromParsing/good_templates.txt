@@ -1,0 +1,245 @@
+pr,1|2,nom,sing v,vf1 adv # Я умер вчера
+pr,1|2,nom,sing adv v,vf1 # Я зимой носила
+pr,1|2,nom,sing v,vf1 adv adv # Я продаю гораздо дешевле
+pr,1|2,nom,sing v,vf1,acc n,acc adv # Я ищу работу срочно
+pr,1|2,nom,sing v,vf1,acc adj,acc # Я купил другие
+n,instr v,vf1,instr pr,1|2  # Мастером являюсь я
+pr,1|2 v,vf1,instr adj,instr # Я притворился спящим
+n,acc v,vf1,acc pr,1|2,nom,sing # Коммуналку плачу я
+pr,1|2,nom,sing v,vf1 p,gen n,gen # Я работаю от души
+v,vf1,acc pr,1|2,nom,sing n,acc # Залепила я дыру
+pr,1|2,nom,sing pr,acc v,vf1,acc # Я вас вижу
+pr,1|2,nom,sing v,vf1,acc pr,acc # Я вижу вас
+pr,1|2,nom,sing pr,dat v,vf1,dat # Я вам перезвоню
+pr,1|2,nom,sing v,vf1,dat pr,dat # Я перезвоню вам
+pr,acc pr,1|2,nom,sing adv v,vf1,acc # Их я тоже продаю
+adv v,vf1 pr,1|2,nom,sing # Дальше работаю я
+v,vf1,instr pr,instr pr,1|2,nom,sing # Пользовался им я
+pr,1|2,nom,sing pr,acc neg v,vf1,acc # Я ее не гонял
+v,vf1,acc pr,1|2,nom,sing pr,acc # Видал я тебя
+pr,1|2,nom,sing adv pr,dat v,vf1,dat # Я обязательно вам перезвоню
+pr,1|2,nom,sing p,prep pr,prep v,vf1 # Я в них тону
+neg v,vf1 pr,1|2,nom,sing # Не пойду я
+pr,1|2,nom,sing n,dat v,vf1,dat # Я папе скажу
+pr,1|2,nom,sing v,vf1,instr n,instr # Я залюбовался им
+pr,1|2,nom,sing v,vf1,gen n,gen # Я просил мира
+pr,1|2,nom,sing сам v,vf1 # Я сам позвоню
+pr,1|2,nom,sing сама v,vf1 # Я сама позвоню
+pr,1|2,nom,pl сами v,vf1 # Мы сами позвоним
+
+
+pr,1|2,nom,sing n,acc v,vf1,acc  # Я работу ищу
+pr,1|2,nom,sing v,vf1,instr n,instr  # Я заклеил моментом.
+pr,1|2,nom,sing v,vf1,acc n,acc  # Я ищу работу.
+pr,1|2,nom,sing v,sing  # Мы сидим
+pr,1|2,nom,sing v,vf1  # И я читал.
+pr,1|2,nom,sing neg v,vf1  # Я не курю
+v,vf1 adv pr,1|2,nom,sing  # Ездил только я
+pr,1|2,nom,sing p,instr n,instr v,vf1 # Я с радостью помогу
+pr,1|2,nom,sing v,vf1,acc,~gen n,acc n,gen  # Я гарантирую возврат денег
+n,nom v,copula adj,nom  # Церковь получилась масштабная
+v num n,gen  # Осталось 12 мангалов
+neg v n,nom  # не подошел размер
+pr,1|2,nom,sing neg v,vf1,acc,~gen n,acc  # Я не ношу подделки!
+n,acc pr,1|2,nom,sing neg v,vf1,acc  #region Габариты я не знаю.
+pr,1|2,nom,sing n,acc neg v,vf1,acc  # Я габариты не знаю.
+n,acc neg v,vf1,acc pr,1|2,nom,sing  # Габариты не знаю я.
+n,instr pr,1|2,nom,sing neg v,vf1  # Почтой я не отправляю.
+pr,1|2,nom,sing n,instr neg v,vf1  # Я почтой не отправляю.
+pr,1|2,nom,sing neg v,vf1 n,instr  # я не отправляю почтой.
+neg v,vf1 pr,1|2,nom,sing n,instr  # Не отправляю я почтой.
+pr,1|2,nom,sing v,vf1,gen adj,gen n,gen  # Я жду Ваших предложений
+pr,1|2,nom,sing v,vf1,acc adj,acc n,acc  # Я помню чудное мгновенье.
+pr,1|2,nom,sing v,vf1 prep n  # Я нахожусь в Краснодаре.
+pr,1|2,nom,sing adv v,vf1  # Я только продаю!
+v,vf1 pr,1|2,nom,sing adv  # Радовался я недолго.
+adv pr,1|2,nom,sing v,vf1  # Теперь я знаю.
+pr,1|2,nom,sing neg v,vf1  # Я не курю.
+n,acc pr,1|2,nom,sing v,vf1,acc  # Коробку я потерял...
+pr,1|2,nom,sing v,vf1,dat n,dat  # Я жаловался коллегам.
+n,nom adv neg v,vf1  # Петя ничуть не смутился.
+n,nom neg v,vf1 adv  # Юбка не мнется совершенно!
+n,nom neg v,vf1 n,instr  # Китайцы не были моряками.
+neg v,vf1 n,nom adv  # Не мнется юбка совершенно!
+adv n,nom neg v,vf1  # Ранее автомобиль не эксплуатировался.
+adj,nom n,nom v,acc,~gen n,acc n,gen  # Электронное зажигание упрощает запуск инструмента
+n,nom n,gen v,acc,~gen adj,acc n,acc  # Процессор платы имеет пятифазное питание
+adj,nom n,nom v,acc n,acc adv  # Ностальгирующая публика принимала певца радушно.
+adj,nom adj,nom n,nom v adv  # Загадочная славянская душа выворачивается наизнанку.
+adj,dat n,dat v,dat adj,nom n,nom  # Вашему вниманию представляются Красивые номера
+v,acc n,acc n,nom conj n,nom  # Рассказывает сказки мама или папа
+v,instr n,instr n,nom conj n,nom  # Зарастают водорослями пруды и каналы.
+n,nom conj n,nom v,dat n,dat  # Фотографии и цена соответствуют действительности
+n,nom conj n,nom adv v  # Мотор и коробка идеально работают
+n,nom v,dat n,dat conj n,dat  # Басаев угрожает церквям и детям.
+n,nom v,acc n,acc conj n,acc  # Девушка снимет комнату или квартиру
+adj,nom n,nom adv v,acc n,acc  # Возродившийся конкурс активно набирает обороты.
+adj,nom adj,nom n,nom v,acc n,acc  # Внезапная острая боль перехватила дыхание.
+adv v adj,nom adj,nom n,nom  # Здесь вызревает янтарный игристый напиток.
+adj,nom n,nom v,dat adj,dat n,dat  # Налоговый кодекс подвергается значительным правкам.
+adj,nom adj,nom n,nom v,acc adj,acc n,acc  # Ласковый игривый малыш ждет своего хозяина
+n,dat n,nom n,gen adv v,dat  # Зрителям смелость секретаря очень понравилась.
+v adj,nom n,nom adv,a_modif adv  # Выглядит такой термостакан очень достойно
+adj,nom n,nom adv v,dat n,dat   # Яркие расцветки неизменно нравятся деткам
+adj,acc n,acc v,acc adj,nom n,nom  # Трехмерное изображение создают регулируемые линзы
+n,nom v,acc adj,acc adj,acc n,acc  # Пленка имеет глубокий черный цвет
+n,nom v,instr adj,instr adj,instr n,instr  # Металлодетекторы обладают большой пропускной способностью
+adj,nom n,nom v,instr adj,instr n,instr  # Стальная рама отличается высокой прочностью
+v adv,a_modif adj,nom n,nom  # Продается очень мощный компьютер.
+adv,a_modif adj,nom n,nom v  # Очень мощный компьютер продается.
+n,nom v adv,a_modif adv,adv_как  # Модель выглядит очень гармонично.
+n,nom adv v prep n,acc,anim  # Брат пристально посмотрел на доктора.
+n,nom v adv  # Дверца открывается влево.
+adv v n,nom  # Внутри находится карман.
+n,nom adv v  # Улица активно застраивается.
+n,nom v,acc n,acc  # Мыло убивает запахи.
+v,acc n,nom n,acc  # Заняли бойцы оборону.
+n,acc v,acc n,nom  # Оборону заняли бойцы.
+n,nom v,dat n,dat  # Мама удивилась вопросу.
+n,nom n,instr v  # Дорога зимой чистится.
+n,nom v,instr n,instr  # Ручка регулируется кнопкой.
+n,instr v n,nom  # Ночью ударит мороз.
+n,nom n,gen v,acc n,acc  # Бригада плотников ищет работу
+n,nom v,instr adj,instr n,instr  # Занятия проводятся опытными тренерами
+n,nom adv v,acc n,acc  # Ткань хорошо держит форму
+adv v,acc n,nom n,acc  # Быстро красит машина материю!
+n,nom v,acc n,acc adv  # Анастасия обрела самообладание быстро.
+n,nom neg v,instr n,instr  # Стекло не зарастает водорослями
+n,nom neg v,instr adj,instr n,instr  # Предложение не является публичной офертой.
+n,nom n,gen v,instr n,instr  # Скорость подачи регулируется инвертером
+n,nom neg v,acc n  # Машинка не нагревает воду
+n,nom n,acc neg v,acc  # Двигатель масло не расходует
+n,gen n,nom neg v,acc  # Вложений машина не потребует
+n,nom n,dat neg v,acc  # Паутина работе не мешает
+n,dat neg v,acc n,nom  # Малышу не подошел размер
+n,nom v,acc adj,acc n,acc  # Часы имеют оригинальное происхождение
+adj,nom n,nom v n,instr  # Пластиковые окна закрываются ролставнями
+adj,nom n,nom v adv  # Задняя дверь открывается вверх.
+adj,nom n,nom adv v  # Задняя дверь вверх открывается.
+adv v adj,nom n,nom  # Вверх открывается задняя дверь.
+v adv adj,nom n,nom  # открывается вверх задняя дверь.
+n,nom n,gen v adv  # Панель управления откидывается вверх.
+adv v n,nom n,gen  # Вверх откидывается панель управления
+n,nom n,gen adv v  # Панель управления вверх откидывается.
+adv n,nom n,gen v  # Вверх панель управления откидывается
+n,nom v n,acc n,gen  # Собственник заключает договор аренды
+adj,nom n,nom v,acc n,acc  # Высокие волны заливали пляж
+n,acc v,acc adj,nom n,nom  # Сетку обслуживает опытный человек
+adj,nom n,nom v,acc adj,acc n,acc  # Массажные головки имеют встроенный нагрев
+n,nom v,acc n,acc adv  # Кот повел ребят вверх.
+n,nom adv v,acc n,acc  # Кот вверх повел ребят.
+adv n,nom v,acc n,acc  # Вверх кот повел ребят.
+adv v,acc n,nom n,acc  # Вверх повел ребят кот.
+n,acc adv n,nom v,acc  # Ребят вверх кот повел.
+n,acc n,nom adv v,acc  # Ребят кот вверх повел.
+v adj,nom n,nom  # продается детская коляска,
+n,nom neg v  # Пух не лезет
+n,instr n,nom v  # Зимой дорога чистится
+adj,nom n,nom v  # Стиральная машина есть
+v n,nom n,instr  # Складывается коляска книжкой
+v n,nom n,gen  # Есть возможность чиповки
+n,nom v n,instr  # Павильоны комплектуются электрикой
+v n,nom adv  # Имеется подсветка сверху
+n,nom p,acc n,acc v  # Разрешение на продажу есть
+n,nom n,gen v  # Кабель питания прилагается
+neg v adj,nom n,nom  # Не работает фронтальная камера
+v n,nom p,instr n,instr  # Требуется монтажник с опытом
+n,nom v,gen n,gen  # Квартира требует ремонта
+adj,nom n,nom neg v  # Новый наждак не использовался
+n,nom v adv  # Аккумулятор держит нормально
+n,nom adv v  # ПАРК ПОСТОЯННО ОБНОВЛЯЕТСЯ!!
+v n,nom p,dat n,dat  # Имеется регулировка по высоте
+v n,nom adj,nom  # Продается пистолет монтажный
+n,nom v p,prep n,prep  # Диски находятся в Буинске
+n,acc adv neg v  # Полукомбинезон почти не носили
+v adj,nom adj,nom n,nom  # Продается красивый виртуальный номер
+v n,nom  # Требуются каменщики!
+v n,acc adj,nom n,nom  # Ищет дом добрый кобель
+neg v n,nom n,gen  # Не работает кнопка блокировки
+n,nom p,gen n,gen v  # Защита от детей есть
+v adj,nom n,nom n,gen  # Имеется полный пакет документов
+p,prep n,prep v n,nom  # В квартире требуется ремонт
+v adv n,nom  # Остается частично мебель
+v adj,nom n,nom n,gen  # Имеются другие разновидности тортов
+n,dat v,dat n,nom  # Покупателю останется мебель
+v n,nom p,acc n,acc  # Требуется уборщица в отель
+n,nom v p,acc n,acc  # Документы готовятся на продажу
+n,nom adj,gen n,gen v  # Поддержка многоядерных процессоров есть
+p,dat n,dat v n,nom  # К квартире прилагается гараж
+v adv,adv_counter n,gen  # Имеется несколько штук
+n,nom n,acc v  # Каменщики работу ищут
+n,nom v  # Общежитие предоставляется.
+n,nom n,acc v  # Батарейка заряд держит
+v n,acc n,nom  # Ищет дом котик
+n,nom v p,gen n,gen  # Сроки зависят от загруженности
+v n,nom p,prep n,prep  # Мерцает подсветка на трубке
+adv n,nom v  # Сзади бант регулируется
+n,nom v adv  # Аккумулятор держит идеально
+n,nom adj,nom v  # Ботиночки теплые отстегиваются
+adj,nom adj,nom n,nom v  # Встроенная сетевая карта есть
+v adv,adv_counter adj,gen n,gen  # Есть много других моделей
+v n,nom p,prep n,prep  # Есть сколы на углах
+n,nom v prep,instr n,instr  # Гитара поставляется с кейсом
+
+v n,nom p,gen n,gen  # Есть самовывоз со склада
+n,nom n,gen p,acc n,acc v  # Возможность крепления на стену есть
+n,nom p,prep n,prep v  # Помощь в выращивании гарантируется
+n,nom v n,instr adv  # Размер регулируется ремешком сзади
+n,nom v p,dat n,dat  # Ножки регулируются по высоте
+v n,nom p,gen n,gen  # Есть место для бассейна
+n,nom p,acc n,acc neg v  # Боковины в комплект не входят
+n,nom adj,gen n,gen neg v  # Возможность наложенного платежа не рассматривается
+p,acc n,acc v n,nom  # В комплект входит шторка
+n,nom adv v n,instr  # Витрина дополнительно комплектуется подсветкой
+n,nom v p,dat n,dat  # Угги продаются по распродаже
+n,nom v n,instr n,gen  # Пересылка осуществляется Почтой России
+n,nom v adj,instr n,instr  # Доставка осуществляется Транспортной компанией
+n,nom n,gen n,gen v  # Угол наклона дуги регулируется
+v n,nom adj,gen n,gen  # Ведется распродажа зимнего ассортимента
+n,nom n,gen v n,dat  # Качество товара соответствует фотографиям
+n,nom v adv,adv_counter n,gen  # Магниты занимает мало места
+n,nom v p,dat n,dat  # Продажи подходят к концу
+adv n,dat v n,nom  # Теперь мучениям пришел конец
+n,nom p,dat n,dat v  # Инструкция по сборке прилагается
+
+n,nom n,gen neg v  # Подсветка индикаторов не горит
+v num adj,gen n,gen  # Продаются два дачных участка
+n,nom v prep,instr n,instr  # МАМА ПРОЖИВАЕТ С КОТЕНКОМ
+n,nom v,gen adj,gen n,gen  # Машина требует некоторых вложений
+n,nom n,gen neg v  # Автомобиль вложений не требует
+p,prep n,prep v adj,nom n,nom  # В наличии имеются другие цвета
+n,nom v num n,gen  # Спинка имеет 4 положения
+p,instr n,instr v n,nom  # Под окном есть огород
+p,gen n,gen v n,nom  # Внизу рукава есть утяжка
+v n,nom conj n,nom  # Есть полки и тумбочки
+n,nom conj n,nom v  # Механика и экспонометр работают
+p,acc n,acc n,nom v adv  # На иномарки установка обговаривается отдельно
+n,nom n,gen neg v  # Опыт работы не требуется
+v p,instr n,instr n,nom  # Ходила с телефоном жена
+adv n,nom v adv  # Реально платье стоит дороже
+p,gen n,gen v n,nom  # У модели открывается капот
+
+adj,nom n,nom v,copula adj,instr  # Данный вид считается безобидным
+v n,nom n,gen n,gen  # Есть функция отключения боя
+n,nom v p,prep adj,prep n,prep  # Техника находится в хорошем состоянии
+adv v adv,adv_counter n,gen  # Сзади есть несколько зацепок
+n,nom v,dat adj,dat n,dat  # Картридж подлежит многократной заправке
+n,nom v adv,a_modif adv  # Модель выглядит очень гармонично
+n,nom adv,a_modif adv v  # Бусины очень красиво переливаются
+neg v adj,gen n,gen  # Не требуется дополнительных вложений
+n,nom v p,instr n,instr  # Ребенок носил с удовольствием
+adj,nom n,nom n,gen v,acc n,acc  # Федеральная служба эвакуаторов Ищет партнёров
+n,nom v adv adv  # Демонтаж осуществляется также легко
+v adj,nom n,nom p,gen n,gen  # Предлагается титулованный кобель для вязок
+n,nom n,gen v,copula n,adj,instr  # Конструкция снегоката является разборной
+n,nom adv v,dat n,dat  # Товар полностью соответствует фотографии
+p,prep n,prep n,nom v  # При закрытии экран гаснет
+v adj,nom adj,nom n,nom  # Остается небольшой кухонный гарнитур
+n,nom v p,acc num n,gen  # Спинка поднимается на три уровня
+v adj,nom n,nom adj,gen n,gen  # Продается парикмахерское кресло оранжевого цвета
+
+n,nom v adv adv  # Укладка продержится невероятно долго
+n,nom n,gen v,copula adj,instr  # Конструкция снегоката является разборной
+adj,nom n,nom v,dat n,dat  # Вторая комната сдается девушке
+n,nom v adv n,instr  # Сдача осуществляется напрямую собственником
+v n,nom p,prep adj,prep n,prep  # Продается люлька в отличном состоянии

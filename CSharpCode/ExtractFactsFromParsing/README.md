@@ -20,11 +20,12 @@
 
 ## Запуск
 
-Утилита реализована как консольное приложение для MS Windows. Для запуска нужно указать
-путь к файлу с результатами частеречной разметки и папку, где будут сохранены
-результаты:
+Утилита реализована как консольное приложение для MS Windows. Для запуска
+нужно указать путь к файлу с результатами частеречной разметки, папку,
+где будут сохранены результаты, а также файл с синтаксическими шаблонами для
+валидации предложений (см. пример такого файла [здесь](https://github.com/Koziev/chatbot/blob/master/CSharpCode/ExtractFactsFromParsing/good_templates.txt)):
 
 ```
--parsing f:\Corpus\parsing\ru\SENT7.parsing.txt -output f:\tmp
+-parsing f:\Corpus\parsing\ru\SENT7.parsing.txt -output f:\tmp -templates good_templates.txt
 ```
 
