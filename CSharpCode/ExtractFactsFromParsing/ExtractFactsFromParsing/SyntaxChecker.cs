@@ -32,6 +32,8 @@ public class SyntaxChecker
         }
     }
 
+    public bool IsEmpty() => trie == null;
+
     public bool IsGoodSyntax(FootPrint footprint)
     {
         /*

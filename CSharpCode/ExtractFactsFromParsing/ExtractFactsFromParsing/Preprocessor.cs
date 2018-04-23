@@ -40,11 +40,12 @@ public class Preprocessor
          "разумеется|", // Разумеется, поначалу храм блистал.
          "похоже|,|что|",
          "похоже|,|", // Похоже, разговор шел по-немецки.
+         "однако|" // Однако я заблуждался
         };
 
         prefixes = sx.Select(z => z.Split("|".ToCharArray(), StringSplitOptions.RemoveEmptyEntries)).OrderByDescending(z => z.Length).Select(z => string.Join("|", z) + "|").ToList();
 
-        infixes = "же ли бы б ль ж".Split(' ').ToList();
+        infixes = "же ли бы б ль ж аж ведь вот".Split(' ').ToList();
 
     }
 

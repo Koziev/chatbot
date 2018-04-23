@@ -53,7 +53,7 @@ public class FootPrintToken
 
             case SolarixGrammarEngineNET.GrammarEngineAPI.ADJ_ru: this.tags.Add("adj"); break;
             case SolarixGrammarEngineNET.GrammarEngineAPI.VERB_ru: this.tags.Add("v"); break;
-            case SolarixGrammarEngineNET.GrammarEngineAPI.INFINITIVE_ru: this.tags.Add("v"); break;
+            case SolarixGrammarEngineNET.GrammarEngineAPI.INFINITIVE_ru: this.tags.Add("v"); this.tags.Add("inf"); break;
             case SolarixGrammarEngineNET.GrammarEngineAPI.GERUND_2_ru: this.tags.AddRange("adv adv_v".Split(' ')); break;
 
             case SolarixGrammarEngineNET.GrammarEngineAPI.ADVERB_ru:
@@ -153,6 +153,15 @@ public class FootPrintToken
                     case SolarixGrammarEngineNET.GrammarEngineAPI.VB_ORDER_ru: this.tags.Add("imper"); break;
                 }
             }
+
+            if (p.CoordID == SolarixGrammarEngineNET.GrammarEngineAPI.MODAL_ru)
+            {
+                switch (p.StateID)
+                {
+                    case 1: this.tags.Add("mod"); break;
+                }
+            }
+
 
         }
 

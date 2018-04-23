@@ -20,12 +20,12 @@ class ExtractFactsFromParsing
     private static Preprocessor preprocessor;
     private static SyntaxChecker syntax_checker = new SyntaxChecker();
 
+    private static int nb_skip = 0;
     private static int sample_count = 0;
 
     private static string last_contituents = "";
 
     static System.IO.StreamWriter wrt_samples, wrt_skipped;
-
 
     static HashSet<string> stop_words3;
 
@@ -144,8 +144,7 @@ class ExtractFactsFromParsing
 
     static void ProcessSentence(SolarixGrammarEngineNET.GrammarEngine2 gren, Sentence sent, int max_len, string filter)
     {
-        //ProcessSentence2("Я вам перезвоню", gren, max_len);
-
+        ProcessSentence2("Я вижу лишь тебя", gren, max_len);
 
         if (sent.root.IsPartOfSpeech("ГЛАГОЛ") || sent.root.IsPartOfSpeech("БЕЗЛИЧ_ГЛАГОЛ"))
         {
@@ -232,23 +231,33 @@ class ExtractFactsFromParsing
     }
 
 
+    static bool IsSentenceTerminator(char c)
+    {
+        return ".!?;…".Contains(c);
+    }
+
     static int nb_processed = 0;
     static HashSet<string> processed_phrases = new HashSet<string>();
     static void ProcessSentence2(string phrase, SolarixGrammarEngineNET.GrammarEngine2 gren, int max_len)
     {
         nb_processed += 1;
 
+        if (nb_skip != 0 && nb_processed < nb_skip)
+        {
+            return;
+        }
+
         if (phrase.Length > 2 && phrase.Last() != '?')
         {
             bool used = false;
 
-            if (phrase.Last() == '.' || phrase.Last() == '!' || phrase.Last() == ';')
+            if (IsSentenceTerminator(phrase.Last()))
             {
                 // Удалим финальные символы . и !
                 int finalizers = 1;
                 for (int i = phrase.Length - 2; i > 0; --i)
                 {
-                    if (phrase[i] == '.' || phrase[i] == '!' || phrase[i] == ';')
+                    if (IsSentenceTerminator(phrase[i]))
                     {
                         finalizers++;
                     }
@@ -276,10 +285,21 @@ class ExtractFactsFromParsing
                         SolarixGrammarEngineNET.SyntaxTreeNode root = linkages[1];
                         List<SolarixGrammarEngineNET.SyntaxTreeNode> terms = GetTerms(root).OrderBy(z => z.GetWordPosition()).ToList();
 
-                        FootPrint footprint = new FootPrint(gren, terms);
+                        int score = linkages.Score;
 
-                        // Проверим синтаксическую структуру фразы, чтобы отсеять разговорную некондицию.
-                        bool good = syntax_checker.IsGoodSyntax(footprint);
+                        bool good = false;
+                        if (score >= -4)
+                        {
+                            good = true;
+
+                            if (!syntax_checker.IsEmpty())
+                            {
+                                FootPrint footprint = new FootPrint(gren, terms);
+
+                                // Проверим синтаксическую структуру фразы, чтобы отсеять разговорную некондицию.
+                                good = syntax_checker.IsGoodSyntax(footprint);
+                            }
+                        }
 
                         if (good)
                         {
@@ -371,6 +391,11 @@ class ExtractFactsFromParsing
                 MAX_SAMPLE = int.Parse(args[i + 1]);
                 i++;
             }
+            else if (args[i] == "-skip")
+            {
+                nb_skip = int.Parse(args[i + 1]);
+                i++;
+            }
             else if (args[i] == "-max_len")
             {
                 MAX_LEN = int.Parse(args[i + 1]);
@@ -394,7 +419,10 @@ class ExtractFactsFromParsing
         #endregion Command_Line_Options
 
         preprocessor = new Preprocessor();
-        syntax_checker.LoadTemplates(syntax_templates);
+        if (!string.IsNullOrEmpty(syntax_templates))
+        {
+            syntax_checker.LoadTemplates(syntax_templates);
+        }
 
         Console.WriteLine("Loading dictionary {0}", dictionary_path);
         SolarixGrammarEngineNET.GrammarEngine2 gren = new SolarixGrammarEngineNET.GrammarEngine2();
@@ -450,7 +478,10 @@ class ExtractFactsFromParsing
                             Console.Write("{0} samples extracted\r", sample_count);
                         }
 
-                        ProcessSentence(gren, sent, MAX_LEN, filter);
+                        if (sample_count >= nb_skip)
+                        {
+                            ProcessSentence(gren, sent, MAX_LEN, filter);
+                        }
                     }
                 }
             }
