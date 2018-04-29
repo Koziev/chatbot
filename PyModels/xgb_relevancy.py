@@ -13,6 +13,7 @@ import itertools
 import json
 import os
 import sys
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -24,21 +25,34 @@ from sklearn.model_selection import train_test_split
 
 from utils.tokenizer import Tokenizer
 
+
+
+
+
+parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
+parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
+parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
+parser.add_argument('--max_depth', type=int, default=4, help='max depth parameter for XGBoost')
+parser.add_argument('--eta', type=float, default=0.20, help='eta (learning rate) parameter for XGBoost')
+parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
+parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
+
+args = parser.parse_args()
+
+input_path = args.input
+tmp_folder = args.tmp
+run_mode = args.run_mode
+
 # основной настроечный параметр модели - длина символьных N-грамм (шинглов)
-SHINGLE_LEN = 3
+shingle_len = args.shingle_len
 
-# -------------------------------------------------------------------
-
-input_path = '../data/premise_question_relevancy.csv'
-tmp_folder = '../tmp'
-data_folder = '../data'
+max_depth = args.max_depth
+eta = args.eta
 
 # -------------------------------------------------------------------
 
 BEG_WORD = '\b'
 END_WORD = '\n'
-
-# -------------------------------------------------------------------
 
 
 def ngrams(s, n):
@@ -75,23 +89,7 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shing
 tokenizer = Tokenizer()
 
 
-RUN_MODE = ''
-# TODO argparse
-while True:
-    a1 = raw_input('t-train\nq-query\nChoose [t,q]: ')
-    if a1 == 't':
-        RUN_MODE = 'train'
-        print('Train')
-        break
-    elif a1 == 'q':
-        RUN_MODE = 'query'
-        print('Query')
-        break
-    else:
-        print('Unrecognized choice "{}"'.format(a1))
-
-
-if RUN_MODE == 'train':
+if run_mode == 'train':
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
     print('samples.count={}'.format(df.shape[0]))
 
@@ -101,13 +99,12 @@ if RUN_MODE == 'train':
         for phrase in [record['premise'], record['question']]:
             words = tokenizer.tokenize(phrase)
             wx = words2str(words)
-            all_shingles.update( ngrams(wx, SHINGLE_LEN) )
+            all_shingles.update(ngrams(wx, shingle_len))
 
     nb_shingles = len(all_shingles)
     print('nb_shingles={}'.format(nb_shingles))
 
     shingle2id = dict([(s,i) for i,s in enumerate(all_shingles)])
-
 
     phrases = []
     ys = []
@@ -138,8 +135,8 @@ if RUN_MODE == 'train':
 
         y_data.append(y)
 
-        premise_shingles = ngrams( premise, SHINGLE_LEN )
-        question_shingles = ngrams( question, SHINGLE_LEN )
+        premise_shingles = ngrams(premise, shingle_len)
+        question_shingles = ngrams(question, shingle_len)
         vectorize_sample_x( X_data, idata, premise_shingles, question_shingles, shingle2id )
 
     nb_0 = len(filter(lambda y:y==0, y_data))
@@ -167,10 +164,10 @@ if RUN_MODE == 'train':
         'booster': 'gbtree',
         # 'n_estimators': _n_estimators,
         'subsample': 1.0,
-        'max_depth': 4,
+        'max_depth': max_depth,
         'seed': 123456,
         'min_child_weight': 1,
-        'eta': 0.20,
+        'eta': eta,
         'gamma': 0.01,
         'colsample_bytree': 1.0,
         'colsample_bylevel': 1.0,
@@ -199,9 +196,10 @@ if RUN_MODE == 'train':
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
+                    'model': 'xgb',
                     'shingle2id': shingle2id,
                     'model_filename': model_filename,
-                    'shingle_len': SHINGLE_LEN,
+                    'shingle_len': shingle_len,
                     'nb_features': nb_features,
                    }
 
@@ -210,7 +208,7 @@ if RUN_MODE == 'train':
 
     cl.save_model( model_filename )
 
-if RUN_MODE == 'query':
+if run_mode == 'query':
     with open(os.path.join(tmp_folder, 'xgb_relevancy.config'), 'r') as f:
         model_config = json.load(f)
 

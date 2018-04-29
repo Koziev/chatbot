@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Тренировка модели для превращения символьной цепочки слова в вектор.
-RNN и CNN варианты энкодера, включая комбинации. Реализовано на Keras.
+Тренировка модели для превращения символьной цепочки слова в вектор
+действительных чисел фиксированной длины.
+ 
+Реализации RNN и CNN вариантов энкодера, включая комбинации. Реализовано на Keras.
+Подробности: https://github.com/Koziev/chatbot/blob/master/PyModels/trainers/README.wordchar2vector.md
 """
 
 from __future__ import print_function
@@ -28,9 +31,9 @@ from keras.models import model_from_json
 
 # ---------------------------------------------------------------
 
-FILLER_CHAR = u' '
-BEG_CHAR = u'['
-END_CHAR = u']'
+FILLER_CHAR = u' '  # символ для выравнивания слов по одинаковой длине
+BEG_CHAR = u'['  # символ отмечает начало цепочки символов слова
+END_CHAR = u']'  # символ отмечает конец цепочки символов слова
 
 
 def pad_word(word, max_word_len):
@@ -183,6 +186,9 @@ class VisualizeCallback(keras.callbacks.Callback):
 # -----------------------------------------------------------------
 
 class Wordchar2Vector_Trainer(object):
+    """
+    Класс реализует обучение нейросетевой модели для кодирования слов.
+    """
     def __init__(self, arch_type, tunable_char_embeddings, char_dims,
                  model_dir, vec_size, batch_size, seed ):
         self.arch_type = arch_type
@@ -200,7 +206,7 @@ class Wordchar2Vector_Trainer(object):
         with codecs.open(words_filepath, 'r', 'utf-8') as rdr:
             return set([line.strip() for line in rdr])
 
-    def train(self, words_filepath, tmp_dir):
+    def train(self, words_filepath, tmp_dir, nb_samples=10000000):
         '''
         Тренируем модель на словах в указанном файле.
         :param words_filepath: путь к plain text utf8 файлу со списком слов (одно слово на строку)
@@ -215,6 +221,10 @@ class Wordchar2Vector_Trainer(object):
         max_word_len = max(map(len, known_words))
         seq_len = max_word_len + 2  # 2 символа добавляются к каждому слову для маркировки начала и конца последовательности
         print('max_word_len={}'.format(max_word_len))
+
+        # ограничиваем число слов для обучения и валидации
+        if len(known_words)>nb_samples:
+            known_words = set(list(known_words)[:nb_samples])
 
         val_share = 0.3
         random.seed(self.seed)
