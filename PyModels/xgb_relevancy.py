@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import argparse
+import codecs
 
 import numpy as np
 import pandas as pd
@@ -24,15 +25,14 @@ from scipy.sparse import lil_matrix
 from sklearn.model_selection import train_test_split
 
 from utils.tokenizer import Tokenizer
-
-
+from utils.segmenter import Segmenter
 
 
 
 parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
 parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
-parser.add_argument('--max_depth', type=int, default=4, help='max depth parameter for XGBoost')
+parser.add_argument('--max_depth', type=int, default=6, help='max depth parameter for XGBoost')
 parser.add_argument('--eta', type=float, default=0.20, help='eta (learning rate) parameter for XGBoost')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
@@ -244,3 +244,74 @@ if run_mode == 'query':
         D_data = xgboost.DMatrix(X_data)
         y_probe = xgb_relevancy.predict(D_data)
         print(y_probe[0])
+
+if run_mode == 'query2':
+    # С клавиатуры задается путь к файлу с предложениями, и второе предложение.
+    # Модель делает оценку релевантности для каждого предложения в файле и введенного предложения,
+    # и сохраняет список оценок с сортировкой.
+
+    # загружаем данные обученной модели
+    with open(os.path.join(tmp_folder, 'xgb_relevancy.config'), 'r') as f:
+        model_config = json.load(f)
+
+    xgb_relevancy_shingle2id = model_config['shingle2id']
+    xgb_relevancy_shingle_len = model_config['shingle_len']
+    xgb_relevancy_nb_features = model_config['nb_features']
+
+    xgb_relevancy = xgboost.Booster()
+    xgb_relevancy.load_model(model_config['model_filename'])
+
+    path1 = raw_input('path to text file with phrases:\n> ').decode(sys.stdout.encoding).strip().lower()
+
+    phrases1 = []
+    segm_mode = raw_input('Use EOL markers (1) or segmenter (2) to split file to sentences?').strip()
+
+    if segm_mode == 2:
+        segmenter = Segmenter()
+        phrases0 = segmenter.split(codecs.open(path1, 'r', 'utf-8').readlines())
+        for phrase in enumerate(phrases):
+            words = tokenizer.tokenize(phrase)
+            if len(words) > 0:
+                phrases1.append(words)
+    else:
+        with codecs.open(path1, 'r', 'utf-8') as rdr:
+            for phrase in rdr:
+                words = tokenizer.tokenize(phrase)
+                if len(words) > 0:
+                    phrases1.append(words)
+
+    nb_phrases = len(phrases1)
+    print(u'File {} contains {} sentences'.format(path1, nb_phrases))
+
+    while True:
+        # нужна чистая матрица
+        X_data = lil_matrix((nb_phrases, xgb_relevancy_nb_features), dtype='bool')
+
+        # вводим проверяемую фразу (вопрос) с консоли
+        phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
+        if len(phrase2) == 0:
+            break
+
+        question_words = tokenizer.tokenize(phrase2)
+
+        for iphrase, premise_words in enumerate(phrases1):
+            premise_wx = words2str(premise_words)
+            question_wx = words2str(question_words)
+
+            premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
+            question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
+
+            vectorize_sample_x(X_data, iphrase, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
+
+        D_data = xgboost.DMatrix(X_data)
+        y_probe = xgb_relevancy.predict(D_data)
+
+        phrase_indeces = sorted( range(nb_phrases), key=lambda i:-y_probe[i] )
+
+        print('Phrases ranked by descending relevance:')
+        for phrase_index in phrase_indeces[:10]:
+            print(u'[{}] {} = {}'.format(phrase_index, y_probe[phrase_index], u' '.join(phrases1[phrase_index])))
+
+
+
+

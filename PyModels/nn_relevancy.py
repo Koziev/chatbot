@@ -28,6 +28,7 @@ import pandas as pd
 import tqdm
 
 import keras.callbacks
+from keras import backend as K
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import Input
@@ -180,6 +181,11 @@ final_merge_size = 0
 arch_filepath = os.path.join(tmp_folder, 'relevancy_model.arch')
 weights_path = os.path.join(tmp_folder, 'relevancy.weights')
 
+# 30.04.2018 отдельно сохраним модель для генерации вектора по тексту предложения.
+arch_filepath2 = os.path.join(tmp_folder, 'sent2vector.arch')
+weights_path2 = os.path.join(tmp_folder, 'sent2vector.weights')
+
+
 # сохраним конфиг модели, чтобы ее использовать в чат-боте
 model_config = {
                 'model': 'nn',
@@ -198,6 +204,11 @@ with open(os.path.join(tmp_folder,'relevancy_model.config'), 'w') as f:
 # ------------------------------------------------------------------
 
 if run_mode == 'train':
+
+    classif = None
+    sent2vec_input = None
+    sent2vec_output = None
+
     if net_arch == 'lstm':
         words_net1 = Input(shape=(max_wordseq_len,word_dims,), dtype='float32', name='input_words1')
         words_net2 = Input(shape=(max_wordseq_len,word_dims,), dtype='float32', name='input_words2')
@@ -345,9 +356,13 @@ if run_mode == 'train':
         words_net1 = Input(shape=(max_wordseq_len,word_dims,), dtype='float32', name='input_words1')
         words_net2 = Input(shape=(max_wordseq_len,word_dims,), dtype='float32', name='input_words2')
 
+        sent2vec_input = Input(shape=(max_wordseq_len,word_dims,), dtype='float32', name='input')
+
         conv1 = []
         conv2 = []
         encoder_size = 0
+
+        sent2vec_conv = []
 
         for kernel_size in range(1, 4):
             # сначала идут сверточные слои, образующие детекторы словосочетаний
@@ -373,16 +388,64 @@ if run_mode == 'train':
 
             encoder_size += rnn_size
 
-        encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
-        words_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
-        #words_final = BatchNormalization()(words_final)
-        words_final = Dense(units=int(encoder_size), activation='relu')(words_final)
-        #words_final = BatchNormalization()(words_final)
-        #words_final = Dense(units=int(encoder_size / 2), activation='relu')(words_final)
-        #words_final = BatchNormalization()(words_final)
+            sent2vec_layer = conv(sent2vec_input)
+            sent2vec_layer = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(sent2vec_layer)
+            sent2vec_layer = lstm(sent2vec_layer)
+            sent2vec_conv.append(sent2vec_layer)
+
+
+        if False:
+            # этот финальный классификатор берет два вектора представления предложений,
+            # объединяет их в вектор двойной длины и затем прогоняет этот двойной вектор
+            # через несколько слоев.
+            encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
+
+            words_final = Dense(units=encoder_size, activation='relu')(encoder_merged)
+            # words_final = BatchNormalization()(words_final)
+            words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
+            # words_final = BatchNormalization()(words_final)
+            # words_final = Dense(units=int(encoder_size / 2), activation='relu')(words_final)
+            # words_final = BatchNormalization()(words_final)
+
+        else:
+            # второй вариант финального классификатора - косинус между векторами
+            # предложенний.
+            encoder_merged1 = keras.layers.concatenate(inputs=conv1)
+
+            encoder_merged2 = keras.layers.concatenate(inputs=conv2)
+
+            d2 = Dense(units=encoder_size, activation='relu', name='enoder_layer_d2')
+            encoder_merged1 = d2(encoder_merged1)
+            encoder_merged2 = d2(encoder_merged2)
+
+            # вариант со почленным произведением двух векторов
+            #words_final = keras.layers.multiply(inputs=[encoder_merged1, encoder_merged2])
+            #words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
+            #words_final = Dense(units=encoder_size//4, activation='relu')(words_final)
+
+            # скалярное произведение двух векторов, дающее скаляр.
+            #classif = keras.layers.dot(inputs=[encoder_merged1, encoder_merged2], axes=1, normalize=True)
+
+            # L2 норма разности между двумя векторами.
+            #words_final = keras.layers.Lambda(lambda v12: K.sqrt(K.sum((v12[0] - v12[1]) ** 2)))([encoder_merged1, encoder_merged2])
+
+            # вариант с разностью векторов
+            words_final = keras.layers.subtract(inputs=[encoder_merged1, encoder_merged2])
+            words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
+            words_final = Dense(units=encoder_size//4, activation='relu')(words_final)
+
+            # другой вариант вычисления L2 для разности векторов
+            #words_final = keras.layers.subtract(inputs=[encoder_merged1, encoder_merged2])
+            #classif = keras.layers.Lambda(lambda x: K.sqrt(K.sum(x ** 2, axis=1)))(words_final)
+            #classif = keras.layers.Lambda(lambda x: K.exp(-x))(words_final)
+
+            sent2vect_merged = keras.layers.concatenate(inputs=sent2vec_conv)
+            sent2vec_output = d2(sent2vect_merged)
+
 
     # Вычислительный граф сформирован, добавляем финальный классификатор с 1 выходом
-    classif = Dense(units=1, activation='sigmoid', name='output')(words_final)
+    if classif is None:
+        classif = Dense(units=1, activation='sigmoid', name='output')(words_final)
 
     model = Model(inputs=[words_net1, words_net2], outputs=classif)
     model.compile(loss='binary_crossentropy', optimizer='nadam', metrics=['accuracy'])
@@ -486,7 +549,7 @@ if run_mode == 'train':
 
     hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, 1),
                                steps_per_epoch=int(len(train_phrases)/batch_size),
-                               epochs=200,
+                               epochs=200,  # 200
                                verbose=1,
                                callbacks=[model_checkpoint, early_stopping],
                                validation_data=generate_rows( val_phrases, val_ys, batch_size, 1),
@@ -494,6 +557,24 @@ if run_mode == 'train':
                                )
     max_acc = max(hist.history['val_acc'])
     print('max val_acc={}'.format(max_acc))
+
+    if sent2vec_input is not None:
+        # загрузим чекпоинт с оптимальными весами, построим новую модель sent2vector и сохраним
+        # ее на диск.
+        model.load_weights(weights_path)
+
+        # сохраняем модель sent2vec
+        sent2vec_model = Model(inputs=sent2vec_input, outputs=sent2vec_output)
+        with open(arch_filepath2, 'w') as f:
+            f.write(sent2vec_model.to_json())
+        sent2vec_model.save_weights(weights_path2)
+    else:
+        os.remove(arch_filepath2)
+        os.remove(weights_path2)
+
+
+with open(arch_filepath, 'w') as f:
+    f.write(model.to_json())
 
 # </editor-fold>
 
@@ -518,6 +599,9 @@ if run_mode == 'query':
     X2_probe = np.zeros((1, max_wordseq_len, word_dims), dtype=np.float32)
 
     while True:
+        X1_probe.fill(0)
+        X2_probe.fill(0)
+
         print('\nEnter two phrases:')
         phrase1 = raw_input('phrase #1:> ').decode(sys.stdout.encoding).strip().lower()
         if len(phrase) == 0:
@@ -582,6 +666,9 @@ if run_mode == 'query2':
         vectorize_words(pad_wordseq(words1, max_wordseq_len), X1_probe, iphrase, word2vec)
 
     while True:
+        X1_probe.fill(0)
+        X2_probe.fill(0)
+
         phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
         if len(phrase2) == 0:
             break
