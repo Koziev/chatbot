@@ -1,0 +1,1 @@
+python ../PyModels/nn_relevancy.py --run_mode train --batch_size 250 --arch 'lstm(cnn)' --classifier 'muladd' --input ../data/premise_question_relevancy.csv --tmp ../tmp --wordchar2vector ../data/wordchar2vector.dat --word2vector /home/inkoziev/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.model
