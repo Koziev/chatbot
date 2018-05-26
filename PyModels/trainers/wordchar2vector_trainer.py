@@ -465,12 +465,12 @@ class Wordchar2Vector_Trainer(object):
 
             nb_batch = int(nb_words/self.batch_size) + (0 if (nb_words%self.batch_size) == 0 else 1)
             wx = list(output_words)
-            words = raw_wordset( wx, self.max_word_len )
+            words = raw_wordset(wx, self.max_word_len)
 
             words_remainder = nb_words
             word_index=0
             while words_remainder>0:
-                print('words_remainder={}        '.format(words_remainder), end='\r')
+                print('words_remainder={:<10d}'.format(words_remainder), end='\r')
                 nw = min( self.batch_size, words_remainder )
                 batch_words = words[word_index:word_index+nw]
                 X_data = build_input(batch_words, self.max_word_len, self.char2index)

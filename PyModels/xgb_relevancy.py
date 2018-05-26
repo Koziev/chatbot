@@ -26,21 +26,25 @@ from sklearn.model_selection import train_test_split
 
 from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
+from trainers.evaluation_dataset import EvaluationDataset
+from trainers.evaluation_markup import EvaluationMarkup
 
+config_filename = 'xgb_relevancy.config'
 
-
-parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
+parser = argparse.ArgumentParser(description='XGB classifier for text relevance estimation')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
 parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
 parser.add_argument('--max_depth', type=int, default=6, help='max depth parameter for XGBoost')
 parser.add_argument('--eta', type=float, default=0.20, help='eta (learning rate) parameter for XGBoost')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
+parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 
 args = parser.parse_args()
 
 input_path = args.input
 tmp_folder = args.tmp
+data_folder = args.data_dir
 run_mode = args.run_mode
 
 # основной настроечный параметр модели - длина символьных N-грамм (шинглов)
@@ -184,7 +188,7 @@ if run_mode == 'train':
     cl = xgboost.train(xgb_params,
                        D_train,
                        evals=[(D_val, 'val')],
-                       num_boost_round=1000,
+                       num_boost_round=10000,
                        verbose_eval=50,
                        early_stopping_rounds=50)
 
@@ -206,13 +210,16 @@ if run_mode == 'train':
                     'nb_features': nb_features,
                    }
 
-    with open(os.path.join(tmp_folder,'xgb_relevancy.config'), 'w') as f:
+    with open(os.path.join(tmp_folder, config_filename), 'w') as f:
         json.dump(model_config, f)
 
     cl.save_model( model_filename )
 
 if run_mode == 'query':
-    with open(os.path.join(tmp_folder, 'xgb_relevancy.config'), 'r') as f:
+    # Проверка модели по парам фраз, вводимым в консоли.
+
+    # Загружаем данные обученной модели.
+    with open(os.path.join(tmp_folder, config_filename), 'r') as f:
         model_config = json.load(f)
 
     xgb_relevancy_shingle2id = model_config['shingle2id']
@@ -254,7 +261,7 @@ if run_mode == 'query2':
     # и сохраняет список оценок с сортировкой.
 
     # загружаем данные обученной модели
-    with open(os.path.join(tmp_folder, 'xgb_relevancy.config'), 'r') as f:
+    with open(os.path.join(tmp_folder, config_filename), 'r') as f:
         model_config = json.load(f)
 
     xgb_relevancy_shingle2id = model_config['shingle2id']
@@ -323,3 +330,75 @@ if run_mode == 'query2':
         for phrase_index in phrase_indeces[:10]:
             print(u'{:4f}\t{}'.format(y_probe[phrase_index], u' '.join(phrases1[phrase_index])))
 
+if run_mode == 'evaluate':
+    # Оценка качества натренированной модели на специальном наборе вопросов и ожидаемых выборов предпосылок
+    # из тренировочного набора.
+    eval_data = EvaluationDataset(0, tokenizer)
+    eval_data.load(data_folder)
+
+    # Загружаем данные обученной модели.
+    with open(os.path.join(tmp_folder, config_filename), 'r') as f:
+        model_config = json.load(f)
+
+    xgb_relevancy_shingle2id = model_config['shingle2id']
+    xgb_relevancy_shingle_len = model_config['shingle_len']
+    xgb_relevancy_nb_features = model_config['nb_features']
+
+    xgb_relevancy = xgboost.Booster()
+    xgb_relevancy.load_model(model_config['model_filename'])
+
+    nb_good = 0
+    nb_bad = 0
+
+    with codecs.open(os.path.join(tmp_folder, 'xgb_relevancy.evaluation.txt'), 'w', 'utf-8') as wrt:
+        for irecord, phrases in eval_data.generate_groups():
+            nb_samples = len(phrases)
+
+            X_data = lil_matrix((nb_samples, xgb_relevancy_nb_features), dtype='bool')
+
+            for irow, (premise_words, question_words) in enumerate(phrases):
+                premise_wx = words2str(premise_words)
+                question_wx = words2str(question_words)
+
+                premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
+                question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
+
+                vectorize_sample_x(X_data, irow, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
+
+            D_data = xgboost.DMatrix(X_data)
+            y_pred = xgb_relevancy.predict(D_data)
+
+            # предпосылка с максимальной релевантностью
+            max_index = np.argmax(y_pred)
+            selected_premise = u' '.join(phrases[max_index][0]).strip()
+
+            # эта выбранная предпосылка соответствует одному из вариантов
+            # релевантных предпосылок в этой группе?
+            if eval_data.is_relevant_premise(irecord, selected_premise):
+                nb_good += 1
+                print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
+                wrt.write(EvaluationMarkup.ok_bullet)
+            else:
+                nb_bad += 1
+                print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+                wrt.write(EvaluationMarkup.fail_bullet)
+
+            max_sim = np.max(y_pred)
+
+            question_words = phrases[0][1]
+            message_line = u'{:<40} {:<40} {}/{}'.format(u' '.join(question_words), u' '.join(phrases[max_index][0]), y_pred[max_index], y_pred[0])
+            print(message_line)
+            wrt.write(message_line+u'\n')
+
+            # для отладки: top релевантных вопросов
+            if False:
+                print(u'Most similar premises for question {}'.format(u' '.join(question)))
+                yy = [(y_pred[i], i) for i in range(len(y_pred))]
+                yy = sorted(yy, key=lambda z:-z[0])
+
+                for sim, index in yy[:5]:
+                    print(u'{:.4f} {}'.format(sim, u' '.join(phrases[index][0])))
+
+    # Итоговая точность выбора предпосылки.
+    accuracy = float(nb_good)/float(nb_good+nb_bad)
+    print('accuracy={}'.format(accuracy))

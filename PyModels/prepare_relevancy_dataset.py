@@ -28,12 +28,13 @@ import collections
 import itertools
 import os
 import random
+import numpy as np
 
 from utils.tokenizer import Tokenizer
 
-USE_AUTOGEN = False  # добавлять лди сэмплы из автоматически сгенерированных датасетов
+USE_AUTOGEN = False  # добавлять ли сэмплы из автоматически сгенерированных датасетов
 
-HANDCRAFTED_WEIGHT = 10 # вес для сэмплов, которые в явном виде созданы вручную
+HANDCRAFTED_WEIGHT = 1 # вес для сэмплов, которые в явном виде созданы вручную
 AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, сгенерированных автоматически
 
 # Автоматически сгенерированных сэмплов очень много, намного больше чем вручную
@@ -59,15 +60,20 @@ if USE_AUTOGEN:
 questions_path = '../data/questions.txt'
 
 include_repeats = True
-n_negative_per_positive = 1
+n_negative_per_positive = 5
 
 # Добавлять ли сэмплы, в которых задается релевантность предпосылки и вопроса,
 # например:
 # premise=Кошка ловит мышей
 # question=Кто ловит мышей?
+# При сброшеном флаге будет сгенерирован датасет, в котором есть только разная
+# перефразировочная релевантность, например:
+# "Кошка ловит мышей"
+# "Кошка охотится на мышей"
 INCLUDE_PREMISE_QUESTION = True
 
-stop_words = { u'и', u'или', u'ли', u'что' }
+stop_words = set(u'не ни ль и или ли что какой же ж какая какие сам сама сами само был были было есть '.split())
+stop_words.update(u'о а в на у к с со по ко мне нам я он она над за из от до'.split())
 
 # ---------------------------------------------------------------
 
@@ -119,12 +125,12 @@ for facts_path in ['facts4.txt', 'facts5.txt', 'facts6.txt']:
         for line in rdr:
             if n > 100000:
                 s = line.strip()
-                if s[-1]==u'?':
-                    random_questions.append(s)
+                if s[-1] == u'?':
+                    random_questions.append(normalize_qline(s))
                 else:
-                    random_facts.add(s)
+                    random_facts.add(normalize_qline(s))
             n += 1
-            if n>2000000:
+            if n > 2000000:
                 break
 
 random_facts = list(random_facts)
@@ -167,7 +173,7 @@ class ResultantDataset(object):
     def __init__(self):
         self.str_pairs = [] # предпосылки и вопросы
         self.relevancy = [] # релевантность вопросов и предпосылок в парах
-        self.weights   = [] # вес сэмпла, 1 для автоматически созданных сэмплов
+        self.weights   = [] # вес сэмпла
         self.added_pairs_set = set() # для предотвращения повторов
 
     def add_pair( self, x1, x2, rel, weight ):
@@ -193,14 +199,14 @@ class ResultantDataset(object):
     def print_stat(self):
         print('Total number of samples={}'.format(len(self.str_pairs)))
 
-        for y in range(3):
+        for y in range(max(self.relevancy)+1):
             print('rel={} number of samples={}'.format(y, len(filter(lambda z: z == y, self.relevancy))))
 
         weight2count = collections.Counter()
         for w in self.weights:
             weight2count[w] += 1
 
-        print('number of handcrafted samples={}'.format(weight2count[HANDCRAFTED_WEIGHT]))
+        #print('number of handcrafted samples={}'.format(weight2count[HANDCRAFTED_WEIGHT]))
 
         print('premise  max len={}'.format(max(map(lambda z: len(z[0]), self.str_pairs))))
         print('question max len={}'.format(max(map(lambda z: len(z[1]), self.str_pairs))))
@@ -238,7 +244,7 @@ for paraphrases_path in paraphrases_paths:
                             res_dataset.add_pair( posit_lines[i1], negat, 0, HANDCRAFTED_WEIGHT )
                             negat_pairs_count += 1
 
-                        # добавим пары со случайными фактами в качестве негативных сэмплов
+                        # добавим пары с абсолютно случайными фактами в качестве негативных сэмплов
                         for _ in range(n_negative_per_positive):
                             res_dataset.add_pair( posit_lines[i1], random.choice(random_facts), 0, AUTOGEN_WEIGHT )
                             negat_pairs_count += 1
@@ -257,8 +263,13 @@ for paraphrases_path in paraphrases_paths:
 
                         if selected_random_facts is not None and len(selected_random_facts) > 0:
                             words = set(words)
-                            for _ in range(n_negative_per_positive):
-                                ifact = random.choice(list(selected_random_facts))
+                            selected_random_facts = list(selected_random_facts)
+                            selected_random_facts = np.random.permutation(selected_random_facts)
+                            if len(selected_random_facts) > n_negative_per_positive:
+                                selected_random_facts = selected_random_facts[:n_negative_per_positive*4]
+
+                            added_facts_with_common_words = 0
+                            for ifact in selected_random_facts:
                                 neg_fact = random_facts[ifact]
                                 neg_words = set(tokenizer.tokenize(neg_fact))
                                 found_in_posit = False
@@ -269,8 +280,11 @@ for paraphrases_path in paraphrases_paths:
                                         break
 
                                 if not found_in_posit:
-                                    res_dataset.add_pair(posit_lines[i1], neg_fact, 0, AUTOGEN_WEIGHT)
+                                    res_dataset.add_pair(posit_lines[i1], normalize_qline(neg_fact), 0, AUTOGEN_WEIGHT)
                                     negat_pairs_count += 1
+                                    added_facts_with_common_words += 1
+                                    if added_facts_with_common_words >= n_negative_per_positive:
+                                        break
 
                 lines = []
             else:
@@ -404,7 +418,7 @@ print( 'random negatives count=', negative_pairs )
 # Подготовка датасетов с перестановочными перефразировками выполняется
 # C# кодом, находящимся здесь: https://github.com/Koziev/NLP_Datasets/tree/master/ParaphraseDetection
 
-if USE_AUTOGEN:
+if True             :
     srcpaths = ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']
 
     nb_permut = res_dataset.positive_count()/len(srcpaths) # кол-во перестановочных перефразировок одной длины,
