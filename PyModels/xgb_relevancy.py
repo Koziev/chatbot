@@ -74,15 +74,18 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shing
 
     icol = 0
     for shingle in common_shingles:
-        X_data[idata, icol+shingle2id[shingle]] = True
+        if shingle in shingle2id:
+            X_data[idata, icol+shingle2id[shingle]] = True
 
     icol += nb_shingles
     for shingle in notmatched_ps:
-        X_data[idata, icol+shingle2id[shingle]] = True
+        if shingle in shingle2id:
+            X_data[idata, icol+shingle2id[shingle]] = True
 
     icol += nb_shingles
     for shingle in notmatched_qs:
-        X_data[idata, icol+shingle2id[shingle]] = True
+        if shingle in shingle2id:
+            X_data[idata, icol+shingle2id[shingle]] = True
 
 # -------------------------------------------------------------------
 
@@ -266,6 +269,10 @@ if run_mode == 'query2':
     phrases1 = []
     segm_mode = raw_input('Use EOL markers (1) or segmenter (2) to split file to sentences?').strip()
 
+    max_nb_facts = int(raw_input('maximum number of samples to read from file (-1 means all):\n> ').strip())
+    if max_nb_facts == -1:
+        max_nb_facts = 10000000
+
     if segm_mode == 2:
         segmenter = Segmenter()
         phrases0 = segmenter.split(codecs.open(path1, 'r', 'utf-8').readlines())
@@ -273,15 +280,19 @@ if run_mode == 'query2':
             words = tokenizer.tokenize(phrase)
             if len(words) > 0:
                 phrases1.append(words)
+            if len(phrases1) >= max_nb_facts:
+                break
     else:
         with codecs.open(path1, 'r', 'utf-8') as rdr:
             for phrase in rdr:
                 words = tokenizer.tokenize(phrase)
                 if len(words) > 0:
                     phrases1.append(words)
+                if len(phrases1) >= max_nb_facts:
+                    break
 
     nb_phrases = len(phrases1)
-    print(u'File {} contains {} sentences'.format(path1, nb_phrases))
+    print(u'{1} phrases are loaded from {0}'.format(path1, nb_phrases))
 
     while True:
         # нужна чистая матрица
@@ -310,8 +321,5 @@ if run_mode == 'query2':
 
         print('Phrases ranked by descending relevance:')
         for phrase_index in phrase_indeces[:10]:
-            print(u'[{}] {} = {}'.format(phrase_index, y_probe[phrase_index], u' '.join(phrases1[phrase_index])))
-
-
-
+            print(u'{:4f}\t{}'.format(y_probe[phrase_index], u' '.join(phrases1[phrase_index])))
 

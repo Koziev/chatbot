@@ -87,7 +87,7 @@ with codecs.open(paraphrases_path, "r", "utf-8") as inf:
 # ------------------------------------------------------------------------
 
 # 1) Используем созданные вручную паттерны из qa_path
-# 2) Добавляем автоматически извлеченные праттерны
+# 2) Добавляем автоматически извлеченные паттерны
 px = [ qa_path,
        'current_time_pqa.txt',
        'names_pqa.txt',
@@ -107,7 +107,6 @@ px = [ qa_path,
        'premise_question_answer5_2s.txt',
        ]
 
-
 for p in px:
     print('Parsing {}'.format(p))
     nb_patterns0 = 0
@@ -116,26 +115,35 @@ for p in px:
         loading_state = 'T'
 
         text = []
-        questions = [] # список (вопрос, ответ)
+        questions = []  # список пар (вопрос, ответ)
 
-        while True:
+        # В автоматически сгенерированных корпусах вопросов-ответов может быть
+        # очень много записей, некоторые их которых могут быть не совсем качественные.
+        # Поэтому ограничим их число в пользу вручную сформированного корпуса.
+        max_samples = 10000000
+        if p != qa_path:
+            max_samples = 5000
+
+        samples_count = 0
+        while samples_count <= max_samples:
             line = inf.readline()
-            if len(line)==0:
+            if len(line) == 0:
                 break
 
             line = line.strip()
 
             if line.startswith(u'T:'):
-                if loading_state=='T':
+                if loading_state == 'T':
                     text.append(normalize_qline(line))
                 else:
                     # закончился парсинг предыдущего блока из текста (предпосылки),
                     # вопросов и ответов.
-                    if len(text)==1:
+                    if len(text) == 1:
                         for premise in text:
                             for question in questions:
-                                add_record( premise, question[0], question[1] )
+                                add_record(premise, question[0], question[1])
                                 nb_patterns0 += 1
+                                samples_count += 1
 
                     loading_state = 'T'
                     questions = []
@@ -152,7 +160,7 @@ for p in px:
 
 print('Total number of samples={}'.format(len(records)))
 
-result_path = os.path.join(data_folder,'premise_question_answer.csv')
+result_path = os.path.join(data_folder, 'premise_question_answer.csv')
 
 # сохраним получившийся датасет в CSV
 with codecs.open(result_path, 'w', 'utf-8') as wrt:

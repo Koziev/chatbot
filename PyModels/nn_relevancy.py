@@ -47,16 +47,6 @@ from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
 
 
-# Включать ли сэмплы, в которых задается релевантность предпосылки и вопроса,
-# например:
-# premise=Кошка ловит мышей
-# question=Кто ловит мышей?
-INCLUDE_PREMISE_QUESTION = False
-
-
-
-# -------------------------------------------------------------------
-
 PAD_WORD = u''
 
 
@@ -107,9 +97,7 @@ run_mode = args.run_mode
 
 
 max_wordseq_len = 0
-max_charseq_len = 0
 all_words = set()
-all_chars = set()
 
 # --------------------------------------------------------------------------
 
@@ -119,32 +107,6 @@ print( 'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
 wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
 wc2v_dims = len(wc2v.syn0[0])
 print('wc2v_dims={0}'.format(wc2v_dims))
-
-# --------------------------------------------------------------------------
-
-# Грузим ранее подготовленный датасет для тренировки модели
-df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-
-# Анализ и векторизация датасета
-tokenizer = Tokenizer()
-for phrase in itertools.chain( df['premise'].values, df['question'].values ):
-    all_chars.update( phrase )
-    max_charseq_len = max( max_charseq_len, len(phrase) )
-    words = tokenizer.tokenize(phrase)
-    all_words.update(words)
-    max_wordseq_len = max( max_wordseq_len, len(words) )
-
-for word in wc2v.vocab:
-    all_words.add(word)
-    all_chars.update(word)
-
-print('max_charseq_len={}'.format(max_charseq_len))
-print('max_wordseq_len={}'.format(max_wordseq_len))
-
-nb_chars = len(all_chars)
-nb_words = len(all_words)
-print('nb_chars={}'.format(nb_chars))
-print('nb_words={}'.format(nb_words))
 
 # --------------------------------------------------------------------------
 
@@ -170,40 +132,58 @@ del wc2v
 gc.collect()
 # -------------------------------------------------------------------
 
-
-print('Constructing the NN model...')
-
-nb_filters = 150  # 128
-rnn_size = word_dims
-
-final_merge_size = 0
-
-arch_filepath = os.path.join(tmp_folder, 'relevancy_model.arch')
-weights_path = os.path.join(tmp_folder, 'relevancy.weights')
+arch_filepath = os.path.join(tmp_folder, 'nn_relevancy_model.arch')
+weights_path = os.path.join(tmp_folder, 'nn_relevancy.weights')
 
 # 30.04.2018 отдельно сохраним модель для генерации вектора по тексту предложения.
 arch_filepath2 = os.path.join(tmp_folder, 'sent2vector.arch')
 weights_path2 = os.path.join(tmp_folder, 'sent2vector.weights')
 
 
-# сохраним конфиг модели, чтобы ее использовать в чат-боте
-model_config = {
-                'model': 'nn',
-                'max_wordseq_len': max_wordseq_len,
-                'w2v_path': word2vector_path,
-                'wordchar2vector_path': wordchar2vector_path,
-                'PAD_WORD': PAD_WORD,
-                'arch_filepath': arch_filepath,
-                'weights_path': weights_path,
-                'word_dims': word_dims
-               }
-
-with open(os.path.join(tmp_folder,'relevancy_model.config'), 'w') as f:
-    json.dump(model_config, f)
-
 # ------------------------------------------------------------------
 
+tokenizer = Tokenizer()
+
 if run_mode == 'train':
+
+    # Грузим ранее подготовленный датасет для тренировки модели
+    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
+
+    # Анализ и векторизация датасета
+    for phrase in itertools.chain(df['premise'].values, df['question'].values):
+        words = tokenizer.tokenize(phrase)
+        all_words.update(words)
+        max_wordseq_len = max(max_wordseq_len, len(words))
+
+    for word in word2vec:
+        all_words.add(word)
+
+    print('max_wordseq_len={}'.format(max_wordseq_len))
+
+    nb_words = len(all_words)
+    print('nb_words={}'.format(nb_words))
+
+    # сохраним конфиг модели, чтобы ее использовать в чат-боте
+    model_config = {
+        'model': 'nn',
+        'max_wordseq_len': max_wordseq_len,
+        'w2v_path': word2vector_path,
+        'wordchar2vector_path': wordchar2vector_path,
+        'PAD_WORD': PAD_WORD,
+        'arch_filepath': arch_filepath,
+        'weights_path': weights_path,
+        'word_dims': word_dims
+    }
+
+    with open(os.path.join(tmp_folder, 'nn_relevancy_model.config'), 'w') as f:
+        json.dump(model_config, f)
+
+    print('Constructing the NN model...')
+
+    nb_filters = 128  # 128
+    rnn_size = word_dims
+
+    final_merge_size = 0
 
     classif = None
     sent2vec_input = None
@@ -394,7 +374,7 @@ if run_mode == 'train':
             sent2vec_conv.append(sent2vec_layer)
 
 
-        if False:
+        if True:
             # этот финальный классификатор берет два вектора представления предложений,
             # объединяет их в вектор двойной длины и затем прогоняет этот двойной вектор
             # через несколько слоев.
@@ -404,8 +384,10 @@ if run_mode == 'train':
             # words_final = BatchNormalization()(words_final)
             words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
             # words_final = BatchNormalization()(words_final)
-            # words_final = Dense(units=int(encoder_size / 2), activation='relu')(words_final)
+            words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
             # words_final = BatchNormalization()(words_final)
+
+            sent2vec_output = keras.layers.concatenate(inputs=sent2vec_conv)
 
         else:
             # второй вариант финального классификатора - косинус между векторами
@@ -455,49 +437,16 @@ if run_mode == 'train':
 
 
 else:
-    # загружаем ранее натренированную сетку
+    # загружаем ранее натренированную сетку и остальные параметры модели
+
+    with open(os.path.join(tmp_folder, 'nn_relevancy_model.config'), 'r') as f:
+        model_config = json.load(f)
+        max_wordseq_len = int(model_config['max_wordseq_len'])
+
     with open(arch_filepath, 'r') as f:
         model = model_from_json(f.read())
 
     model.load_weights(weights_path)
-
-# -------------------------------------------------------------------------
-
-
-phrases = []
-ys = []
-
-for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phrases'):
-    phrase1 = row['premise']
-    phrase2 = row['question']
-    words1 = pad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-    words2 = pad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-
-    y = row['relevance']
-    if INCLUDE_PREMISE_QUESTION:
-        y = y > 0
-        ys.append(int(y))
-        phrases.append((words1, words2, phrase1, phrase2))
-    elif y in (0, 1):
-        ys.append(y)
-        phrases.append((words1, words2, phrase1, phrase2))
-
-if len(phrases) > max_nb_samples:
-    print('Reducing the list of samples from {} to {} items'.format(len(phrases), max_nb_samples))
-    #iphrases = list(np.random.permutation(range(len(phrases))))
-    phrases = phrases[:max_nb_samples]
-    ys = ys[:max_nb_samples]
-
-SEED = 123456
-TEST_SHARE = 0.2
-train_phrases, val_phrases, train_ys, val_ys = train_test_split(phrases,
-                                                                ys,
-                                                                test_size=TEST_SHARE,
-                                                                random_state=SEED)
-
-print('train_phrases.count={}'.format(len(train_phrases)))
-print('val_phrases.count={}'.format(len(val_phrases)))
-
 
 # -----------------------------------------------------------------
 
@@ -542,6 +491,36 @@ def generate_rows(sequences, targets, batch_size, mode):
 
 # <editor-fold desc="train">
 if run_mode == 'train':
+    phrases = []
+    ys = []
+
+    for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phrases'):
+        phrase1 = row['premise']
+        phrase2 = row['question']
+        words1 = pad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+        words2 = pad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+
+        y = row['relevance']
+        if y in (0, 1):
+            ys.append(y)
+            phrases.append((words1, words2, phrase1, phrase2))
+
+    if len(phrases) > max_nb_samples:
+        print('Reducing the list of samples from {} to {} items'.format(len(phrases), max_nb_samples))
+        # iphrases = list(np.random.permutation(range(len(phrases))))
+        phrases = phrases[:max_nb_samples]
+        ys = ys[:max_nb_samples]
+
+    SEED = 123456
+    TEST_SHARE = 0.2
+    train_phrases, val_phrases, train_ys, val_ys = train_test_split(phrases,
+                                                                    ys,
+                                                                    test_size=TEST_SHARE,
+                                                                    random_state=SEED)
+
+    print('train_phrases.count={}'.format(len(train_phrases)))
+    print('val_phrases.count={}'.format(len(val_phrases)))
+
     print('Start training...')
     model_checkpoint = ModelCheckpoint(weights_path, monitor='val_acc',
                                        verbose=1, save_best_only=True, mode='auto')
@@ -549,7 +528,7 @@ if run_mode == 'train':
 
     hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, 1),
                                steps_per_epoch=int(len(train_phrases)/batch_size),
-                               epochs=200,  # 200
+                               epochs=200,
                                verbose=1,
                                callbacks=[model_checkpoint, early_stopping],
                                validation_data=generate_rows( val_phrases, val_ys, batch_size, 1),
@@ -571,10 +550,6 @@ if run_mode == 'train':
     else:
         os.remove(arch_filepath2)
         os.remove(weights_path2)
-
-
-with open(arch_filepath, 'w') as f:
-    f.write(model.to_json())
 
 # </editor-fold>
 
@@ -604,11 +579,11 @@ if run_mode == 'query':
 
         print('\nEnter two phrases:')
         phrase1 = raw_input('phrase #1:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(phrase) == 0:
+        if len(phrase1) == 0:
             break
 
         phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(phrase) == 0:
+        if len(phrase2) == 0:
             break
 
         words1 = tokenizer.tokenize(phrase1)
@@ -646,18 +621,33 @@ if run_mode == 'query2':
     # и сохраняет список оценок с сортировкой.
     path1 = raw_input('path to text file with phrases:\n> ').decode(sys.stdout.encoding).strip().lower()
 
-    segmenter = Segmenter()
-    phrases0 = segmenter.split(codecs.open(path1, 'r', 'utf-8').readlines())
     phrases1 = []
-    for phrase in enumerate(phrases):
-        words = tokenizer.tokenize(phrase)
-        if len(words)>0:
-            if len(words) >= max_wordseq_len:
-                words = words[:max_wordseq_len]
-            phrases1.append(words)
+    segm_mode = raw_input('Use EOL markers (1) or segmenter (2) to split file to sentences?').strip()
+
+    max_nb_facts = int(raw_input('maximum number of samples to read from file (-1 means all):\n> ').strip())
+    if max_nb_facts == -1:
+        max_nb_facts = 10000000
+
+    if segm_mode == 2:
+        segmenter = Segmenter()
+        phrases0 = segmenter.split(codecs.open(path1, 'r', 'utf-8').readlines())
+        for phrase in enumerate(phrases):
+            words = tokenizer.tokenize(phrase)
+            if len(words) > 0:
+                phrases1.append(words)
+            if len(phrases1) >= max_nb_facts:
+                break
+    else:
+        with codecs.open(path1, 'r', 'utf-8') as rdr:
+            for phrase in rdr:
+                words = tokenizer.tokenize(phrase)
+                if len(words) > 0:
+                    phrases1.append(words)
+                if len(phrases1) >= max_nb_facts:
+                    break
 
     nb_phrases = len(phrases1)
-    print(u'File {} contains {} sentences'.format(path1, nb_phrases))
+    print(u'{1} phrases are loaded from {0}'.format(path1, nb_phrases))
 
     X1_probe = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
     X2_probe = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
@@ -666,7 +656,7 @@ if run_mode == 'query2':
         vectorize_words(pad_wordseq(words1, max_wordseq_len), X1_probe, iphrase, word2vec)
 
     while True:
-        X1_probe.fill(0)
+        # меняется только вторая матрица.
         X2_probe.fill(0)
 
         phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
@@ -682,17 +672,20 @@ if run_mode == 'query2':
                 all_words_known = False
 
         if all_words_known:
-            for i in range(nb_phrases):
-                vectorize_words(pad_wordseq(words2, max_wordseq_len), X2_probe, i, word2vec)
+            # вторая матрица будет содержать множество повторов одной и той же фразы,
+            # поэтому сформируем только первую строку, а остальные накопируем из нее.
+            vectorize_words(pad_wordseq(words2, max_wordseq_len), X2_probe, 0, word2vec)
+            for i in range(1, nb_phrases):
+                X2_probe[i, :, :] = X2_probe[0, :, :]
 
             y_probe = model.predict(x={'input_words1': X1_probe, 'input_words2': X2_probe})
 
-            sent_rels = [(phrases1[i], y_probe[i]) for i in range(nb_phrases)]
+            sent_rels = [(phrases1[i], y_probe[i][0]) for i in range(nb_phrases)]
             sent_rels = sorted(sent_rels, key=lambda z:-z[1])
 
             # Выведем top N фраз из файла
             for phrase1, rel in sent_rels[0:10]:
-                print(u'{}\t{}'.format(rel, phrase1))
+                print(u'{:4f}\t{}'.format(rel, u' '.join(phrase1)))
 
             print('\n\n')
 
