@@ -173,7 +173,7 @@ if run_mode == 'train':
     lgb_params['metric'] = 'binary_logloss'
     lgb_params['learning_rate'] = 0.20
     lgb_params['num_leaves'] = 40
-    lgb_params['min_data_in_leaf'] = 40
+    lgb_params['min_data_in_leaf'] = 10
     lgb_params['min_sum_hessian_in_leaf'] = 1
     lgb_params['max_depth'] = -1
     lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
@@ -196,8 +196,12 @@ if run_mode == 'train':
     y_pred = cl.predict(X_val)
     y_pred = (y_pred >= 0.5).astype(np.int)
     score = sklearn.metrics.accuracy_score(y_true=y_val, y_pred=y_pred)
-    print('score={}'.format(score))
+    print('val acc={}'.format(score))
 
+    # из-за сильного дисбаланса (в пользу исходов с y=0) оценивать качество
+    # получающейся модели лучше по f1
+    f1 = sklearn.metrics.f1_score(y_true=y_val, y_pred=y_pred)
+    print('val f1={}'.format(f1))
 
     model_filename = os.path.join( tmp_folder, 'lgb_relevancy.model' )
 
@@ -400,4 +404,4 @@ if run_mode == 'evaluate':
 
     # Итоговая точность выбора предпосылки.
     accuracy = float(nb_good)/float(nb_good+nb_bad)
-    print('accuracy={}'.format(accuracy))
+    print('eval accuracy={}'.format(accuracy))
