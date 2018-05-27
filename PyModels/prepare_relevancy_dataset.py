@@ -193,7 +193,7 @@ class ResultantDataset(object):
         # сохраним получившийся датасет в CSV
         with codecs.open(filepath, 'w', 'utf-8') as wrt:
             wrt.write(u'premise\tquestion\trelevance\tweight\n')
-            for (s1, s2), r, w in itertools.izip(self.str_pairs, self.relevancy, self.weights):
+            for (s1, s2), r, w in np.random.permutation(zip(self.str_pairs, self.relevancy, self.weights)):
                 wrt.write(u'{}\t{}\t{}\t{}\n'.format(s1, s2, r, w))
 
     def print_stat(self):
