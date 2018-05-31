@@ -29,3 +29,14 @@
 -parsing f:\Corpus\parsing\ru\SENT7.parsing.txt -output f:\tmp -templates good_templates.txt
 ```
 
+## Отбор вопросов
+
+Если требуется отобрать только вопросительные предложения, не проверяя грамматическое
+лицо глагола-сказуемого, то следует указать такие аргументы:
+
+```
+-filter q -parsing f:\Corpus\parsing\ru\SENT7.parsing.txt -output f:\tmp
+```
+
+В данном случае ```-filter q``` задает отбор предложений, оканчивающихся на символ ?
+

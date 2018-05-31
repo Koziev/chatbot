@@ -142,13 +142,29 @@ class ExtractFactsFromParsing
     }
 
 
-    static void ProcessSentence(SolarixGrammarEngineNET.GrammarEngine2 gren, Sentence sent, int max_len, string filter)
+    static void ProcessSentence(SolarixGrammarEngineNET.GrammarEngine2 gren, Sentence sent, int max_len, string filter_verb, string filter_sent)
     {
-        ProcessSentence2("Я вижу лишь тебя", gren, max_len);
-
-        if (sent.root.IsPartOfSpeech("ГЛАГОЛ") || sent.root.IsPartOfSpeech("БЕЗЛИЧ_ГЛАГОЛ"))
+        if (filter_sent == "q" && sent.GetText().Last() != '?')
         {
-            if (filter == "3")
+            // Нам нужны только вопросы
+            return;
+        }
+
+
+        if (filter_sent == "a" && sent.GetText().Last() == '?')
+        {
+            // Вопросы нам не нужны.
+            return;
+        }
+
+        if( string.IsNullOrEmpty(filter_verb))
+        {
+            // Подходят любые предложения, включая безличные структуры типа "Кому тяжело?"
+            ProcessSentence2(sent.GetText(), gren, max_len);
+        }
+        else if (sent.root.IsPartOfSpeech("ГЛАГОЛ") || sent.root.IsPartOfSpeech("БЕЗЛИЧ_ГЛАГОЛ"))
+        {
+            if (filter_verb == "3")
             {
                 // Пропускаем предложения с подлежащим в 3м лице
                 List<SNode> sbj = sent.root.FindEdge("SUBJECT");
@@ -162,7 +178,7 @@ class ExtractFactsFromParsing
                     ProcessSentence2(sent.GetText(), gren, max_len);
                 }
             }
-            else if (filter == "1s")
+            else if (filter_verb == "1s")
             {
                 // Есть явное подлежащее в первом лице единственном числе
                 List<SNode> sbj = sent.root.FindEdge("SUBJECT");
@@ -173,7 +189,7 @@ class ExtractFactsFromParsing
                     ProcessSentence2(sent.GetText(), gren, max_len);
                 }
             }
-            else if (filter == "2s")
+            else if (filter_verb == "2s")
             {
                 // Есть явное подлежащее во втором лице единственном числе
                 List<SNode> sbj = sent.root.FindEdge("SUBJECT");
@@ -247,13 +263,16 @@ class ExtractFactsFromParsing
             return;
         }
 
-        if (phrase.Length > 2 && phrase.Last() != '?')
+        if (phrase.Length > 2)
         {
             bool used = false;
+            string terminator = "";
 
             if (IsSentenceTerminator(phrase.Last()))
             {
-                // Удалим финальные символы . и !
+                terminator = new string(phrase.Last(), 1);
+
+                // Удалим финальные символы типа . или !
                 int finalizers = 1;
                 for (int i = phrase.Length - 2; i > 0; --i)
                 {
@@ -272,6 +291,7 @@ class ExtractFactsFromParsing
 
                 string phrase2 = Preprocess(phrase, gren);
 
+                // Выполним оценку синтаксического качества предложения, чтобы отсеять мусор.
                 int id_language = SolarixGrammarEngineNET.GrammarEngineAPI.RUSSIAN_LANGUAGE;
                 SolarixGrammarEngineNET.GrammarEngine.MorphologyFlags morph_flags = SolarixGrammarEngineNET.GrammarEngine.MorphologyFlags.SOL_GREN_COMPLETE_ONLY | SolarixGrammarEngineNET.GrammarEngine.MorphologyFlags.SOL_GREN_MODEL;
                 SolarixGrammarEngineNET.GrammarEngine.SyntaxFlags syntax_flags = SolarixGrammarEngineNET.GrammarEngine.SyntaxFlags.DEFAULT;
@@ -304,7 +324,7 @@ class ExtractFactsFromParsing
                         if (good)
                         {
                             used = true;
-                            WriteSample(phrase);
+                            WriteSample(phrase+terminator);
                             wrt_samples.Flush();
                         }
                         else
@@ -359,9 +379,9 @@ class ExtractFactsFromParsing
 
         int MAX_SAMPLE = int.MaxValue;
         int MAX_LEN = int.MaxValue;
-        string filter = "3";
         string dictionary_path = "";
         string syntax_templates = "";
+        string[] filters = { "3" };
 
         #region Command_Line_Options
         for (int i = 0; i < args.Length; ++i)
@@ -403,13 +423,8 @@ class ExtractFactsFromParsing
             }
             else if (args[i] == "-filter")
             {
-                filter = args[i + 1];
+                filters = args[i + 1].Split(',');
                 i++;
-
-                if (filter != "1s" && filter != "2s" && filter != "3")
-                {
-                    throw new ApplicationException($"Unknown filter {filter}");
-                }
             }
             else
             {
@@ -433,6 +448,12 @@ class ExtractFactsFromParsing
 
         // Предложения, которые не прошли детальную проверку синтаксической структуры
         wrt_skipped = new System.IO.StreamWriter(System.IO.Path.Combine(result_folder, "skipped.txt"));
+
+        // Фильтр для предиката, с возможными значениями "3", "2s" и "1s"
+        string filter_verb = filters.Where(z => "3 1s 2s".Split(' ').Contains(z)).FirstOrDefault();
+
+        // Фильтр типа предложения. Допустимые значение - пустое или "q"
+        string filter_sent = (filters.Where(z => "q".Split(' ').Contains(z)).FirstOrDefault()) ?? "";
 
 
         DateTime start_time = DateTime.Now;
@@ -480,7 +501,8 @@ class ExtractFactsFromParsing
 
                         if (sample_count >= nb_skip)
                         {
-                            ProcessSentence(gren, sent, MAX_LEN, filter);
+                            //Console.WriteLine("DEBUG [{0}] {1}", sample_count, sent.GetText());
+                            ProcessSentence(gren, sent, MAX_LEN, filter_verb, filter_sent);
                         }
                     }
                 }
