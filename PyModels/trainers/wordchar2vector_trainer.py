@@ -11,6 +11,7 @@ from __future__ import print_function
 
 __author__ = "Ilya Koziev"
 
+import six
 import numpy as np
 import os
 import codecs
@@ -246,7 +247,7 @@ class Wordchar2Vector_Trainer(object):
             if c != FILLER_CHAR:
                 char2index[c] = len(char2index)
 
-        index2char = dict([(i, c) for c, i in char2index.iteritems()])
+        index2char = dict([(i, c) for c, i in six.iteritems(char2index)])
 
         nb_chars = len(all_chars)
         print('nb_chars={}'.format(nb_chars))
