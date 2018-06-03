@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from keras.models import model_from_json
-import xgboost
-from scipy.sparse import lil_matrix
 import json
 import os
-import pickle
-import numpy as np
 import logging
 
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
 from word_embeddings import WordEmbeddings
 from xgb_relevancy_detector import XGB_RelevancyDetector
+from lgb_relevancy_detector import LGB_RelevancyDetector
 from xgb_yes_no_model import XGB_YesNoModel
 from nn_model_selector import NN_ModelSelector
 from xgb_person_classifier_model import XGB_PersonClassifierModel
@@ -22,7 +18,7 @@ from nn_person_change import NN_PersonChange
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
     """
-    Простой чат-бот на основе набора нейросетевых и прочих моделей.
+    Простой чат-бот на основе набора нейросетевых и прочих моделей (https://github.com/Koziev/chatbot).
     """
 
     def __init__(self, facts_storage, text_utils):
@@ -34,6 +30,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger = logging.getLogger('SimpleAnsweringMachine')
 
     def get_model_filepath(self, models_folder, old_filepath):
+        """
+        Для внутреннего использования - корректирует абсолютный путь
+        к файлам данных модели так, чтобы был указанный каталог.
+        """
         _, tail = os.path.split(old_filepath)
         return os.path.join( models_folder,  tail )
 
@@ -61,7 +61,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # данного класса и конкретных реализации моделей.
 
         # Определение релевантности предпосылки и вопроса на основе XGB модели
-        self.relevancy_detector = XGB_RelevancyDetector()
+        #self.relevancy_detector = XGB_RelevancyDetector()
+        self.relevancy_detector = LGB_RelevancyDetector()
         self.relevancy_detector.load(models_folder)
 
         # Модель для выбора ответов yes|no на базе XGB
@@ -117,17 +118,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             self.logger.debug('detected person={}'.format(person))
 
-        if person=='1s':
+        if person == '1s':
             question = self.change_person(question, '2s')
-        elif person=='2s':
+        elif person == '2s':
             question = self.change_person(question, '1s')
 
         if question0[-1] in [u'.!']:
             # Утверждение добавляем как факт в базу знаний
             fact_person = '3'
-            if person=='1s':
+            if person == '1s':
                 fact_person='2s'
-            elif person=='2s':
+            elif person == '2s':
                 fact_person='1s'
             fact = question
             if self.trace_enabled:

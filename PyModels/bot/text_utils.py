@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
+"""
+Код для выполнения операций с текстом на русском языке (или другом целевом),
+в частности - токенизация, лемматизация.
+"""
 
 import itertools
 import re
+from pymystem3 import Mystem
 from utils.tokenizer import Tokenizer
 
 
@@ -12,6 +17,7 @@ PAD_WORD = u''
 class TextUtils(object):
     def __init__(self):
         self.tokenizer = Tokenizer()
+        self.lemmatizer = Mystem()
 
     def canonize_text(self, s):
         # Удаляем два и более пробелов подряд, заменяя на один.
@@ -26,6 +32,12 @@ class TextUtils(object):
 
     def tokenize(self, s):
         return self.tokenizer.tokenize(s)
+
+    def lemmatize(self, s):
+        words = self.tokenizer.tokenize(s)
+        wx = u' '.join(words)
+        return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip())>0]
+
 
     # Слева добавляем пустые слова
     def pad_wordseq(self, words, n):
