@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 '''
-Тренировка LSA.
-Сохраняем векторы всех фраз в датасетах qa и relevancy.
+Тренировка LSA модели, оценка на задаче выбора релевантной предпосылки,
+кластеризация для визуализации.
+
+Сохраняем векторы всех фраз, присутствующих в датасетах для qa и relevancy.
 '''
 
 from __future__ import division  # for python2 compatibility
@@ -11,6 +13,8 @@ import os
 import pickle
 import codecs
 import sys
+import itertools
+import numpy as np
 
 import pandas as pd
 from sklearn.decomposition import TruncatedSVD
@@ -20,25 +24,34 @@ import sklearn.cluster
 import scipy.spatial.distance
 
 from utils.tokenizer import Tokenizer
+from trainers.evaluation_dataset import EvaluationDataset
+from trainers.evaluation_markup import EvaluationMarkup
 
-input_path1 = '../data/premise_question_answer.csv'
+
 tmp_folder = '../tmp'
 data_folder = '../data'
 
 LSA_DIMS = 60
 
-# -------------------------------------------------------------------
 
-df = pd.read_csv(input_path1, encoding='utf-8', delimiter='\t', quoting=3)
-print('samples.count={}'.format(df.shape[0]))
+def v_cosine( a, b ):
+    return np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
+
+# -------------------------------------------------------------------
 
 print('Buidling tf-idf corpus...')
 tfidf_corpus = set()
 tokenizer = Tokenizer()
-for i,record in df.iterrows():
-    for phrase in [record['premise'], record['question']]:
-        phrase = u' '.join(tokenizer.tokenize(phrase))
-        tfidf_corpus.add(phrase)
+
+for fname in ['premise_question_answer.csv', 'premise_question_relevancy.csv']:
+    df = pd.read_csv(os.path.join(data_folder, fname),
+                     encoding='utf-8',
+                     delimiter='\t',
+                     quoting=3)
+    for i, record in df.iterrows():
+        for phrase in [record['premise'], record['question']]:
+            phrase = u' '.join(tokenizer.tokenize(phrase))
+            tfidf_corpus.add(phrase)
 
 tfidf_corpus = list(tfidf_corpus)
 print('{} phrases in tfidf corpus'.format(len(tfidf_corpus)))
@@ -59,6 +72,61 @@ with open(os.path.join(tmp_folder,'lsa_model.pickle'), 'w') as f:
             'lsa_dims': LSA_DIMS}
     pickle.dump(lsa, f)
 
+
+# -----------------------------------------------------------
+
+# Оценим точность выбора релевантного вопроса для предпосылки по специальному
+# датасету.
+eval_data = EvaluationDataset(0, tokenizer)
+eval_data.load(data_folder)
+
+all_phrases = eval_data.get_all_phrases()
+all_vectors = svd_transformer.transform(all_phrases)
+
+phrase2vec = dict(itertools.izip(all_phrases, all_vectors))
+
+nb_good = 0
+nb_bad = 0
+
+for irecord, phrases in eval_data.generate_groups():
+    y_pred = []
+    for irow, (premise_words, question_words) in enumerate(phrases):
+        premise = u' '.join(premise_words)
+        premise_v = phrase2vec[premise] if premise in phrase2vec else None
+
+        question = u' '.join(question_words)
+        question_v = phrase2vec[question] if question in phrase2vec else None
+
+        if premise_v is not None and question_v is not None:
+            sim = v_cosine(premise_v, question_v)
+        else:
+            sim = 0.0
+        y_pred.append(sim)
+
+    # предпосылка с максимальной релевантностью
+    max_index = np.argmax(y_pred)
+    selected_premise = u' '.join(phrases[max_index][0]).strip()
+
+    # эта выбранная предпосылка соответствует одному из вариантов
+    # релевантных предпосылок в этой группе?
+    if eval_data.is_relevant_premise(irecord, selected_premise):
+        nb_good += 1
+        print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
+    else:
+        nb_bad += 1
+        print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+
+    max_sim = np.max(y_pred)
+
+    question_words = phrases[0][1]
+    print(u'{:<40} {:<40} {}/{}'.format(u' '.join(question_words), u' '.join(phrases[max_index][0]), y_pred[max_index],
+                                        y_pred[0]))
+
+# Итоговая точность выбора предпосылки.
+accuracy = float(nb_good) / float(nb_good + nb_bad)
+print('accuracy={}'.format(accuracy))
+
+# ----------------------------------------------------------------------------
 
 if True:
     # Визуализация получающихся векторов предложений с помощью kmeans
