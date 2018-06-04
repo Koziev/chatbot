@@ -15,6 +15,8 @@ class NN_WordCopy3(WordCopyModel):
     def __init__(self):
         super(NN_WordCopy3, self).__init__()
         self.logger = logging.getLogger('NN_WordCopy3')
+        self.model = None
+        self.model_config = None
 
     def load(self, models_folder):
         self.logger.info('Loading NN_WordCopy3 model files')
@@ -31,7 +33,9 @@ class NN_WordCopy3(WordCopyModel):
             self.model_config = json.load(f)
 
         self.word_dims = self.model_config['word_dims']
+        self.w2v_path = self.model_config['w2v_path']
         self.max_wordseq_len = int(self.model_config['max_inputseq_len'])
+        self.padding = self.model_config['padding']
         self.X1_probe = np.zeros((1, self.max_wordseq_len, self.word_dims), dtype=np.float32)
         self.X2_probe = np.zeros((1, self.max_wordseq_len, self.word_dims), dtype=np.float32)
 
@@ -39,10 +43,16 @@ class NN_WordCopy3(WordCopyModel):
         # определяем диапазон слов начала и конца копируемой цепочки слов
         self.X1_probe.fill(0)
         self.X2_probe.fill(0)
-        premise_words = text_utils.rpad_wordseq(text_utils.tokenize(premise_str), self.max_wordseq_len)
-        question_words = text_utils.rpad_wordseq(text_utils.tokenize(question_str), self.max_wordseq_len)
-        word_embeddings.vectorize_words(premise_words, self.X1_probe, 0)
-        word_embeddings.vectorize_words(question_words, self.X2_probe, 0)
+
+        if self.padding == 'right':
+            premise_words = text_utils.rpad_wordseq(text_utils.tokenize(premise_str), self.max_wordseq_len)
+            question_words = text_utils.rpad_wordseq(text_utils.tokenize(question_str), self.max_wordseq_len)
+        else:
+            premise_words = text_utils.lpad_wordseq(text_utils.tokenize(premise_str), self.max_wordseq_len)
+            question_words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_wordseq_len)
+
+        word_embeddings.vectorize_words(self.w2v_path, premise_words, self.X1_probe, 0)
+        word_embeddings.vectorize_words(self.w2v_path, question_words, self.X2_probe, 0)
 
         (y1_probe, y2_probe) = self.model.predict({'input_words1': self.X1_probe, 'input_words2': self.X2_probe})
         beg_pos = np.argmax(y1_probe[0])
@@ -51,4 +61,3 @@ class NN_WordCopy3(WordCopyModel):
         answer = u' '.join(words)
 
         return answer
-

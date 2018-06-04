@@ -26,7 +26,7 @@ class LGB_RelevancyDetector(GB_RelevancyDetector):
             model_config = json.load(f)
 
         self.init_model_params(model_config)
-        self.lgb_relevancy = lightgbm.Booster(model_file=model_config['model_filename'])
+        self.lgb_relevancy = lightgbm.Booster(model_file=os.path.join(models_folder, os.path.basename(model_config['model_filename'])))
 
     def predict_by_model(self, X_data):
         y_pred = self.lgb_relevancy.predict(X_data)

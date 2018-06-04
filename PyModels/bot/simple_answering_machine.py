@@ -47,8 +47,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             model_config = json.load(f)
 
             self.max_inputseq_len = model_config['max_inputseq_len']
-            self.max_outputseq_len = model_config['max_outputseq_len']
-            self.w2v_path = model_config['w2v_path']
+            #self.max_outputseq_len = model_config['max_outputseq_len']
+            #self.w2v_path = model_config['w2v_path']
             self.wordchar2vector_path = self.get_model_filepath( models_folder, model_config['wordchar2vector_path'] )
             self.PAD_WORD = model_config['PAD_WORD']
             self.word_dims = model_config['word_dims']
@@ -87,7 +87,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Загрузка векторных словарей
         self.word_embeddings = WordEmbeddings()
-        self.word_embeddings.load_models(self.w2v_path, self.wordchar2vector_path)
+        self.word_embeddings.load_wc2v_model(self.wordchar2vector_path)
+        self.word_embeddings.load_w2v_model(self.word_copy_model.w2v_path)
+        self.word_embeddings.load_w2v_model(self.model_selector.w2v_path)
 
     def change_person(self, phrase, target_person):
         return self.person_changer.change_person(phrase, target_person, self.text_utils, self.word_embeddings)

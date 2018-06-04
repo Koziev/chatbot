@@ -32,23 +32,30 @@ class WordEmbeddings(object):
     """
 
     def __init__(self):
-        pass
+        self.wc2v = None
+        self.wc2v_dims = None
+        self.w2v = dict()
+        self.w2v_dims = dict()
 
-    def load_models(self, w2v_path, wc2v_path):
+    def load_wc2v_model(self, wc2v_path):
         logging.info(u'Loading wordchar2vector from {}'.format(wc2v_path))
         self.wc2v = gensim.models.KeyedVectors.load_word2vec_format(wc2v_path, binary=False)
         self.wc2v_dims = len(self.wc2v.syn0[0])
 
+    def load_w2v_model(self, w2v_path):
         logging.info(u'Loading word2vector from {}'.format(w2v_path))
-        self.w2v = gensim.models.KeyedVectors.load_word2vec_format(w2v_path, binary=False)
-        self.w2v_dims = len(self.w2v.syn0[0])
+        w2v = gensim.models.KeyedVectors.load_word2vec_format(w2v_path, binary=not w2v_path.endswith('.txt'))
+        self.w2v[w2v_path] = w2v
+        self.w2v_dims[w2v_path] = len(w2v.syn0[0])
 
     def get_dims(self):
         return self.wc2v_dims+self.w2v_dims
 
-    def vectorize_words(self, words, X_batch, irow):
+    def vectorize_words(self, w2v_path, words, X_batch, irow):
+        w2v = self.w2v[w2v_path]
+        w2v_dims = self.w2v_dims[w2v_path]
         for iword, word in enumerate(words):
             if word in self.w2v:
-                X_batch[irow, iword, :self.w2v_dims] = self.w2v[word]
+                X_batch[irow, iword, :w2v_dims] = w2v[word]
             if word in self.wc2v:
-                X_batch[irow, iword, self.w2v_dims:] = self.wc2v[word]
+                X_batch[irow, iword, w2v_dims:] = self.wc2v[word]

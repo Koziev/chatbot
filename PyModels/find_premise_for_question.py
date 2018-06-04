@@ -28,7 +28,7 @@ def sanitize(phrase, text_utils):
 
 
 parser = argparse.ArgumentParser(description='Relevant fact finder')
-parser.add_argument('--facts_path', type=str, default='../data/premises.txt', help='path to text file with facts')
+parser.add_argument('--facts_path', type=str, default='../data/premises.txt,../data/premises_1s.txt', help='comma separated list of paths to text file with facts')
 parser.add_argument('--model_dir', type=str, default='../tmp', help='folder with trained model datafiles')
 parser.add_argument('--model', type=str, default='lgb', help='model to use: xgb | lgb')
 
@@ -52,14 +52,15 @@ else:
 relevancy_detector.load(model_dir)
 
 # Загружаем базу знаний. Каждая строка в этом файле рассматривается как предложение-факт.
-print('Loading facts from {}...'.format(facts_path))
-memory_phrases = []
-with codecs.open(facts_path, 'r', 'utf-8') as rdr:
-    for line in rdr:
-        premise = line.strip()
-        if len(premise)>0:
-            premise = sanitize(premise, text_utils)
-            memory_phrases.append((premise, None, None))
+for f in facts_path.split(','):
+    print('Loading facts from {}...'.format(f))
+    memory_phrases = []
+    with codecs.open(f, 'r', 'utf-8') as rdr:
+        for line in rdr:
+            premise = line.strip()
+            if len(premise)>0:
+                premise = sanitize(premise, text_utils)
+                memory_phrases.append((premise, None, None))
 
 nb_answers = len(memory_phrases)
 print('{} facts in knowledge base'.format(nb_answers))
