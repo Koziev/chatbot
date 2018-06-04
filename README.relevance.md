@@ -60,6 +60,14 @@ lgb_relevancy.model (бустер, сохраненный в LightGBM) и lgb_re
 можно найти в скриптах [eval_xgb_relevancy.sh](https://github.com/Koziev/chatbot/blob/master/scripts/eval_xgb_relevancy.sh)
 и [eval_lgb_relevancy.sh](https://github.com/Koziev/chatbot/blob/master/scripts/eval_lgb_relevancy.sh).
 
+## Консольный тест моделей релевантности
+
+С помощью консольной программы [find_premise_for_question.py](https://github.com/Koziev/chatbot/blob/master/PyModels/find_premise_for_question.py)
+можно вручную проверить работу натренированных моделей:
+
+
+
+
 ## Прочие необучаемые и обучаемые без учителя метрики
 
 ...to be written...
