@@ -55,7 +55,7 @@ class WordEmbeddings(object):
         w2v = self.w2v[w2v_path]
         w2v_dims = self.w2v_dims[w2v_path]
         for iword, word in enumerate(words):
-            if word in self.w2v:
+            if word in w2v:
                 X_batch[irow, iword, :w2v_dims] = w2v[word]
             if word in self.wc2v:
                 X_batch[irow, iword, w2v_dims:] = self.wc2v[word]

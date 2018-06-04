@@ -50,7 +50,16 @@ class NN_ModelSelector(ModelSelector):
 
         word_embeddings.vectorize_words(self.w2v_path, premise_words, self.X1_probe, 0)
         word_embeddings.vectorize_words(self.w2v_path, question_words, self.X2_probe, 0)
+
         y_probe = self.model.predict({'input_words1': self.X1_probe, 'input_words2': self.X2_probe})
+
+        if False:  # Отладка
+            print(u'premise_words=', u' '.join(premise_words).strip())
+            print(u'question_words=', u' '.join(question_words).strip())
+            print('X1_probe=', self.X1_probe)
+            print('X2_probe=', self.X2_probe)
+            print('y_probe=', y_probe)
+
         model_selector = np.argmax( y_probe[0] )
         return model_selector
 
