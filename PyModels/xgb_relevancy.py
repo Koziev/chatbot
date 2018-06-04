@@ -1,8 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Тренировка модели определения релевантности предпосылки и вопроса.
+Тренировка и валидация модели определения релевантности предпосылки и вопроса.
 Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
-Используется XGBoost.
+Движок - XGBoost. Для сравнения альтернативные модели: на базе LightGBM lgb_relevancy.py
+и нейросетевая nn_relevancy.py
+
+Программа содержит код для обучения (--run_mode train), интерактивной проверки
+релевантности пар предложений, вводимых с консоли (--run_mode query) и
+пакетной оценки качества на задаче выбора лучшей предпосылки для вопроса (--run_mode evaluate).
+
+Предполагается, что датасет ../data/premise_question_relevancy.csv уже сгенерирован
+программой prepare_relevancy_dataset.py
+
+Пример запуска обучения с нужными параметрами командной строки см. в ../scripts/train_xgb_relevancy.sh
+
+Обученная модель используется в чатботе в классе 
 """
 
 from __future__ import division
@@ -24,18 +36,20 @@ import xgboost
 from scipy.sparse import lil_matrix
 from sklearn.model_selection import train_test_split
 
-from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
+from utils.phrase_splitter import PhraseLemmatizer, PhraseTokenizer
 
 config_filename = 'xgb_relevancy.config'
 
 parser = argparse.ArgumentParser(description='XGB classifier for text relevance estimation')
-parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
+parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | evaluate | query | query2 | clusterize')
 parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
-parser.add_argument('--max_depth', type=int, default=6, help='max depth parameter for XGBoost')
-parser.add_argument('--eta', type=float, default=0.20, help='eta (learning rate) parameter for XGBoost')
+parser.add_argument('--max_depth', type=int, default=6, help='"max_depth" parameter for XGBoost')
+parser.add_argument('--eta', type=float, default=0.20, help='"eta" (learning rate) parameter for XGBoost')
+parser.add_argument('--subsample', type=float, default=1.00, help='"subsample" parameter for XGBoost')
+parser.add_argument('--lemmatize', type=int, default=0, help='lemmatize phrases before extracting the shingles')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
@@ -46,6 +60,8 @@ input_path = args.input
 tmp_folder = args.tmp
 data_folder = args.data_dir
 run_mode = args.run_mode
+lemmatize = args.lemmatize
+subsample = args.subsample
 
 # основной настроечный параметр модели - длина символьных N-грамм (шинглов)
 shingle_len = args.shingle_len
@@ -93,14 +109,13 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shing
 
 # -------------------------------------------------------------------
 
-tokenizer = Tokenizer()
-
-
 if run_mode == 'train':
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
     print('samples.count={}'.format(df.shape[0]))
 
     all_shingles = set()
+
+    tokenizer = PhraseLemmatizer() if lemmatize else PhraseTokenizer()
 
     for i,record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles'):
         for phrase in [record['premise'], record['question']]:
@@ -146,8 +161,8 @@ if run_mode == 'train':
         question_shingles = ngrams(question, shingle_len)
         vectorize_sample_x( X_data, idata, premise_shingles, question_shingles, shingle2id )
 
-    nb_0 = len(filter(lambda y:y==0, y_data))
-    nb_1 = len(filter(lambda y:y==1, y_data))
+    nb_0 = len(filter(lambda y: y == 0, y_data))
+    nb_1 = len(filter(lambda y: y == 1, y_data))
 
     print('nb_0={}'.format(nb_0))
     print('nb_1={}'.format(nb_1))
@@ -156,7 +171,11 @@ if run_mode == 'train':
 
     SEED = 123456
     TEST_SHARE = 0.2
-    X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(X_data, y_data, weights, test_size=TEST_SHARE, random_state=SEED)
+    X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(X_data,
+                                                                      y_data,
+                                                                      weights,
+                                                                      test_size=TEST_SHARE,
+                                                                      random_state=SEED)
 
     D_train = xgboost.DMatrix(data=X_train, label=y_train, weight=w_train, silent=0)
     D_val = xgboost.DMatrix(data=X_val, label=y_val, weight=w_val, silent=0)
@@ -170,7 +189,7 @@ if run_mode == 'train':
     xgb_params = {
         'booster': 'gbtree',
         # 'n_estimators': _n_estimators,
-        'subsample': 1.0,
+        'subsample': subsample,
         'max_depth': max_depth,
         'seed': 123456,
         'min_child_weight': 1,
@@ -195,9 +214,13 @@ if run_mode == 'train':
     print('Training is finished')
     y_pred = cl.predict(D_val)
     y_pred = (y_pred >= 0.5).astype(np.int)
-    score = sklearn.metrics.accuracy_score(y_true=y_val, y_pred=y_pred)
-    print('score={}'.format(score))
+    acc = sklearn.metrics.accuracy_score(y_true=y_val, y_pred=y_pred)
+    print('val acc={}'.format(acc))
 
+    # из-за сильного дисбаланса (в пользу исходов с y=0) оценивать качество
+    # получающейся модели лучше по f1
+    f1 = sklearn.metrics.f1_score(y_true=y_val, y_pred=y_pred)
+    print('val f1={}'.format(f1))
 
     model_filename = os.path.join( tmp_folder, 'xgb_relevancy.model' )
 
@@ -208,6 +231,7 @@ if run_mode == 'train':
                     'model_filename': model_filename,
                     'shingle_len': shingle_len,
                     'nb_features': nb_features,
+                    'lemmatize': lemmatize
                    }
 
     with open(os.path.join(tmp_folder, config_filename), 'w') as f:
@@ -225,6 +249,9 @@ if run_mode == 'query':
     xgb_relevancy_shingle2id = model_config['shingle2id']
     xgb_relevancy_shingle_len = model_config['shingle_len']
     xgb_relevancy_nb_features = model_config['nb_features']
+    xgb_relevancy_lemmatize = model_config['lemmatize']
+
+    tokenizer = PhraseLemmatizer() if xgb_relevancy_lemmatize else PhraseTokenizer()
 
     xgb_relevancy = xgboost.Booster()
     xgb_relevancy.load_model(model_config['model_filename'])
@@ -267,6 +294,9 @@ if run_mode == 'query2':
     xgb_relevancy_shingle2id = model_config['shingle2id']
     xgb_relevancy_shingle_len = model_config['shingle_len']
     xgb_relevancy_nb_features = model_config['nb_features']
+    xgb_relevancy_lemmatize = model_config['lemmatize']
+
+    tokenizer = PhraseLemmatizer() if xgb_relevancy_lemmatize else PhraseTokenizer()
 
     xgb_relevancy = xgboost.Booster()
     xgb_relevancy.load_model(model_config['model_filename'])
@@ -331,11 +361,6 @@ if run_mode == 'query2':
             print(u'{:4f}\t{}'.format(y_probe[phrase_index], u' '.join(phrases1[phrase_index])))
 
 if run_mode == 'evaluate':
-    # Оценка качества натренированной модели на специальном наборе вопросов и ожидаемых выборов предпосылок
-    # из тренировочного набора.
-    eval_data = EvaluationDataset(0, tokenizer)
-    eval_data.load(data_folder)
-
     # Загружаем данные обученной модели.
     with open(os.path.join(tmp_folder, config_filename), 'r') as f:
         model_config = json.load(f)
@@ -343,6 +368,14 @@ if run_mode == 'evaluate':
     xgb_relevancy_shingle2id = model_config['shingle2id']
     xgb_relevancy_shingle_len = model_config['shingle_len']
     xgb_relevancy_nb_features = model_config['nb_features']
+    xgb_relevancy_lemmatize = model_config['lemmatize']
+
+    tokenizer = PhraseLemmatizer() if xgb_relevancy_lemmatize else PhraseTokenizer()
+
+    # Оценка качества натренированной модели на специальном наборе вопросов и ожидаемых выборов предпосылок
+    # из тренировочного набора.
+    eval_data = EvaluationDataset(0, tokenizer)
+    eval_data.load(data_folder)
 
     xgb_relevancy = xgboost.Booster()
     xgb_relevancy.load_model(model_config['model_filename'])
@@ -402,3 +435,8 @@ if run_mode == 'evaluate':
     # Итоговая точность выбора предпосылки.
     accuracy = float(nb_good)/float(nb_good+nb_bad)
     print('accuracy={}'.format(accuracy))
+
+
+if run_mode == 'clusterize':
+    pass # TODO
+

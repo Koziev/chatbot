@@ -6,7 +6,9 @@
 
 Альтернативные модели - на базе XGBoost (xgb_relevancy.py) и нейросететевые (nn_relevancy.py)
 
-Для запуска обучения с нужными параметрами командной строки см. ../scripts/train_lgb_relevancy.sh
+Пример запуска обучения с нужными параметрами командной строки см. в ../scripts/train_lgb_relevancy.sh
+
+В чатботе обученная данной программой модель используется классом LGB_RelevancyDetector (https://github.com/Koziev/chatbot/blob/master/PyModels/bot/lgb_relevancy_detector.py)
 """
 
 from __future__ import division
@@ -174,56 +176,62 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
     nb_good = 0
     nb_bad = 0
 
-    with codecs.open(os.path.join(tmp_folder, 'lgb_relevancy.evaluation.txt'), 'w', 'utf-8') as wrt:
-        for irecord, phrases in eval_data.generate_groups():
-            nb_samples = len(phrases)
+    wrt = None
+    if verbose:
+        wrt = codecs.open(os.path.join(tmp_folder, 'lgb_relevancy.evaluation.txt'), 'w', 'utf-8')
 
-            X_data = lil_matrix((nb_samples, xgb_relevancy_nb_features), dtype='float32')
+    for irecord, phrases in eval_data.generate_groups():
+        nb_samples = len(phrases)
 
-            for irow, (premise_words, question_words) in enumerate(phrases):
-                premise_wx = words2str(premise_words)
-                question_wx = words2str(question_words)
+        X_data = lil_matrix((nb_samples, xgb_relevancy_nb_features), dtype='float32')
 
-                premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
-                question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
+        for irow, (premise_words, question_words) in enumerate(phrases):
+            premise_wx = words2str(premise_words)
+            question_wx = words2str(question_words)
 
-                vectorize_sample_x(X_data, irow, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
+            premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
+            question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
 
-            y_pred = lgb_relevancy.predict(X_data)
+            vectorize_sample_x(X_data, irow, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
 
-            # предпосылка с максимальной релевантностью
-            max_index = np.argmax(y_pred)
-            selected_premise = u' '.join(phrases[max_index][0]).strip()
+        y_pred = lgb_relevancy.predict(X_data)
 
-            # эта выбранная предпосылка соответствует одному из вариантов
-            # релевантных предпосылок в этой группе?
-            if eval_data.is_relevant_premise(irecord, selected_premise):
-                nb_good += 1
-                if verbose:
-                    print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
-                    wrt.write(EvaluationMarkup.ok_bullet)
-            else:
-                nb_bad += 1
-                if verbose:
-                    print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
-                    wrt.write(EvaluationMarkup.fail_bullet)
+        # предпосылка с максимальной релевантностью
+        max_index = np.argmax(y_pred)
+        selected_premise = u' '.join(phrases[max_index][0]).strip()
 
-            max_sim = np.max(y_pred)
+        # эта выбранная предпосылка соответствует одному из вариантов
+        # релевантных предпосылок в этой группе?
+        if eval_data.is_relevant_premise(irecord, selected_premise):
+            nb_good += 1
+            if verbose:
+                print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
+                wrt.write(EvaluationMarkup.ok_bullet)
+        else:
+            nb_bad += 1
+            if verbose:
+                print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+                wrt.write(EvaluationMarkup.fail_bullet)
 
-            if verbose == 1:
-                question_words = phrases[0][1]
-                message_line = u'{:<40} {:<40} {}/{}'.format(u' '.join(question_words), u' '.join(phrases[max_index][0]), y_pred[max_index], y_pred[0])
-                print(message_line)
-                wrt.write(message_line+u'\n')
+        max_sim = np.max(y_pred)
 
-            # для отладки: top релевантных вопросов
-            if False:
-                print(u'Most similar premises for question {}'.format(u' '.join(question)))
-                yy = [(y_pred[i], i) for i in range(len(y_pred))]
-                yy = sorted(yy, key=lambda z:-z[0])
+        if verbose == 1:
+            question_words = phrases[0][1]
+            message_line = u'{:<40} {:<40} {}/{}'.format(u' '.join(question_words), u' '.join(phrases[max_index][0]), y_pred[max_index], y_pred[0])
+            print(message_line)
+            wrt.write(message_line+u'\n')
 
-                for sim, index in yy[:5]:
-                    print(u'{:.4f} {}'.format(sim, u' '.join(phrases[index][0])))
+        # для отладки: top релевантных вопросов
+        if False:
+            print(u'Most similar premises for question {}'.format(u' '.join(question)))
+            yy = [(y_pred[i], i) for i in range(len(y_pred))]
+            yy = sorted(yy, key=lambda z:-z[0])
+
+            for sim, index in yy[:5]:
+                print(u'{:.4f} {}'.format(sim, u' '.join(phrases[index][0])))
+
+    if wrt != None:
+        wrt.close()
 
     # Итоговая точность выбора предпосылки.
     accuracy = float(nb_good)/float(nb_good+nb_bad)
@@ -282,18 +290,19 @@ def objective(space):
         do_store = True
         print(EvaluationMarkup.ok_color + 'NEW BEST ACC={}'.format(cur_best_acc) + EvaluationMarkup.close_color)
 
+    prefix = '   '
     if do_store:
         model_filename = ho_model_config['model_filename']
         cl.save_model(model_filename)
-        hyperopt_log_writer.write( 'eval acc={:<7.5f} Params:{}\n'.format(eval_acc, str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
-        hyperopt_log_writer.flush()
+        prefix = '(*)'
 
-    #end = time.time()
-    #elapsed = int(end - start)
-    ##print('elapsed={}'.format(elapsed ) )
+    hyperopt_log_writer.write('{}eval acc={:<7.5f} Params:{}\n'.format(
+                                                                       prefix,
+                                                                       eval_acc,
+                                                                       str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
+    hyperopt_log_writer.flush()
 
     return{'loss':-cur_best_acc, 'status': STATUS_OK}
-
 
 
 # -------------------------------------------------------------------
