@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Модель для выбора слов, которые надо скопировать из предпосылки для формирования
-ответа на вопрос.
+Нейросетевая модель для выбора слов, которые надо скопировать из предпосылки
+для формирования ответа на вопрос.
+
 Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
+
 Датасет должен быть предварительно сгенерирован скриптом prepare_qa_dataset.py
+
+Кроме того, необходимо подготовить датасет с символьными встраиваниями слов, например
+с помощью скрипта train_wordchar2vector.sh
+
+Параметры обучения модели, в том числе детали архитектуры, задаются опциями
+командной строки. Пример запуска обучения можно посмотреть в скрипте train_nn_wordcopy3.sh
 """
 
 from __future__ import division
@@ -26,7 +34,9 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D
 from keras.layers import Input
 from keras.layers import recurrent
-from keras.layers.core import RepeatVector, Dense
+from keras.layers.merge import concatenate, add, multiply
+from keras.layers import Lambda
+from keras.layers.core import Dense
 from keras.layers.wrappers import Bidirectional
 from keras.models import Model
 from keras.models import model_from_json
@@ -77,12 +87,6 @@ def select_patterns( sequences, targets ):
             targets1.append(target)
 
     return (sequences1, targets1)
-
-
-class colors:
-    ok = '\033[92m'
-    fail = '\033[91m'
-    close = '\033[0m'
 
 
 def count_words(words):
@@ -148,7 +152,7 @@ def generate_rows_word_copy3(sequences, targets, batch_size, mode):
 parser = argparse.ArgumentParser(description='Neural model for answer generation model selector')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query')
 parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn) | lstm+cnn')
-parser.add_argument('--classifier', type=str, default='mulladd', help='final classifier architecture: merge | muladd')
+parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture: merge | muladd')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--input', type=str, default='../data/premise_question_answer.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
@@ -182,7 +186,6 @@ if run_mode == '':
             break
         else:
             print('Unrecognized choice "{}"'.format(a1))
-
 
 
 max_inputseq_len = 0
@@ -373,6 +376,27 @@ if run_mode == 'train':
 
             repr_size += rnn_size
 
+    if net_arch == 'cnn':
+        # простая сверточная архитектура.
+        for kernel_size in range(1, 4):
+            conv = Conv1D(filters=nb_filters,
+                          kernel_size=kernel_size,
+                          padding='valid',
+                          activation='relu',
+                          strides=1)
+
+            # pooler = GlobalMaxPooling1D()
+            pooler = GlobalAveragePooling1D()
+
+            conv_layer1 = conv(words_net1)
+            conv_layer1 = pooler(conv_layer1)
+            conv1.append(conv_layer1)
+
+            conv_layer2 = conv(words_net2)
+            conv_layer2 = pooler(conv_layer2)
+            conv2.append(conv_layer2)
+
+            repr_size += nb_filters
 
     # Тренируем модель, которая определяет позиции слов начала и конца цепочки.
     # Таким образом, у модели два независимых классификатора на выходе.
@@ -382,22 +406,49 @@ if run_mode == 'train':
         encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
         encoder_final = Dense(units=int(repr_size*2), activation='relu')(encoder_merged)
 
-        decoder = Dense(rnn_size, activation='relu')(encoder_final)
-        decoder = Dense(rnn_size, activation='relu')(decoder)
-        decoder = Dense(rnn_size, activation='relu')(decoder)
-        decoder = Dense(rnn_size, activation='relu')(decoder)
-        output_beg = Dense(output_dims, activation='softmax', name='output_beg')(decoder)
+    elif classifier_arch == 'muladd':
+        encoder1 = None
+        encoder2 = None
 
-        decoder = Dense(rnn_size, activation='relu')(encoder_final)
-        decoder = Dense(rnn_size, activation='relu')(decoder)
-        decoder = Dense(rnn_size, activation='relu')(decoder)
-        decoder = Dense(rnn_size, activation='relu')(decoder)
-        output_end = Dense(output_dims, activation='softmax', name='output_end')(decoder)
+        if len(conv1) == 1:
+            encoder1 = conv1[0]
+        else:
+            encoder1 = keras.layers.concatenate(inputs=conv1)
 
-        model = Model(inputs=[words_net1, words_net2], outputs=[output_beg, output_end])
+        if len(conv2) == 1:
+            encoder2 = conv2[0]
+        else:
+            encoder2 = keras.layers.concatenate(inputs=conv2)
+
+        # сожмем вектор предложения до sent2vec_dim
+        #encoder1 = sent_repr_layer(encoder1)
+        #encoder2 = sent_repr_layer(encoder2)
+        sent2vec_dim = repr_size
+
+        addition = add([encoder1, encoder2])
+        minus_y1 = Lambda(lambda x: -x, output_shape=(sent2vec_dim,))(encoder1)
+        mul = add([encoder2, minus_y1])
+        mul = multiply([mul, mul])
+
+        #words_final = keras.layers.concatenate(inputs=[encoder1, mul, addition, encoder2])
+        encoder_final = keras.layers.concatenate(inputs=[mul, addition])
+
     else:
         print('Unknown classifier arch: {}'.format(classifier_arch))
 
+    decoder = Dense(rnn_size, activation='relu')(encoder_final)
+    decoder = Dense(rnn_size//2, activation='relu')(decoder)
+    decoder = Dense(rnn_size//3, activation='relu')(decoder)
+    #decoder = Dense(rnn_size, activation='relu')(decoder)
+    output_beg = Dense(output_dims, activation='softmax', name='output_beg')(decoder)
+
+    decoder = Dense(rnn_size, activation='relu')(encoder_final)
+    decoder = Dense(rnn_size//2, activation='relu')(decoder)
+    decoder = Dense(rnn_size//3, activation='relu')(decoder)
+    #decoder = Dense(rnn_size, activation='relu')(decoder)
+    output_end = Dense(output_dims, activation='softmax', name='output_end')(decoder)
+
+    model = Model(inputs=[words_net1, words_net2], outputs=[output_beg, output_end])
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
 
     with open(arch_filepath, 'w') as f:

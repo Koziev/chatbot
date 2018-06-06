@@ -461,7 +461,7 @@ class Wordchar2Vector_Trainer(object):
         nb_words = len(output_words)
         print(u'{} words will be vectorized and stored to {}'.format(nb_words, result_path))
 
-        with codecs.open( result_path, 'w', 'utf-8') as wrt:
+        with codecs.open(result_path, 'w', 'utf-8') as wrt:
             wrt.write('{} {}\n'.format(nb_words, self.vec_size))
 
             nb_batch = int(nb_words/self.batch_size) + (0 if (nb_words%self.batch_size) == 0 else 1)

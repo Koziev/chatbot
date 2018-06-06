@@ -54,10 +54,15 @@ class NN_WordCopy3(WordCopyModel):
         word_embeddings.vectorize_words(self.w2v_path, premise_words, self.X1_probe, 0)
         word_embeddings.vectorize_words(self.w2v_path, question_words, self.X2_probe, 0)
 
+        #for i1, word1 in enumerate(premise_words):
+        #    if len(word1)>0:
+        #        print(u'{} {} ==> {}'.format(i1, word1, self.X1_probe[0, i1, :]))
+
         (y1_probe, y2_probe) = self.model.predict({'input_words1': self.X1_probe, 'input_words2': self.X2_probe})
         beg_pos = np.argmax(y1_probe[0])
         end_pos = np.argmax(y2_probe[0])
         words = premise_words[beg_pos:end_pos + 1]
         answer = u' '.join(words)
+        #print(u'DEBUG @63 beg_pos={} end_pos={} answer="{}"'.format(beg_pos, end_pos, answer))
 
         return answer
