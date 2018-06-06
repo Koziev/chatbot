@@ -10,9 +10,9 @@ import os
 import logging
 import argparse
 
-from files3_facts_storage import Files3FactsStorage
-from text_utils import TextUtils
-from simple_answering_machine import SimpleAnsweringMachine
+from bot.files3_facts_storage import Files3FactsStorage
+from bot.text_utils import TextUtils
+from bot.simple_answering_machine import SimpleAnsweringMachine
 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
