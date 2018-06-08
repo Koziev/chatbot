@@ -25,7 +25,7 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Embedding
 from keras.layers.wrappers import Bidirectional
 from keras.layers import Dense, Dropout, Input, Permute, Flatten, Reshape
-from keras.layers import Conv1D, GlobalMaxPooling1D
+from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
 from keras.models import model_from_json
@@ -51,8 +51,14 @@ def raw_wordset(wordset, max_word_len):
 
 def vectorize_word(word, corrupt_word, X_batch, y_batch, irow, char2index):
     for ich, (ch, corrupt_ch) in enumerate(zip(word, corrupt_word)):
-        X_batch[irow, ich] = char2index[corrupt_ch]
-        y_batch[irow, ich, char2index[ch]] = True
+        if corrupt_ch not in char2index:
+            print(u'Char "{}" code={} word="{}" missing in char2index'.format(corrupt_ch, ord(corrupt_ch), corrupt_word))
+        else:
+            X_batch[irow, ich] = char2index[corrupt_ch]
+        if ch not in char2index:
+            print(u'Char "{}" code={} word="{}" missing in char2index'.format(ch, ord(ch), word))
+        else:
+            y_batch[irow, ich, char2index[ch]] = True
 
 
 def generate_rows(wordset, batch_size, char2index, seq_len, mode):
@@ -296,7 +302,8 @@ class Wordchar2Vector_Trainer(object):
                                     padding='valid',
                                     activation='relu',
                                     strides=1)(encoder)
-                conv_layer = GlobalMaxPooling1D()(conv_layer)
+                #conv_layer = GlobalMaxPooling1D()(conv_layer)
+                conv_layer = GlobalAveragePooling1D()(conv_layer)
                 conv_list.append(conv_layer)
                 merged_size += nb_filters
 
@@ -324,7 +331,8 @@ class Wordchar2Vector_Trainer(object):
                                     padding='valid',
                                     activation='relu',
                                     strides=1)(encoder)
-                conv_layer = GlobalMaxPooling1D()(conv_layer)
+                #conv_layer = GlobalMaxPooling1D()(conv_layer)
+                conv_layer = GlobalAveragePooling1D()(conv_layer)
                 conv_list.append(conv_layer)
                 merged_size += nb_filters
 
@@ -347,7 +355,8 @@ class Wordchar2Vector_Trainer(object):
                                     strides=1,
                                     name='shared_conv_{}'.format(kernel_size))(encoder)
 
-                conv_layer = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
+                #conv_layer = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
+                conv_layer = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
                 conv_layer = recurrent.LSTM(rnn_size, return_sequences=False)(conv_layer)
 
                 conv_list.append(conv_layer)
@@ -484,4 +493,3 @@ class Wordchar2Vector_Trainer(object):
 
                 word_index += nw
                 words_remainder -= nw
-

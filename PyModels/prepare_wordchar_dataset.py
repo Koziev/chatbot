@@ -16,7 +16,8 @@ import pandas as pd
 
 from utils.tokenizer import Tokenizer
 
-result_path = '../tmp/known_words.txt' # путь к файлу, где будет сохранен список слов
+result_path = '../tmp/known_words.txt'  # путь к файлу, где будет сохранен полный список слов для обучения
+result2_path = '../tmp/dataset_words.txt'  # путь к файлу со списком слов, которые употребляются в датасетах
 
 n_misspelling_per_word = 0 # кол-во добавляемых вариантов с опечатками на одно исходное слово
 
@@ -30,10 +31,12 @@ else:
 paraphrases_path = '../data/premise_question_relevancy.csv'
 pqa_path = '../data/premise_question_answer.csv'
 eval_path = '../data/evaluate_relevancy.txt'
+premises = ['../data/premises.txt', '../data/premises_1s.txt']
 
 # ---------------------------------------------------------------
 
 known_words = set()
+dataset_words = set()
 
 # Берем слова из большого текстового файла, на котором тренируется w2v модели.
 print('Parsing {}'.format(corpus_path))
@@ -54,12 +57,14 @@ tokenizer = Tokenizer()
 for phrase in itertools.chain(df['premise'].values, df['question'].values):
     words = tokenizer.tokenize(phrase.lower())
     known_words.update(words)
+    dataset_words.update(words)
 
 print('Parsing {}'.format(pqa_path))
 df = pd.read_csv(pqa_path, encoding='utf-8', delimiter='\t', quoting=3)
 for phrase in itertools.chain( df['premise'].values, df['question'].values, df['answer'].values ):
     words = tokenizer.tokenize(phrase)
     known_words.update(words)
+    dataset_words.update(words)
 
 # Добавим слова, которые употребляются в датасете для оценки
 print('Parsing {}'.format(eval_path))
@@ -68,8 +73,18 @@ with codecs.open(eval_path, 'r', 'utf-8') as rdr:
         phrase = line.replace(u'T:', u'').replace(u'Q:', u'').strip()
         words = tokenizer.tokenize(phrase)
         known_words.update(words)
+        dataset_words.update(words)
 
-print('There are {} known words'.format(len(known_words)))
+for p in premises:
+    print('Parsing {}'.format(p))
+    with codecs.open(p, 'r', 'utf-8') as rdr:
+        for line in rdr:
+            phrase = line.strip()
+            words = tokenizer.tokenize(phrase)
+            known_words.update(words)
+            dataset_words.update(words)
+
+print('There are {} known words, {} dataset words'.format(len(known_words), len(dataset_words)))
 
 stop_words = {u'_num_'}
 
@@ -78,3 +93,7 @@ with codecs.open(result_path, 'w', 'utf-8') as wrt:
         if word not in stop_words and not word.startswith(u' '):
             wrt.write(u'{}\n'.format(word))
 
+with codecs.open(result2_path, 'w', 'utf-8') as wrt:
+    for word in sorted(dataset_words):
+        if word not in stop_words and not word.startswith(u' '):
+            wrt.write(u'{}\n'.format(word))
