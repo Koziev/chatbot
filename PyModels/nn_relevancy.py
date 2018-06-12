@@ -2,6 +2,8 @@
 """
 Модель для определения релевантности предпосылки и вопроса.
 Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
+Для сравнения - модели определения релевантности на шинглах xgb_relevancy.py и
+lgb_relevancy.py
 
 Вторая функция программы - обучение модели для генерации вектора предложения (sent2vec).
 
@@ -48,6 +50,7 @@ from keras.layers import Flatten
 import keras.regularizers
 
 from sklearn.model_selection import train_test_split
+import sklearn.metrics
 
 from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
@@ -60,6 +63,8 @@ from trainers.evaluation_markup import EvaluationMarkup
 config_file_name = 'nn_relevancy_model.config'
 config_file_name2 = 'sent2vec.config'
 
+
+use_shingle_matching = False
 
 # размер изображения, которое получится после сжатия матрицы соответствия
 # шинглов во входных предложениях.
@@ -143,11 +148,11 @@ def load_word_vectors(wordchar2vector_path, word2vector_path):
 
 # -------------------------------------------------------------------
 
-# Разбор параметров тренировки, указанных в командной строке
+# Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
-parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture, one of lstm lstm(cnn) (lstm)cnn cnn')
-parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture')
+parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: ff lstm | lstm(cnn) | lstm+cnn cnn cnn2')
+parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture: merge muladd')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--max_nb_samples', type=int, default=1000000000, help='upper limit for number of samples')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
@@ -155,7 +160,6 @@ parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store r
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
 parser.add_argument('--word2vector', type=str, default='/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.model', help='path to word2vector model file')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
-
 
 args = parser.parse_args()
 data_folder = args.data_dir
@@ -257,8 +261,10 @@ if run_mode == 'train':
             for i2 in range(max_wordseq_len):
                 nb_addfeatures += 1  # жаккардова похожесть
                 nb_addfeatures += 1  # w2v cosine
-        # визуальное представление паттернов Жаккара по шинглам.
-        nb_addfeatures += shingle_image_size*shingle_image_size
+
+        if use_shingle_matching:
+            # визуальное представление паттернов Жаккара по шинглам.
+            nb_addfeatures += shingle_image_size*shingle_image_size
 
         print('nb_addfeatures={}'.format(nb_addfeatures))
 
@@ -274,7 +280,8 @@ if run_mode == 'train':
         'word_dims': word_dims,
         'net_arch': net_arch,
         'nb_addfeatures': nb_addfeatures,
-        'shingle_image_size': shingle_image_size
+        'shingle_image_size': shingle_image_size,
+        'use_shingle_matching': use_shingle_matching
     }
 
     with open(os.path.join(tmp_folder, config_file_name), 'w') as f:
@@ -291,13 +298,13 @@ if run_mode == 'train':
 
     words_net1 = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input_words1')
     words_net2 = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input_words2')
-
+    addfeatures_input = None
     if net_arch == 'cnn2':
         addfeatures_input = Input(shape=(nb_addfeatures,), dtype='float32', name='input_addfeatures')
 
     sent2vec_input = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input')
 
-    # группы слоев с для первого и второго предложения соотственно
+    # группы слоев с для первого и второго предложения соответственно
     conv1 = []
     conv2 = []
 
@@ -370,18 +377,21 @@ if run_mode == 'train':
                           activation='relu',
                           strides=1)
 
+            #pooler = GlobalMaxPooling1D()
+            pooler = GlobalAveragePooling1D()
+
             conv_layer1 = conv(encoder_rnn1)
-            conv_layer1 = GlobalMaxPooling1D()(conv_layer1)
+            conv_layer1 = pooler(conv_layer1)
             conv1.append(conv_layer1)
 
             conv_layer2 = conv(encoder_rnn2)
-            conv_layer2 = GlobalMaxPooling1D()(conv_layer2)
+            conv_layer2 = pooler(conv_layer2)
             conv2.append(conv_layer2)
 
             encoder_size += nb_filters
 
             sent2vec_output = conv(sent2vec_rnn2)
-            sent2vec_output = GlobalMaxPooling1D()(sent2vec_output)
+            sent2vec_output = pooler(sent2vec_output)
 
             sent2vec_conv.append(sent2vec_output)
 
@@ -432,13 +442,7 @@ if run_mode == 'train':
             conv_layer2 = pooler(conv_layer2)
             conv2.append(conv_layer2)
 
-            #sent2vec_encoder = conv(sent2vec_input)
-            #sent2vec_encoder = GlobalMaxPooling1D()(sent2vec_input)
-            #sent2vec_conv.append(sent2vec_encoder)
-
             encoder_size += nb_filters
-
-        #print('DEBUG len(sent2vec_conv)={} encoder_size={}'.format(len(sent2vec_conv), encoder_size))
 
     if net_arch == 'cnn(cnn)':
         # двухслойная сверточная сетка
@@ -592,7 +596,34 @@ if run_mode == 'train':
                             activity_regularizer=activity_regularizer,
                             name='sentence_representation')
 
-    if classifier_arch == 'merge':
+    if classifier_arch == 'merge2':
+        encoder1 = None
+        encoder2 = None
+
+        if len(conv1) == 1:
+            encoder1 = conv1[0]
+        else:
+            encoder1 = keras.layers.concatenate(inputs=conv1)
+
+        if len(conv2) == 1:
+            encoder2 = conv2[0]
+        else:
+            encoder2 = keras.layers.concatenate(inputs=conv2)
+
+        # сожмем вектор предложения до sent2vec_dim
+        encoder1 = sent_repr_layer(encoder1)
+        encoder2 = sent_repr_layer(encoder2)
+
+        addition = add([encoder1, encoder2])
+        minus_y1 = Lambda(lambda x: -x, output_shape=(sent2vec_dim,))(encoder1)
+        mul = add([encoder2, minus_y1])
+        mul = multiply([mul, mul])
+
+        words_final = keras.layers.concatenate(inputs=[mul, addition, addfeatures_input])
+        final_size = encoder_size+nb_addfeatures
+        words_final = Dense(units=final_size//2, activation='sigmoid')(words_final)
+
+    elif classifier_arch == 'merge':
         # этот финальный классификатор берет два вектора представления предложений,
         # объединяет их в вектор двойной длины и затем прогоняет этот двойной вектор
         # через несколько слоев.
@@ -605,13 +636,14 @@ if run_mode == 'train':
             else:
                 encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
 
-        words_final = Dense(units=encoder_size*2+nb_addfeatures, activation='relu')(encoder_merged)
+        final_size = encoder_size*2+nb_addfeatures
+        words_final = Dense(units=final_size, activation='sigmoid')(encoder_merged)
         # words_final = BatchNormalization()(words_final)
-        words_final = Dense(units=encoder_size, activation='relu')(words_final)
+        #words_final = Dense(units=final_size//2, activation='relu')(words_final)
         # words_final = BatchNormalization()(words_final)
-        words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
+        #words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
         # words_final = BatchNormalization()(words_final)
-        words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
+        #words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
 
         if len(sent2vec_conv) > 1:
             if len(sent2vec_conv) == 1:
@@ -697,8 +729,13 @@ if run_mode == 'train':
             # скалярное произведение двух векторов, дающее скаляр.
             words_final = keras.layers.dot(inputs=[encoder_merged1, encoder_merged2], axes=1, normalize=True)
 
-        sent2vect_merged = keras.layers.concatenate(inputs=sent2vec_conv)
-        sent2vec_output = sent_repr_layer(sent2vect_merged)
+        if sent2vec_conv is not None and len(sent2vec_conv) > 0:
+            if len(sent2vec_conv) > 1:
+                sent2vect_merged = keras.layers.concatenate(inputs=sent2vec_conv)
+            else:
+                sent2vect_merged = sent2vec_conv[0]
+
+            sent2vec_output = sent_repr_layer(sent2vect_merged)
 
     # Вычислительный граф сформирован, добавляем финальный классификатор с 1 выходом,
     # выдающим 0 для нерелевантных и 1 для релевантных предложений.
@@ -706,7 +743,12 @@ if run_mode == 'train':
         #classif = Dense(units=1, activation='sigmoid', name='output')(words_final)
         classif = Dense(units=2, activation='softmax', name='output')(words_final)
 
-    model = Model(inputs=[words_net1, words_net2, addfeatures_input], outputs=classif)
+    if addfeatures_input is None:
+        xx = [words_net1, words_net2]
+    else:
+        xx = [words_net1, words_net2, addfeatures_input]
+    model = Model(inputs=xx, outputs=classif)
+
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
 
     with open(arch_filepath, 'w') as f:
@@ -756,15 +798,14 @@ def generate_rows(sequences, targets, batch_size, w2v, mode):
                         X3_batch[batch_index, iaddfeature] = w2v_sim
                         iaddfeature += 1
 
-                # добавляем сжатую матрицу соответствия шинглов
-                shingle_features = get_shingle_image( u' '.join(seq[0]), u' '.join(seq[1]) )
-                iaddfeature2 = iaddfeature + shingle_features.shape[0]
-                X3_batch[batch_index, iaddfeature:iaddfeature2] = shingle_features
-                iaddfeature = iaddfeature2
+                if use_shingle_matching:
+                    # добавляем сжатую матрицу соответствия шинглов
+                    shingle_features = get_shingle_image( u' '.join(seq[0]), u' '.join(seq[1]) )
+                    iaddfeature2 = iaddfeature + shingle_features.shape[0]
+                    X3_batch[batch_index, iaddfeature:iaddfeature2] = shingle_features
+                    iaddfeature = iaddfeature2
 
             batch_index += 1
-
-            #print('DEBUG @697 batch_index={} batch_size={}'.format(batch_index, batch_size))
 
             if batch_index == batch_size:
                 batch_count += 1
@@ -784,9 +825,6 @@ def generate_rows(sequences, targets, batch_size, w2v, mode):
                     X3_batch.fill(0)
                 y_batch.fill(0)
                 batch_index = 0
-
-    #print('DEBUG @717 generate_rows exhausted')
-    #raise StopIteration()
 
 # ---------------------------------------------------------------
 
@@ -833,19 +871,45 @@ if run_mode == 'train':
                                        verbose=1, save_best_only=True, mode='auto')
     early_stopping = EarlyStopping(monitor='val_acc', patience=10, verbose=1, mode='auto')
 
+    nb_validation_steps = int(len(val_phrases)/batch_size)
+
     hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, w2v, 1),
                                steps_per_epoch=int(len(train_phrases)/batch_size),
                                epochs=100,
                                verbose=1,
                                callbacks=[model_checkpoint, early_stopping],
                                validation_data=generate_rows( val_phrases, val_ys, batch_size, w2v, 1),
-                               validation_steps=int(len(val_phrases)/batch_size),
+                               validation_steps=nb_validation_steps,
                                )
     max_acc = max(hist.history['val_acc'])
     print('max val_acc={}'.format(max_acc))
 
+    # загрузим чекпоинт с оптимальными весами
+    model.load_weights(weights_path)
+
+    # получим оценку F1 на валидационных данных
+    y_true2 = []
+    y_pred2 = []
+    for istep, xy in enumerate(generate_rows( val_phrases, val_ys, batch_size, w2v, 1)):
+
+        x = xy[0]
+        y = xy[1]['output']
+        y_pred = model.predict(x=x, verbose=0)
+        for k in range(len(y_pred)):
+            y_true2.append(y[k][1])
+            y_pred2.append(y_pred[k][1] > y_pred[k][0])
+
+        if istep >= nb_validation_steps:
+            break
+
+    # из-за сильного дисбаланса (в пользу исходов с y=0) оценивать качество
+    # получающейся модели лучше по f1
+    f1 = sklearn.metrics.f1_score(y_true=y_true2, y_pred=y_pred2)
+    print('val f1={}'.format(f1))
+
+
     if sent2vec_output is not None:
-        # загрузим чекпоинт с оптимальными весами, построим новую модель sent2vector и сохраним
+        # построим новую модель sent2vector и сохраним
         # ее на диск.
         model.load_weights(weights_path)
 
@@ -915,8 +979,10 @@ if run_mode == 'train':
             json.dump(sent2vec_config, f)
 
     else:
-        os.remove(arch_filepath2)
-        os.remove(weights_path2)
+        if os.path.exists(arch_filepath2):
+            os.remove(arch_filepath2)
+        if os.path.exists(weights_path2):
+            os.remove(weights_path2)
 
 # </editor-fold>
 
