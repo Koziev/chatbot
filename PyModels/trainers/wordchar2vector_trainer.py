@@ -190,20 +190,26 @@ class VisualizeCallback(keras.callbacks.Callback):
     def get_best_accuracy(self):
         return self.best_val_acc
 
+    def new_epochs(self):
+        self.wait = 0
+        self.model.stop_training = False
+
 # -----------------------------------------------------------------
+
 
 class Wordchar2Vector_Trainer(object):
     """
     Класс реализует обучение нейросетевой модели для кодирования слов.
     """
     def __init__(self, arch_type, tunable_char_embeddings, char_dims,
-                 model_dir, vec_size, batch_size, seed ):
+                 model_dir, vec_size, batch_size, min_batch_size, seed ):
         self.arch_type = arch_type
         self.tunable_char_embeddings = tunable_char_embeddings
         self.char_dims = char_dims
         self.model_dir = model_dir
         self.vec_size = vec_size
         self.batch_size = batch_size
+        self.min_batch_size = batch_size if min_batch_size == -1 else min_batch_size
         self.config_filename = 'wordchar2vector.config'
         self.seed = seed
 
@@ -215,7 +221,8 @@ class Wordchar2Vector_Trainer(object):
 
     def train(self, words_filepath, tmp_dir, nb_samples=10000000):
         '''
-        Тренируем модель на словах в указанном файле.
+        Тренируем модель на словах в указанном файле words_filepath.
+
         :param words_filepath: путь к plain text utf8 файлу со списком слов (одно слово на строку)
         :param tmp_dir: путь к каталогу, куда будем сохранять всякие сводки по процессу обучения
         для визуализации и прочего контроля
@@ -316,6 +323,10 @@ class Wordchar2Vector_Trainer(object):
         elif self.arch_type == 'bidir_lstm':
             encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size/2), return_sequences=False))(encoder)
 
+        elif self.arch_type == 'lstm(lstm)':
+            encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size / 2), return_sequences=True))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size / 2), return_sequences=False))(encoder)
+
         elif self.arch_type == 'lstm+cnn':
             conv_list = []
             merged_size = 0
@@ -340,7 +351,6 @@ class Wordchar2Vector_Trainer(object):
             encoder = Dense(units=self.vec_size, activation='sigmoid')(encoder)
 
         elif self.arch_type == 'lstm(cnn)':
-
             conv_list = []
             merged_size = 0
 
@@ -361,6 +371,27 @@ class Wordchar2Vector_Trainer(object):
 
                 conv_list.append(conv_layer)
                 merged_size += rnn_size
+
+            encoder = keras.layers.concatenate(inputs=conv_list)
+            encoder = Dense(units=self.vec_size, activation='sigmoid')(encoder)
+
+        elif self.arch_type == 'gru(cnn)':
+            conv_list = []
+            merged_size = 0
+
+            for kernel_size, nb_filters in [(1, 16), (2, 32), (3, 64), (4, 128)]:
+                conv_layer = Conv1D(filters=nb_filters,
+                                    kernel_size=kernel_size,
+                                    padding='valid',
+                                    activation='relu',
+                                    strides=1,
+                                    name='shared_conv_{}'.format(kernel_size))(encoder)
+
+                conv_layer = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
+                conv_layer = recurrent.GRU(nb_filters, return_sequences=False)(conv_layer)
+
+                conv_list.append(conv_layer)
+                merged_size += nb_filters
 
             encoder = keras.layers.concatenate(inputs=conv_list)
             encoder = Dense(units=self.vec_size, activation='sigmoid')(encoder)
@@ -392,7 +423,8 @@ class Wordchar2Vector_Trainer(object):
             'END_CHAR': END_CHAR,
             'arch_filepath': arch_filepath,
             'weights_path': weigths_path,
-            'vec_size': self.vec_size
+            'vec_size': self.vec_size,
+            'arch_type': self.arch_type
         }
 
         with open(os.path.join(self.model_dir, self.config_filename), 'w') as f:
@@ -422,14 +454,26 @@ class Wordchar2Vector_Trainer(object):
 
         # csv_logger = CSVLogger(learning_curve_filename, append=True, separator='\t')
 
-        hist = model.fit_generator(generator=generate_rows(train_words, self.batch_size, char2index, seq_len, 1),
-                                   steps_per_epoch=int(len(train_words) / self.batch_size),
-                                   epochs=1000,
-                                   verbose=1,
-                                   callbacks=[visualizer],  # csv_logger, model_checkpoint, early_stopping],
-                                   validation_data=generate_rows(val_words, self.batch_size, char2index, seq_len, 1),
-                                   validation_steps=int(len(val_words) / self.batch_size),
-                                   )
+        remaining_epochs = 1000
+        workout_count = 0
+        batch_size = self.batch_size
+        while batch_size >= self.min_batch_size and remaining_epochs > 0:
+            print('Workout #{}: start training with batch_size={}, remaining epochs={}'.format(workout_count, batch_size, remaining_epochs))
+            if workout_count > 0:
+                model.load_weights(weigths_path)
+            workout_count += 1
+            visualizer.new_epochs()
+            hist = model.fit_generator(generator=generate_rows(train_words, self.batch_size, char2index, seq_len, 1),
+                                       steps_per_epoch=int(len(train_words) / self.batch_size),
+                                       epochs=remaining_epochs,
+                                       verbose=1,
+                                       callbacks=[visualizer],  # csv_logger, model_checkpoint, early_stopping],
+                                       validation_data=generate_rows(val_words, self.batch_size, char2index, seq_len, 1),
+                                       validation_steps=int(len(val_words) / self.batch_size),
+                                       )
+            remaining_epochs -= len(hist.history)
+            batch_size = batch_size // 2
+
         print('Training complete, best_accuracy={}'.format(visualizer.get_best_accuracy()))
 
         # Загружаем наилучшее состояние модели
@@ -479,7 +523,7 @@ class Wordchar2Vector_Trainer(object):
 
             words_remainder = nb_words
             word_index=0
-            while words_remainder>0:
+            while words_remainder > 0:
                 print('words_remainder={:<10d}'.format(words_remainder), end='\r')
                 nw = min( self.batch_size, words_remainder )
                 batch_words = words[word_index:word_index+nw]

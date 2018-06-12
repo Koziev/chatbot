@@ -41,8 +41,9 @@ parser.add_argument('--vectorize', default=0, type=int)
 parser.add_argument('--dims', default=56, type=int)
 parser.add_argument('--char_dims', default=0, type=int)
 parser.add_argument('--tunable_char_embeddings', default=0, type=int)
-parser.add_argument('--arch_type', default='rnn', type=str)
-parser.add_argument('--batch_size', default=250, type=int)
+parser.add_argument('--arch_type', default='gru(cnn)', type=str)
+parser.add_argument('--batch_size', default=350, type=int)
+parser.add_argument('--min_batch_size', default=-1, type=int)
 parser.add_argument('--nb_samples', default=10000000, type=int, help='Max number of samples to train on')
 parser.add_argument('--seed', default=123456, type=int, help='Random generator seed for train/test validation splitting')
 
@@ -57,6 +58,7 @@ do_vectorize = args.vectorize  # векторизовать ли входной 
 vec_size = args.dims  # размер вектора представления слова для тренировки модели
 char_dims = args.char_dims  # если векторы символов будут меняться при тренировке, то явно надо задавать размерность векторов символов
 batch_size = args.batch_size  # размер минибатчей существенно влияет на точность, поэтому разрешаем задавать его
+min_batch_size = args.min_batch_size
 tunable_char_embeddings = args.tunable_char_embeddings  # делать ли настраиваемые векторы символов (True) или 1-hot (False)
 nb_samples = args.nb_samples  # макс. число слов, используемых для обучения
 seed = args.seed
@@ -97,6 +99,7 @@ trainer = Wordchar2Vector_Trainer(arch_type,
                                   model_dir,
                                   vec_size,
                                   batch_size,
+                                  min_batch_size,
                                   seed=seed)
 
 if do_train:
