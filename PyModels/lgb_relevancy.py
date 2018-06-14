@@ -173,8 +173,10 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
 
     tokenizer = PhraseSplitter.create_splitter(xgb_relevancy_lemmalize)
 
-    nb_good = 0
-    nb_bad = 0
+    nb_good = 0  # попадание предпосылки в top-1
+    nb_good5 = 0
+    nb_good10 = 0
+    nb_total = 0
 
     wrt = None
     if verbose:
@@ -200,18 +202,32 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
         max_index = np.argmax(y_pred)
         selected_premise = u' '.join(phrases[max_index][0]).strip()
 
+        nb_total += 1
         # эта выбранная предпосылка соответствует одному из вариантов
         # релевантных предпосылок в этой группе?
         if eval_data.is_relevant_premise(irecord, selected_premise):
             nb_good += 1
+            nb_good5 += 1
+            nb_good10 += 1
             if verbose:
                 print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
                 wrt.write(EvaluationMarkup.ok_bullet)
         else:
-            nb_bad += 1
             if verbose:
                 print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
                 wrt.write(EvaluationMarkup.fail_bullet)
+            # среди top-5 или top-10 предпосылок есть верная?
+            sorted_phrases = [x for x,_ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
+
+            for i in range(1, 10):
+                selected_premise = u' '.join(sorted_phrases[i][0]).strip()
+                if eval_data.is_relevant_premise(irecord, selected_premise):
+                    if i<5:
+                        nb_good5 += 1  # верная предпосылка вошла в top-5
+                    if i<10:
+                        nb_good10 += 1
+                    break
+
 
         max_sim = np.max(y_pred)
 
@@ -234,9 +250,16 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
         wrt.close()
 
     # Итоговая точность выбора предпосылки.
-    accuracy = float(nb_good)/float(nb_good+nb_bad)
+    accuracy = float(nb_good)/float(nb_total)
     if verbose == 1:
-        print('eval accuracy={}'.format(accuracy))
+        print('accuracy       ={}'.format(accuracy))
+
+        # Также выведем точность попадания верной предпосылки в top-5 и top-10
+        accuracy5 = float(nb_good5) / float(nb_total)
+        print('accuracy top-5 ={}'.format(accuracy5))
+
+        accuracy10 = float(nb_good10) / float(nb_total)
+        print('accuracy top-10={}'.format(accuracy10))
 
     return accuracy
 

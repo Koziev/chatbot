@@ -19,14 +19,12 @@ from __future__ import division
 from __future__ import print_function
 
 import codecs
-import gc
 import itertools
 import json
 import os
 import sys
 import argparse
 
-import gensim
 import numpy as np
 import pandas as pd
 import tqdm
@@ -58,6 +56,7 @@ from utils.padding_utils import pad_wordseq
 from utils.padding_utils import PAD_WORD
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
+from trainers.word_embeddings import WordEmbeddings
 
 
 config_file_name = 'nn_relevancy_model.config'
@@ -113,45 +112,12 @@ def v_cosine(a, b):
     else:
         return 0
 
-
-def load_word_vectors(wordchar2vector_path, word2vector_path):
-    # Грузим заранее подготовленные векторы слов для модели
-    # встраивания wordchar2vector (см. wordchar2vector.py)
-    print( 'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
-    wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
-    wc2v_dims = len(wc2v.syn0[0])
-    print('wc2v_dims={0}'.format(wc2v_dims))
-
-    # --------------------------------------------------------------------------
-
-    print( 'Loading the w2v model {}'.format(word2vector_path) )
-    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
-    w2v_dims = len(w2v.syn0[0])
-    print('w2v_dims={0}'.format(w2v_dims))
-
-    # Векторы слов получаются соединением векторов моделей word2vector и wordchar2vector
-    word_dims = w2v_dims+wc2v_dims
-
-    word2vec = dict()
-    for word in wc2v.vocab:
-        v = np.zeros( word_dims )
-        v[w2v_dims:] = wc2v[word]
-        if word in w2v:
-            v[:w2v_dims] = w2v[word]
-
-        word2vec[word] = v
-
-    del wc2v
-    gc.collect()
-
-    return (word2vec, word_dims, w2v)
-
 # -------------------------------------------------------------------
 
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
-parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: ff lstm | lstm(cnn) | lstm+cnn cnn cnn2')
+parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: ff | lstm | lstm(lstm) | lstm(cnn) | lstm+cnn | cnn | cnn2')
 parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture: merge muladd')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--max_nb_samples', type=int, default=1000000000, help='upper limit for number of samples')
@@ -230,26 +196,19 @@ tokenizer = Tokenizer()
 
 if run_mode == 'train':
 
-    word2vec, word_dims, w2v = load_word_vectors(wordchar2vector_path, word2vector_path)
+    embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+    word_dims = embeddings.vector_size
 
     # Грузим ранее подготовленный датасет для тренировки модели
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
 
     # Анализ и векторизация датасета
-    all_words = set()
     max_wordseq_len = 0
     for phrase in itertools.chain(df['premise'].values, df['question'].values):
         words = tokenizer.tokenize(phrase)
-        all_words.update(words)
         max_wordseq_len = max(max_wordseq_len, len(words))
 
-    for word in word2vec:
-        all_words.add(word)
-
     print('max_wordseq_len={}'.format(max_wordseq_len))
-
-    nb_words = len(all_words)
-    print('nb_words={}'.format(nb_words))
 
     # суммарное кол-во дополнительных фич, подаваемых на вход сетки
     # помимо двух отдельных предложений.
@@ -360,7 +319,30 @@ if run_mode == 'train':
         sent2vec_output = shared_words_rnn(sent2vec_input)
         sent2vec_conv.append(sent2vec_output)
 
-    if net_arch == '(lstm)cnn':
+    if net_arch == 'lstm(lstm)':
+        # два рекуррентных слоя
+        shared_words_rnn1 = Bidirectional(recurrent.LSTM(rnn_size,
+                                                         input_shape=(max_wordseq_len, word_dims),
+                                                         return_sequences=True))
+
+        shared_words_rnn2 = Bidirectional(recurrent.LSTM(rnn_size,
+                                                         return_sequences=False))
+
+
+        encoder_rnn1 = shared_words_rnn1(words_net1)
+        encoder_rnn1 = shared_words_rnn2(encoder_rnn1)
+
+        encoder_rnn2 = shared_words_rnn1(words_net2)
+        encoder_rnn2 = shared_words_rnn2(encoder_rnn2)
+
+        encoder_size = rnn_size
+        conv1.append(encoder_rnn1)
+        conv2.append(encoder_rnn2)
+
+        sent2vec_output = shared_words_rnn(sent2vec_input)
+        sent2vec_conv.append(sent2vec_output)
+
+    if net_arch == 'cnn(lstm)':
         shared_words_rnn = Bidirectional(recurrent.LSTM(rnn_size,
                                                         input_shape=(max_wordseq_len, word_dims),
                                                         return_sequences=True))
@@ -424,7 +406,7 @@ if run_mode == 'train':
         #print('DEBUG len(sent2vec_conv)={} encoder_size={}'.format(len(sent2vec_conv), encoder_size))
 
     if net_arch == 'cnn2':
-        for kernel_size in range(1, 4):
+        for kernel_size, nb_filters in [(1, 128), (2, 256), (3, 512), (4, 1024)]:
             conv = Conv1D(filters=nb_filters,
                           kernel_size=kernel_size,
                           padding='valid',
@@ -588,7 +570,7 @@ if run_mode == 'train':
     # в conv1 и conv2, выход - бинарная классификация.
     # if'ами переключаются разные архитектуры этой части.
 
-    sent2vec_dim = 128  # такая длина будет у вектора представления предложения
+    sent2vec_dim = min(encoder_size, 128)  # такая длина будет у вектора представления предложения
 
     activity_regularizer = None  #keras.regularizers.l1(0.000001)
     sent_repr_layer = Dense(units=sent2vec_dim,
@@ -619,7 +601,8 @@ if run_mode == 'train':
         mul = add([encoder2, minus_y1])
         mul = multiply([mul, mul])
 
-        words_final = keras.layers.concatenate(inputs=[mul, addition, addfeatures_input])
+        #words_final = keras.layers.concatenate(inputs=[mul, addition, addfeatures_input])
+        words_final = keras.layers.concatenate(inputs=[mul, addition, addfeatures_input, encoder1, encoder2])
         final_size = encoder_size+nb_addfeatures
         words_final = Dense(units=final_size//2, activation='sigmoid')(words_final)
 
@@ -639,9 +622,9 @@ if run_mode == 'train':
         final_size = encoder_size*2+nb_addfeatures
         words_final = Dense(units=final_size, activation='sigmoid')(encoder_merged)
         # words_final = BatchNormalization()(words_final)
-        #words_final = Dense(units=final_size//2, activation='relu')(words_final)
+        words_final = Dense(units=final_size//2, activation='relu')(words_final)
         # words_final = BatchNormalization()(words_final)
-        #words_final = Dense(units=encoder_size//2, activation='relu')(words_final)
+        words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
         # words_final = BatchNormalization()(words_final)
         #words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
 
@@ -759,8 +742,7 @@ if run_mode == 'train':
 
 def vectorize_words(words, X_batch, irow, word2vec):
     for iword, word in enumerate(words):
-        if word in word2vec:
-            X_batch[irow, iword, :] = word2vec[word]
+        X_batch[irow, iword, :] = word2vec[word]
 
 
 def generate_rows(sequences, targets, batch_size, w2v, mode):
@@ -778,8 +760,8 @@ def generate_rows(sequences, targets, batch_size, w2v, mode):
 
     while True:
         for irow, (seq, target) in enumerate(itertools.izip(sequences, targets)):
-            vectorize_words(seq[0], X1_batch, batch_index, word2vec)
-            vectorize_words(seq[1], X2_batch, batch_index, word2vec)
+            vectorize_words(seq[0], X1_batch, batch_index, w2v)
+            vectorize_words(seq[1], X2_batch, batch_index, w2v)
             y_batch[batch_index, target] = True
 
             if use_addfeatures:
@@ -791,10 +773,10 @@ def generate_rows(sequences, targets, batch_size, w2v, mode):
                         iaddfeature += 1
 
                         w2v_sim = 0.0
-                        if word1 in w2v and word2 in w2v:
-                            v1 = w2v[word1]
-                            v2 = w2v[word2]
-                            w2v_sim = v_cosine(v1, v2)
+                        #if word1 in w2v and word2 in w2v:
+                        v1 = w2v[word1]
+                        v2 = w2v[word2]
+                        w2v_sim = v_cosine(v1, v2)
                         X3_batch[batch_index, iaddfeature] = w2v_sim
                         iaddfeature += 1
 
@@ -873,12 +855,12 @@ if run_mode == 'train':
 
     nb_validation_steps = int(len(val_phrases)/batch_size)
 
-    hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, w2v, 1),
+    hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, embeddings, 1),
                                steps_per_epoch=int(len(train_phrases)/batch_size),
                                epochs=100,
                                verbose=1,
                                callbacks=[model_checkpoint, early_stopping],
-                               validation_data=generate_rows( val_phrases, val_ys, batch_size, w2v, 1),
+                               validation_data=generate_rows( val_phrases, val_ys, batch_size, embeddings, 1),
                                validation_steps=nb_validation_steps,
                                )
     max_acc = max(hist.history['val_acc'])
@@ -890,8 +872,7 @@ if run_mode == 'train':
     # получим оценку F1 на валидационных данных
     y_true2 = []
     y_pred2 = []
-    for istep, xy in enumerate(generate_rows( val_phrases, val_ys, batch_size, w2v, 1)):
-
+    for istep, xy in enumerate(generate_rows( val_phrases, val_ys, batch_size, embeddings, 1)):
         x = xy[0]
         y = xy[1]['output']
         y_pred = model.predict(x=x, verbose=0)
@@ -929,7 +910,7 @@ if run_mode == 'train':
         print('Generating vectors for {} sentences using sent2vec model'.format(nb_samples))
         X_sent2vec = np.zeros((nb_samples, max_wordseq_len, word_dims), dtype=np.float32)
         for isent, (words1, words2, phrase1, phrase2) in enumerate(phrases):
-            vectorize_words(words1, X_sent2vec, isent, word2vec)
+            vectorize_words(words1, X_sent2vec, isent, embeddings)
 
         sent_vecs = sent2vec_model.predict(X_sent2vec, batch_size=batch_size, verbose=1)
 
@@ -1008,32 +989,21 @@ if run_mode == 'evaluate':
     eval_data.load(data_folder)
 
     word2vec = None
-    word_dims = -1
 
-    nb_good = 0
-    nb_bad = 0
+    nb_good = 0  # попадание предпосылки в top-1
+    nb_good5 = 0
+    nb_good10 = 0
+    nb_total = 0
 
     for irecord, phrases in eval_data.generate_groups():
         if word2vec is None:
-            word2vec, word_dims, w2v = load_word_vectors(wordchar2vector_path, word2vector_path)
+            word2vec = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
 
         nb_samples = len(phrases)
 
-        if False:
-            X1_query = np.zeros((nb_samples, max_wordseq_len, word_dims), dtype=np.float32)
-            X2_query = np.zeros((nb_samples, max_wordseq_len, word_dims), dtype=np.float32)
-
-            for irow, (premise_words, question_words) in enumerate(phrases):
-                vectorize_words(premise_words, X1_query, irow, word2vec)
-                vectorize_words(question_words, X2_query, irow, word2vec)
-
-            y_pred = model.predict(x={'input_words1': X1_query, 'input_words2': X2_query}, batch_size=batch_size, verbose=0)
-        else:
-            for input_xs in generate_rows(phrases, itertools.repeat(0, nb_samples), nb_samples, w2v, 2):
-                #print('DEBUG @891 input_xs={}'.format(input_xs.keys()))
-                y_pred = model.predict(x=input_xs)
-                #print('DEBUG @893')
-                break
+        for input_xs in generate_rows(phrases, itertools.repeat(0, nb_samples), nb_samples, word2vec, 2):
+            y_pred = model.predict(x=input_xs)
+            break
 
         if False:
             # DEBUG START
@@ -1079,14 +1049,29 @@ if run_mode == 'evaluate':
         max_index = np.argmax(y_pred)
         selected_premise = u' '.join(phrases[max_index][0]).strip()
 
+        nb_total += 1
+
         # эта выбранная предпосылка соответствует одному из вариантов
         # релевантных предпосылок в этой группе?
         if eval_data.is_relevant_premise(irecord, selected_premise):
             nb_good += 1
+            nb_good5 += 1
+            nb_good10 += 1
             print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
         else:
-            nb_bad += 1
             print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+
+            # среди top-5 или top-10 предпосылок есть верная?
+            sorted_phrases = [x for x,_ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
+
+            for i in range(1, 10):
+                selected_premise = u' '.join(sorted_phrases[i][0]).strip()
+                if eval_data.is_relevant_premise(irecord, selected_premise):
+                    if i<5:
+                        nb_good5 += 1  # верная предпосылка вошла в top-5
+                    if i<10:
+                        nb_good10 += 1
+                    break
 
         max_sim = np.max(y_pred)
 
@@ -1105,8 +1090,15 @@ if run_mode == 'evaluate':
             exit(0)
 
     # Итоговая точность выбора предпосылки.
-    accuracy = float(nb_good)/float(nb_good+nb_bad)
-    print('accuracy={}'.format(accuracy))
+    accuracy = float(nb_good)/float(nb_total)
+    print('accuracy       ={}'.format(accuracy))
+
+    # Также выведем точность попадания верной предпосылки в top-5 и top-10
+    accuracy5 = float(nb_good5)/float(nb_total)
+    print('accuracy top-5 ={}'.format(accuracy5))
+
+    accuracy10 = float(nb_good10)/float(nb_total)
+    print('accuracy top-10={}'.format(accuracy10))
 
 # </editor-fold>
 
@@ -1114,7 +1106,8 @@ if run_mode == 'evaluate':
 if run_mode == 'query':
     # Ввод двух предложений с клавиатуры и выдача их релевантности.
 
-    word2vec, word_dims, w2v = load_word_vectors(wordchar2vector_path, word2vector_path)
+    embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+    word_dims = embeddings.vector_size
 
     X1_probe = np.zeros((1, max_wordseq_len, word_dims), dtype=np.float32)
     X2_probe = np.zeros((1, max_wordseq_len, word_dims), dtype=np.float32)
