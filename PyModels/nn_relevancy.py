@@ -114,6 +114,8 @@ def v_cosine(a, b):
 
 # -------------------------------------------------------------------
 
+NB_EPOCHS = 1000  # для экспериментов с Extreme Learning Machine можно поставить 0
+
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
@@ -406,7 +408,7 @@ if run_mode == 'train':
         #print('DEBUG len(sent2vec_conv)={} encoder_size={}'.format(len(sent2vec_conv), encoder_size))
 
     if net_arch == 'cnn2':
-        for kernel_size, nb_filters in [(1, 128), (2, 256), (3, 512), (4, 1024)]:
+        for kernel_size, nb_filters in [(1, 100), (2, 200), (3, 400), (4, 1000)]:
             conv = Conv1D(filters=nb_filters,
                           kernel_size=kernel_size,
                           padding='valid',
@@ -855,19 +857,22 @@ if run_mode == 'train':
 
     nb_validation_steps = int(len(val_phrases)/batch_size)
 
-    hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, embeddings, 1),
-                               steps_per_epoch=int(len(train_phrases)/batch_size),
-                               epochs=100,
-                               verbose=1,
-                               callbacks=[model_checkpoint, early_stopping],
-                               validation_data=generate_rows( val_phrases, val_ys, batch_size, embeddings, 1),
-                               validation_steps=nb_validation_steps,
-                               )
-    max_acc = max(hist.history['val_acc'])
-    print('max val_acc={}'.format(max_acc))
+    if NB_EPOCHS == 0:
+        model.save_weights(weights_path)
+    else:
+        hist = model.fit_generator(generator=generate_rows(train_phrases, train_ys, batch_size, embeddings, 1),
+                                   steps_per_epoch=int(len(train_phrases)/batch_size),
+                                   epochs=NB_EPOCHS,
+                                   verbose=1,
+                                   callbacks=[model_checkpoint, early_stopping],
+                                   validation_data=generate_rows( val_phrases, val_ys, batch_size, embeddings, 1),
+                                   validation_steps=nb_validation_steps,
+                                   )
+        max_acc = max(hist.history['val_acc'])
+        print('max val_acc={}'.format(max_acc))
 
-    # загрузим чекпоинт с оптимальными весами
-    model.load_weights(weights_path)
+        # загрузим чекпоинт с оптимальными весами
+        model.load_weights(weights_path)
 
     # получим оценку F1 на валидационных данных
     y_true2 = []
@@ -958,6 +963,81 @@ if run_mode == 'train':
 
         with open(os.path.join(tmp_folder, config_file_name2), 'w') as f:
             json.dump(sent2vec_config, f)
+
+        # оценка качества эмбеддингов с помощью косинусной меры в качестве релевантности
+        # и валидационной задачи
+        eval_data = EvaluationDataset(max_wordseq_len, tokenizer)
+        eval_data.load(data_folder)
+
+        nb_good = 0  # попадание предпосылки в top-1
+        nb_good5 = 0
+        nb_good10 = 0
+        nb_total = 0
+
+        for irecord, phrases in eval_data.generate_groups():
+            nb_samples = len(phrases)
+            X_data = np.zeros((nb_samples * 2, max_wordseq_len, word_dims), dtype='float32')
+
+            for irow, (premise_words, question_words) in enumerate(phrases):
+                for iword, word in enumerate(premise_words[:max_wordseq_len]):
+                    X_data[irow * 2, iword, :] = embeddings[word]
+
+                for iword, word in enumerate(question_words[:max_wordseq_len]):
+                    X_data[irow * 2 + 1, iword, :] = embeddings[word]
+
+            y_pred = sent2vec_model.predict(X_data)
+
+            sims = []
+            for i in range(nb_samples):
+                v1 = y_pred[i * 2]
+                v2 = y_pred[i * 2 + 1]
+                sim = v_cosine(v1, v2)
+                sims.append(sim)
+
+            # предпосылка с максимальной релевантностью
+            max_index = np.argmax(sims)
+            selected_premise = u' '.join(phrases[max_index][0]).strip()
+
+            nb_total += 1
+
+            # эта выбранная предпосылка соответствует одному из вариантов
+            # релевантных предпосылок в этой группе?
+            if eval_data.is_relevant_premise(irecord, selected_premise):
+                nb_good += 1
+                nb_good5 += 1
+                nb_good10 += 1
+                #print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
+            else:
+                #print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+
+                # среди top-5 или top-10 предпосылок есть верная?
+                sorted_phrases = [x for x, _ in sorted(itertools.izip(phrases, sims), key=lambda z: -z[1])]
+
+                for i in range(1, 10):
+                    selected_premise = u' '.join(sorted_phrases[i][0]).strip()
+                    if eval_data.is_relevant_premise(irecord, selected_premise):
+                        if i < 5:
+                            nb_good5 += 1  # верная предпосылка вошла в top-5
+                        if i < 10:
+                            nb_good10 += 1
+                        break
+
+            max_sim = np.max(y_pred)
+
+            question = phrases[0][1]
+            #print(u'{:<40} {:<40} {}/{}'.format(u' '.join(question), u' '.join(phrases[max_index][0]), sims[max_index], sims[0]))
+
+        # Итоговая точность выбора предпосылки.
+        accuracy = float(nb_good) / float(nb_total)
+        print('accuracy       ={}'.format(accuracy))
+
+        # Также выведем точность попадания верной предпосылки в top-5 и top-10
+        accuracy5 = float(nb_good5) / float(nb_total)
+        print('accuracy top-5 ={}'.format(accuracy5))
+
+        accuracy10 = float(nb_good10) / float(nb_total)
+        print('accuracy top-10={}'.format(accuracy10))
+
 
     else:
         if os.path.exists(arch_filepath2):
