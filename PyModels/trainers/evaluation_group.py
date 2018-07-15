@@ -48,7 +48,7 @@ class EvaluationGroup(object):
 
                 premise = line.replace(u'T:', u'').replace(u'ё', u'е').lower().strip()
                 premise_words = pad_wordseq(self.tokenizer.tokenize(premise), self.max_wordseq_len)
-                self.premises_str.append(premise)
+                self.premises_str.append(u' '.join(premise_words))
                 self.premises.append(premise_words)
             elif line.startswith(u'Q:'):
                 question = line.replace(u'Q:', u'').replace(u'ё', u'е').strip()

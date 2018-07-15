@@ -12,4 +12,4 @@ def pad_wordseq(words, n):
     if len(words) >= 0:
         return words
     else:
-        return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words,))
+        return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words))

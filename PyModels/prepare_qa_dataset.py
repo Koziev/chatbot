@@ -27,6 +27,11 @@ USE_AUTOGEN = True  # добавлять ли сэмплы из автомати
 
 # ---------------------------------------------------------------
 
+
+def ru_sanitize(s):
+    return s.replace(u'ё', u'е')
+
+
 def normalize_qline( line ):
     line = line.replace(u'(+)', u'')
     line = line.replace(u'(-)', u'')
@@ -34,8 +39,9 @@ def normalize_qline( line ):
     line = line.replace(u'Q:', u'')
     line = line.replace(u'A:', u'')
     line = line.replace(u'\t', u' ')
-    line = line.replace( '.', ' ' ).replace( ',', ' ' ).replace( '?', ' ' ).replace( '!', ' ' ).replace( '-', ' ' )
-    line = line.replace( '  ', ' ' ).strip().lower()
+    line = line.replace('.', ' ').replace(',', ' ').replace('?', ' ').replace('!', ' ').replace('-', ' ')
+    line = line.replace('  ', ' ').strip().lower()
+    line = ru_sanitize(line)
     return line
 
 
@@ -43,16 +49,14 @@ def normalize_qline( line ):
 
 tokenizer = Tokenizer()
 
-# ------------------------------------------------------------------------
-
 records = [] # список из (предпосылка, вопрос, ответ, паттерн_создан_вручную)
 
 added_records_set = set() # для предотвращения повторов
 
 def add_record(premise, question, answer, is_handmade):
-    s1 = premise.strip()
-    s2 = question.strip()
-    s3 = answer.strip()
+    s1 = ru_sanitize(premise.strip())
+    s2 = ru_sanitize(question.strip())
+    s3 = ru_sanitize(answer.strip())
 
     k = s1+u'|'+s2+u'|'+s3
     if k not in added_records_set:

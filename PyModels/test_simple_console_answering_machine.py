@@ -20,7 +20,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 user_id = 'test'
 
 
-parser = argparse.ArgumentParser(description='Neural model for answer generation model selector')
+parser = argparse.ArgumentParser(description='Question answering machine')
 parser.add_argument('--facts_folder', type=str, default='../../data', help='path to folder containing knowledgebase files')
 parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
 

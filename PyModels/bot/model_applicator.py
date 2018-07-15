@@ -31,4 +31,4 @@ class ModelApplicator(object):
         :rtype: unicode
         """
         _, tail = os.path.split(old_filepath)
-        return os.path.join( models_folder,  tail )
+        return os.path.join(models_folder,  tail)

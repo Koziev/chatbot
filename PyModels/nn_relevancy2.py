@@ -289,8 +289,6 @@ if run_mode == 'train':
     rnn_size = word_dims
 
     classif = None
-    sent2vec_input = None
-    sent2vec_output = None
 
     input_words1 = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input_words1')
     input_flags1 = Input(shape=(max_wordseq_len, 1,), dtype='float32', name='input_flags1')
@@ -300,8 +298,6 @@ if run_mode == 'train':
     input_addfeatures = None
     if net_arch == 'cnn2':
         input_addfeatures = Input(shape=(nb_addfeatures,), dtype='float32', name='input_addfeatures')
-
-    sent2vec_input = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input')
 
     words_net1 = keras.layers.concatenate(inputs=[input_words1, input_flags1], axis=-1)
     words_net2 = keras.layers.concatenate(inputs=[input_words2, input_flags2], axis=-1)
@@ -314,9 +310,6 @@ if run_mode == 'train':
     # для всех слоев в списке conv1, если их смерджить.
     encoder_size = 0
 
-    # группа слоев для модели векторизации предложения.
-    sent2vec_conv = []
-
     if net_arch == 'ff':
         # feedforward сетка.
         # входную последовательность векторов слов в каждом предложении
@@ -324,8 +317,6 @@ if run_mode == 'train':
         # слоев.
         encoder1 = Flatten()(words_net1)
         encoder2 = Flatten()(words_net2)
-
-        sent2vec_encoder = Flatten()(sent2vec_input)
 
         nb_inputs = max_wordseq_len*word_dims
 
@@ -338,12 +329,10 @@ if run_mode == 'train':
 
             encoder1 = shared_layer(encoder1)
             encoder2 = shared_layer(encoder2)
-            sent2vec_encoder = shared_layer(sent2vec_encoder)
 
         encoder_size = nb_inputs
         conv1.append(encoder1)
         conv2.append(encoder2)
-        sent2vec_conv.append(sent2vec_encoder)
 
     if net_arch == 'lstm':
         # энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
@@ -359,9 +348,6 @@ if run_mode == 'train':
         conv1.append(encoder_rnn1)
         conv2.append(encoder_rnn2)
 
-        sent2vec_output = shared_words_rnn(sent2vec_input)
-        sent2vec_conv.append(sent2vec_output)
-
     if net_arch == '(lstm)cnn':
         shared_words_rnn = Bidirectional(recurrent.LSTM(rnn_size,
                                                         input_shape=(max_wordseq_len, word_dims),
@@ -369,8 +355,6 @@ if run_mode == 'train':
 
         encoder_rnn1 = shared_words_rnn(words_net1)
         encoder_rnn2 = shared_words_rnn(words_net2)
-
-        sent2vec_rnn2 = shared_words_rnn(sent2vec_input)
 
         for kernel_size in range(2, 5):
             conv = Conv1D(filters=nb_filters,
@@ -392,11 +376,6 @@ if run_mode == 'train':
 
             encoder_size += nb_filters
 
-            sent2vec_output = conv(sent2vec_rnn2)
-            sent2vec_output = pooler(sent2vec_output)
-
-            sent2vec_conv.append(sent2vec_output)
-
     if net_arch == 'cnn':
         # простая сверточная архитектура.
         for kernel_size in range(1, 4):
@@ -416,10 +395,6 @@ if run_mode == 'train':
             conv_layer2 = conv(words_net2)
             conv_layer2 = pooler(conv_layer2)
             conv2.append(conv_layer2)
-
-            #sent2vec_encoder = conv(sent2vec_input)
-            #sent2vec_encoder = GlobalMaxPooling1D()(sent2vec_input)
-            #sent2vec_conv.append(sent2vec_encoder)
 
             encoder_size += nb_filters
 
@@ -443,10 +418,6 @@ if run_mode == 'train':
             conv_layer2 = conv(words_net2)
             conv_layer2 = pooler(conv_layer2)
             conv2.append(conv_layer2)
-
-            #sent2vec_encoder = conv(sent2vec_input)
-            #sent2vec_encoder = GlobalMaxPooling1D()(sent2vec_input)
-            #sent2vec_conv.append(sent2vec_encoder)
 
             encoder_size += nb_filters
 
@@ -551,9 +522,6 @@ if run_mode == 'train':
             conv2.append(encoder_rnn2)
             encoder_size += rnn_size*2
 
-            sent2vec_layer = shared_words_rnn(sent2vec_input)
-            sent2vec_conv.append(sent2vec_layer)
-
         for kernel_size in range(1, 4):
             # сверточные слои, образующие детекторы словосочетаний
             # и синтаксических конструкций.
@@ -582,11 +550,6 @@ if run_mode == 'train':
             conv2.append(conv_layer2)
 
             encoder_size += rnn_size
-
-            sent2vec_layer = conv(sent2vec_input)
-            sent2vec_layer = pooler(sent2vec_layer)
-            sent2vec_layer = lstm(sent2vec_layer)
-            sent2vec_conv.append(sent2vec_layer)
 
         print('encoder_size={}'.format(encoder_size))
 
@@ -653,12 +616,6 @@ if run_mode == 'train':
         # words_final = BatchNormalization()(words_final)
         #words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
 
-        if len(sent2vec_conv) > 1:
-            if len(sent2vec_conv) == 1:
-                sent2vec_output = sent2vec_conv[0]
-            else:
-                sent2vec_output = keras.layers.concatenate(inputs=sent2vec_conv)
-
     elif classifier_arch == 'muladd':
         encoder1 = None
         encoder2 = None
@@ -689,14 +646,6 @@ if run_mode == 'train':
         words_final = Dense(units=sent2vec_dim // 3, activation='relu')(words_final)
         #words_final = Dense(units=sent2vec_dim // 4, activation='relu')(words_final)
         #words_final = Dense(units=sent2vec_dim // 5, activation='relu')(words_final)
-
-        if len(sent2vec_conv) > 0:
-            if len(sent2vec_conv) == 1:
-                sent2vec_output = sent2vec_conv[0]
-            else:
-                sent2vec_output = keras.layers.concatenate(inputs=sent2vec_conv)
-
-            sent2vec_output = sent_repr_layer(sent2vec_output)
 
     else:
         encoder1 = None
@@ -736,10 +685,6 @@ if run_mode == 'train':
         elif classifier_arch == 'dot':
             # скалярное произведение двух векторов, дающее скаляр.
             words_final = keras.layers.dot(inputs=[encoder_merged1, encoder_merged2], axes=1, normalize=True)
-
-        if sent2vec_conv is not None and len(sent2vec_conv) > 0:
-            sent2vect_merged = keras.layers.concatenate(inputs=sent2vec_conv)
-            sent2vec_output = sent_repr_layer(sent2vect_merged)
 
     # Вычислительный граф сформирован, добавляем финальный классификатор с 1 выходом,
     # выдающим 0 для нерелевантных и 1 для релевантных предложений.

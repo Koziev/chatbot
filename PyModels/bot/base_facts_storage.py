@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 class BaseFactsStorage(object):
     """
     Класс описывает контракт для классов, обеспечивающих чтение
@@ -12,12 +13,18 @@ class BaseFactsStorage(object):
     def __init__(self):
         pass
 
-
     def enumerate_facts(self, interlocutor):
         """
         :param interlocutor - строковый идентификатор пользователя,
          используемый при чтении приватных фактов, релевантных только заданному
          пользователю.
+        :return итерируемая последовательность кортежей (тест_факта, грамматическое_лицо, уникальная_метка_факта)
+        """
+        raise NotImplemented()
+
+    def enumerate_smalltalk_replicas(self):
+        """
+        :return: итерируемая последовательность экземпляров класса SmalltalkReplicas.
         """
         raise NotImplemented()
 
@@ -30,5 +37,5 @@ class BaseFactsStorage(object):
         :param interlocutor: уникальный строковый идентификатор пользователя
         :param fact: строковое представление добавляемого факта
         """
-        assert(len(unicode(fact))>0)
+        assert(len(unicode(fact)) > 0)
         raise NotImplemented()

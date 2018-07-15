@@ -45,7 +45,7 @@ MAX_NB_AUTOGEN = 2000  # макс. число автоматически сге�
 tmp_folder = '../tmp'
 data_folder = '../data'
 paraphrases_paths = ['../data/paraphrases.txt', '../data/contradictions.txt']
-qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT, 10000000)]\
+qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT, 10000000)]
 
 if USE_AUTOGEN:
     qa_paths.extend([('current_time_pqa.txt', AUTOGEN_WEIGHT, 1000000),
@@ -77,15 +77,21 @@ stop_words.update(u'о а в на у к с со по ко мне нам я он 
 
 # ---------------------------------------------------------------
 
-def normalize_qline( line ):
+
+def ru_sanitize(s):
+    return s.replace(u'ё', u'е')
+
+
+def normalize_qline(line):
     line = line.replace(u'(+)', u'')
     line = line.replace(u'(-)', u'')
     line = line.replace(u'T:', u'')
     line = line.replace(u'Q:', u'')
     line = line.replace(u'A:', u'')
     line = line.replace(u'\t', u' ')
-    line = line.replace( '.', ' ' ).replace( ',', ' ' ).replace( '?', ' ' ).replace( '!', ' ' ).replace( '-', ' ' )
-    line = line.replace( '  ', ' ' ).strip().lower()
+    line = line.replace('.', ' ').replace(',', ' ').replace('?', ' ').replace('!', ' ').replace('-', ' ')
+    line = line.replace('  ', ' ').strip().lower()
+    line = ru_sanitize(line)
     return line
 
 
@@ -94,7 +100,7 @@ def ngrams(s, n):
 
 
 def jaccard(shingles1, shingles2):
-    return float(len(shingles1&shingles2))/float(len(shingles1|shingles2))
+    return float(len(shingles1 & shingles2))/float(len(shingles1 | shingles2))
 
 
 # ---------------------------------------------------------------
@@ -107,21 +113,23 @@ random_questions = []
 random_facts = set()
 
 # прочитаем список случайных вопросов из заранее сформированного файла
+# (см. код на C# https://github.com/Koziev/chatbot/tree/master/CSharpCode/ExtractFactsFromParsing
+# и результаты его работы https://github.com/Koziev/NLP_Datasets/blob/master/Samples/questions4.txt)
 print('Loading random questions from {}'.format(questions_path))
 with codecs.open(questions_path, 'r', 'utf-8') as rdr:
     for line in rdr:
-        if len(line)<40:
+        if len(line) < 40:
             question = line.strip()
-            question = question.replace(u'- ', u'')
+            question = ru_sanitize(u' '.join(tokenizer.tokenize(question)))
             random_questions.append(question)
 
 # ------------------------------------------------------------------------
 
-# Прочитаем список случаных фактов, чтобы потом генерировать отрицательные паттерны
-print('Loading random questions and facts...')
+# Прочитаем список случайных фактов, чтобы потом генерировать отрицательные паттерны
+print('Loading random facts...')
 for facts_path in ['facts4.txt', 'facts5.txt', 'facts6.txt']:
     with codecs.open(os.path.join(data_folder, facts_path), 'r', 'utf-8') as rdr:
-        n=0
+        n = 0
         for line in rdr:
             if n > 100000:
                 s = line.strip()
@@ -137,7 +145,7 @@ random_facts = list(random_facts)
 
 print('Prepare random facts index...')
 word2random_facts = dict()
-for ifact,fact in enumerate(random_facts):
+for ifact, fact in enumerate(random_facts):
     words = tokenizer.tokenize(fact)
 
     for word in words:
@@ -162,6 +170,7 @@ with codecs.open(os.path.join(data_folder, 'qa.txt'), 'r', 'utf-8') as rdr:
     for phrase in rdr:
         if phrase.startswith(u'T:'):
             phrase = phrase.replace(u'T:', u'').lower().strip()
+            phrase = ru_sanitize(phrase)
             words = tokenizer.tokenize(phrase.strip())
             if len(words) > 0:
                 shingles = ngrams(u' '.join(words), shingle_len)
@@ -218,8 +227,12 @@ res_dataset = ResultantDataset()
 lines = []
 posit_pairs_count = 0
 negat_pairs_count = 0
+random_negat_pairs_count = 0
 for paraphrases_path in paraphrases_paths:
-    print('Parsing {}'.format(paraphrases_path))
+    print('Parsing {} '.format(paraphrases_path), end='')
+    posit_pairs_count1 = 0  # кол-во релевантных пар, извлеченных из обрабатываемого файла
+    negat_pairs_count1 = 0  # кол-во нерелевантных пар, извлеченных из обрабатываемого файла
+    random_negat_pairs_count1 = 0  # кол-во добавленных случайных нерелевантных пар
     with codecs.open(paraphrases_path, "r", "utf-8") as inf:
         for line in inf:
             line = line.strip()
@@ -237,17 +250,20 @@ for paraphrases_path in paraphrases_paths:
                         for i2 in range(len(posit_lines)):
                             if i1 == i2 and not include_repeats:
                                 continue
-                            res_dataset.add_pair( posit_lines[i1], posit_lines[i2], 1, HANDCRAFTED_WEIGHT )
+                            res_dataset.add_pair(posit_lines[i1], posit_lines[i2], 1, HANDCRAFTED_WEIGHT)
                             posit_pairs_count += 1
+                            posit_pairs_count1 += 1
 
                         for negat in negat_lines:
-                            res_dataset.add_pair( posit_lines[i1], negat, 0, HANDCRAFTED_WEIGHT )
+                            res_dataset.add_pair(posit_lines[i1], negat, 0, HANDCRAFTED_WEIGHT)
                             negat_pairs_count += 1
+                            negat_pairs_count1 += 1
 
                         # добавим пары с абсолютно случайными фактами в качестве негативных сэмплов
                         for _ in range(n_negative_per_positive):
-                            res_dataset.add_pair( posit_lines[i1], random.choice(random_facts), 0, AUTOGEN_WEIGHT )
-                            negat_pairs_count += 1
+                            res_dataset.add_pair(posit_lines[i1], random.choice(random_facts), 0, AUTOGEN_WEIGHT)
+                            random_negat_pairs_count += 1
+                            random_negat_pairs_count1 += 1
 
                         # добавим пары со случайными фактами, отобранными по критерию наличия общих слов.
                         # таким образом, получаются негативные сэмплы типа "кошка ловит мышей":"мышей в амбаре нет"
@@ -281,8 +297,9 @@ for paraphrases_path in paraphrases_paths:
 
                                 if not found_in_posit:
                                     res_dataset.add_pair(posit_lines[i1], normalize_qline(neg_fact), 0, AUTOGEN_WEIGHT)
-                                    negat_pairs_count += 1
                                     added_facts_with_common_words += 1
+                                    random_negat_pairs_count += 1
+                                    random_negat_pairs_count1 += 1
                                     if added_facts_with_common_words >= n_negative_per_positive:
                                         break
 
@@ -290,7 +307,9 @@ for paraphrases_path in paraphrases_paths:
             else:
                 lines.append(line)
 
-print('done, posit_pairs_count={} negat_pairs_count={}'.format(posit_pairs_count, negat_pairs_count))
+    print('counts: positives={} negatives={} random negatives={}'.format(posit_pairs_count1, negat_pairs_count1, random_negat_pairs_count1))
+
+print('Done, total counts: positives={} negatives={} random_negatives={}'.format(posit_pairs_count, negat_pairs_count, random_negat_pairs_count))
 # ------------------------------------------------------------------------
 
 if INCLUDE_PREMISE_QUESTION:
@@ -317,17 +336,17 @@ if INCLUDE_PREMISE_QUESTION:
                         # вопросов и ответов.
                         # Из загруженных записей добавим пары в обучающий датасет
                         if len(text) == 1:
-                            premise_questions.append( (text[0], questions) )
+                            premise_questions.append((text[0], questions))
 
                             for premise in text:
                                 for question in questions:
-                                    res_dataset.add_pair( premise, question, 1, qa_weight )
+                                    res_dataset.add_pair(premise, question, 1, qa_weight)
                                     posit_pairs_count += 1
 
                                 # Добавим несколько нерелевантных вопросов
                                 for _ in range(len(questions)*n_negative_per_positive):
                                     random_question = random.choice(random_questions)
-                                    res_dataset.add_pair( premise, random_question, 0, AUTOGEN_WEIGHT)
+                                    res_dataset.add_pair(premise, random_question, 0, AUTOGEN_WEIGHT)
                                     negat_pairs_count += 1
 
                         loading_state = 'T'
@@ -391,22 +410,22 @@ N_NEGATIVE = res_dataset.positive_count()*n_negative_per_positive
 
 srclines = []
 group_counter = 0
-with codecs.open( paraphrases_path, "r", "utf-8") as inf:
+with codecs.open(paraphrases_path, "r", "utf-8") as inf:
     for line in inf:
         line = line.strip()
-        if len(line)==0:
+        if len(line) == 0:
             group_counter += 1
         else:
             if not line.startswith(u'(-)'):
-                srclines.append((normalize_qline(line),group_counter))
+                srclines.append((normalize_qline(line), group_counter))
 
 negative_pairs = 0
 while negative_pairs < N_NEGATIVE:
     line1 = random.choice(srclines)
     line2 = random.choice(srclines)
     # выбираем строки из разных групп
-    if( line1[1]!=line2[1] ):
-        res_dataset.add_pair( line1[0], line2[0], 0, AUTOGEN_WEIGHT)
+    if line1[1] != line2[1]:
+        res_dataset.add_pair(line1[0], line2[0], 0, AUTOGEN_WEIGHT)
         negative_pairs += 1
 
 print( 'random negatives count=', negative_pairs )
@@ -430,18 +449,18 @@ if True             :
     emitted_perm = set()
 
     for srcpath in srcpaths:
-        print( 'source=', srcpath )
+        print('source=', srcpath)
         lines = []
-        with codecs.open( os.path.join(data_folder, srcpath), "r", "utf-8") as inf:
+        with codecs.open(os.path.join(data_folder, srcpath), "r", "utf-8") as inf:
             nperm=0
             for line in inf:
                 line = line.strip()
                 if len(line)==0:
                     if len(lines)>1:
 
-                        for i1 in range( len(lines) ):
-                            for i2 in range( len(lines) ):
-                                if i1==i2 and include_repeats==False:
+                        for i1 in range(len(lines)):
+                            for i2 in range(len(lines)):
+                                if i1 == i2 and include_repeats == False:
                                     continue
                                 k1 = lines[i1].strip() + u'|' + lines[i2].strip()
                                 k2 = lines[i2].strip() + u'|' + lines[i1].strip()
@@ -452,14 +471,14 @@ if True             :
                                     res_dataset.add_pair(lines[i1], lines[i2], 1, AUTOGEN_WEIGHT)
                                     total_permutations += 1
                                     nperm += 1
-                                    if nperm>nb_permut:
+                                    if nperm > nb_permut:
                                         break
 
                     lines = []
                 else:
-                    lines.append( normalize_qline(line) )
+                    lines.append(normalize_qline(line))
 
-    print( 'total_permutations={}'.format(total_permutations) )
+    print('total_permutations={}'.format(total_permutations))
 
 # ---------------------------------------------------------------------------
 
@@ -467,6 +486,6 @@ res_dataset.print_stat()
 
 # сохраним получившийся датасет в CSV
 print('Storing dataset..')
-res_dataset.save_csv( os.path.join(data_folder,'premise_question_relevancy.csv') )
+res_dataset.save_csv(os.path.join(data_folder,'premise_question_relevancy.csv'))
 
 print('All done.')

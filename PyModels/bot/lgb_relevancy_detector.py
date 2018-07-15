@@ -21,7 +21,7 @@ class LGB_RelevancyDetector(GB_RelevancyDetector):
 
     def load(self, models_folder):
         self.logger.info('Loading LGB_RelevancyDetector model files')
-        # Определение релевантности предпосылки и вопроса на основе XGB модели
+        # Определение релевантности предпосылки и вопроса на основе LightGBM модели
         with open(os.path.join(models_folder, 'lgb_relevancy.config'), 'r') as f:
             model_config = json.load(f)
 

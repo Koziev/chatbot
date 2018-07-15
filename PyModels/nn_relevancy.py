@@ -251,7 +251,7 @@ if run_mode == 'train':
     print('Constructing the NN model {} {}...'.format(net_arch, classifier_arch))
 
     nb_filters = 128  # 128
-    rnn_size = word_dims
+    rnn_size = word_dims*2
 
     classif = None
     sent2vec_input = None
@@ -341,7 +341,8 @@ if run_mode == 'train':
         conv1.append(encoder_rnn1)
         conv2.append(encoder_rnn2)
 
-        sent2vec_output = shared_words_rnn(sent2vec_input)
+        sent2vec_output = shared_words_rnn1(sent2vec_input)
+        sent2vec_output = shared_words_rnn2(sent2vec_output)
         sent2vec_conv.append(sent2vec_output)
 
     if net_arch == 'cnn(lstm)':
@@ -1110,7 +1111,7 @@ if run_mode == 'evaluate':
                             wrt.write('{:15e} '.format(x2_gen[0, istep, idim]))
                         wrt.write('\n')
 
-                break;
+                break
 
             y_pred = model.predict_generator(generator=generate_rows(phrases, ys, 1, w2v, 2),
                                              steps=1,

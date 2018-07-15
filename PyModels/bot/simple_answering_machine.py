@@ -3,6 +3,7 @@
 import json
 import os
 import logging
+import numpy as np
 
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -35,7 +36,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         к файлам данных модели так, чтобы был указанный каталог.
         """
         _, tail = os.path.split(old_filepath)
-        return os.path.join( models_folder,  tail )
+        return os.path.join( models_folder, tail)
 
 
     def load_models(self, models_folder):
@@ -125,23 +126,44 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         elif person == '2s':
             question = self.change_person(question, '1s')
 
-        if question0[-1] in [u'.!']:
-            # Утверждение добавляем как факт в базу знаний
+        if question0[-1] in u'.!':
+            # Утверждение добавляем как факт в базу знаний, в раздел для
+            # текущего собеседника.
+            # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
+            # для текущего собеседника.
             fact_person = '3'
             if person == '1s':
-                fact_person='2s'
+                fact_person = '2s'
             elif person == '2s':
-                fact_person='1s'
+                fact_person = '1s'
             fact = question
             if self.trace_enabled:
                 print(u'Adding [{}] to knowledge base'.format(fact))
-            self.facts_storage.store_new_fact((fact, fact_person, '--from dialogue--'))
+            self.facts_storage.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
+
+            # подбираем подходящую реплику в ответ на не-вопрос собеседника.
+            smalltalk_phrases = self.facts_storage.enumerate_smalltalk_replicas()
+            best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
+                                                                               [(item.query, -1, -1) for item in smalltalk_phrases],
+                                                                               self.text_utils,
+                                                                               self.word_embeddings)
+
+            # todo: если релевантность найденной реплики слишком мала, то нужен другой алгоритм...
+            for item in smalltalk_phrases:
+                if item.query == best_premise:
+                    # выбираем случайный вариант ответа
+                    # TODO: уточнить выбор, подбирая наиболее релевантный вариант, так что выдаваемая
+                    # реплика будет учитывать либо текущий дискурс, либо ???...
+                    # Следует учесть, от ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+                    # поэтому их следует сначала нормализовать.
+                    selected_replica = np.random.choice(item.answers)
+                    session.add_to_buffer(selected_replica)
+                    break
+
             return
 
         if self.trace_enabled:
             self.logger.debug(u'Question to process={}'.format(question))
-
-        #question_words = self.text_utils.tokenize(question)
 
         # определяем наиболее релевантную предпосылку
         memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
@@ -159,15 +181,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         answer = u''
 
-        if model_selector==0:
+        if model_selector == 0:
             # Ответ генерируется через классификацию на 2 варианта yes|no
             y = self.yes_no_model.calc_yes_no(best_premise, question, self.text_utils, self.word_embeddings)
-            if y<0.5:
-                answer = u'нет'
+            if y < 0.5:
+                answer = u'нет'  # TODO: вынести во внешние ресурсы
             else:
-                answer = u'да'
+                answer = u'да'  # TODO: вынести во внешние ресурсы
 
-        elif model_selector==1:
+        elif model_selector == 1:
             # ответ генерируется через копирование слов из предпосылки.
             answer = self.word_copy_model.generate_answer(best_premise, question, self.text_utils, self.word_embeddings)
         else:

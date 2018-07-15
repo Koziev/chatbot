@@ -22,7 +22,7 @@ class BaseDialogSession(object):
         В буфер ожидающих выдачи ответов бота добавляем новую реплику
         :param phrase: добавляемая реплика
         """
-        assert(phrase is not None and len(phrase)>0)
+        assert(phrase is not None and len(phrase) > 0)
         self.answer_buffer.append(phrase)
 
     def extract_from_buffer(self):

@@ -7,10 +7,13 @@ import codecs
 import datetime
 import itertools
 
+from smalltalk_replicas import SmalltalkReplicas
+
+
 class Files3FactsStorage(BaseFactsStorage):
     """
     Класс читает факты из нескольких файлов, игнорируя идентификатор собеседника.
-    Новые факты храняться только в памяти, таким образом персистентность не
+    Новые факты хранятся только в памяти, таким образом персистентность не
     реализована.
     """
 
@@ -24,6 +27,37 @@ class Files3FactsStorage(BaseFactsStorage):
         self.facts_folder = facts_folder
         self.new_facts = []
 
+    def enumerate_smalltalk_replicas(self):
+        """
+        Из отдельного текстового файла загружается и возвращается список
+        реплик в ответ на не-вопрос собеседника.
+        :return: перечислимая последовательность экземпляров SmalltalkReplicas
+        """
+        smalltalk_path = os.path.join(self.facts_folder, 'smalltalk.txt')
+        smalltalk_replicas = []
+        with codecs.open(smalltalk_path, 'r', 'utf-8') as rdr:
+            q_list = []
+            a_list = []
+            for line in rdr:
+                line = line.strip()
+                if len(line) == 0:
+                    for q in q_list:
+                        q = u' '.join(self.text_utils.tokenize(q))
+                        item = SmalltalkReplicas(q)
+                        for a in a_list:
+                            a = a.strip()
+                            item.add_answer(a)
+                        smalltalk_replicas.append(item)
+
+                    q_list = []
+                    a_list = []
+                elif line.startswith('Q:'):
+                    q_list.append(line.replace('Q:', '').strip())
+                elif line.startswith('A:'):
+                    a_list.append(line.replace('A:', '').strip())
+
+        return smalltalk_replicas
+
     def enumerate_facts(self, interlocutor):
         premises_3_path = os.path.join(self.facts_folder, 'premises.txt')
         premises_1s_path = os.path.join(self.facts_folder, 'premises_1s.txt')
@@ -36,7 +70,7 @@ class Files3FactsStorage(BaseFactsStorage):
                     line1 = line.strip()
                     if len(line1)>2:
                         canonized_line = self.text_utils.canonize_text(line1)
-                        memory_phrases.append( (canonized_line, ptype, '') )
+                        memory_phrases.append((canonized_line, ptype, ''))
 
         # Добавляем текущие факты
 
@@ -44,7 +78,7 @@ class Files3FactsStorage(BaseFactsStorage):
         dw = [u'понедельник', u'вторник', u'среда', u'четверг',
               u'пятница', u'суббота', u'воскресенье'][datetime.datetime.today().weekday()]
 
-        memory_phrases.append( (u'сегодня '+dw, '3', 'current_date') )
+        memory_phrases.append((u'сегодня '+dw, '3', 'current_day of week'))
 
         # Время года
         #currentSecond= datetime.now().second
@@ -55,17 +89,17 @@ class Files3FactsStorage(BaseFactsStorage):
         cur_month = datetime.datetime.now().month
         #currentYear = datetime.now().year
 
-        season = {11:u'зима', 12:u'зима', 1:u'зима',
-                  2:u'весна', 3:u'весна', 4:u'весна',
-                  5:u'лето', 6:u'лето', 7:u'лето',
-                  8:u'осень', 9:u'осень', 10:u'осень'}[cur_month]
-        memory_phrases.append( (u'сейчас '+season, '3', 'current_season') )
+        season = {11: u'зима', 12: u'зима', 1: u'зима',
+                  2: u'весна', 3: u'весна', 4: u'весна',
+                  5: u'лето', 6: u'лето', 7: u'лето',
+                  8: u'осень', 9: u'осень', 10: u'осень'}[cur_month]
+        memory_phrases.append((u'сейчас '+season, '3', 'current_season'))
 
         # Добавляем текущее время с точностью до минуты
         current_minute = datetime.datetime.now().minute
         current_hour = datetime.datetime.now().hour
         current_time = u'Сейчас ' + str(current_hour)
-        if (20>=current_hour>=5):
+        if 20 >= current_hour >= 5:
             current_time += u' часов '
         elif current_hour in [1, 21]:
             current_time += u' час '

@@ -12,5 +12,5 @@ class RelevancyDetector(ModelApplicator):
     def __init__(self):
         pass
 
-    def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings):
+    def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         raise NotImplemented()

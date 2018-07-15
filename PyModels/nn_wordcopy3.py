@@ -57,18 +57,19 @@ CONFIG_FILENAME = 'nn_wordcopy3.config'
 def pad_wordseq(words, n):
     return list( itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ) )
 
+
 # Справа добавляем пустые слова
 def rpad_wordseq(words, n):
-    return list( itertools.chain( words, itertools.repeat(PAD_WORD, n-len(words)) ) )
+    return list(itertools.chain(words, itertools.repeat(PAD_WORD, n-len(words))))
 
 
-def vectorize_words( words, M, irow, word2vec ):
+def vectorize_words(words, M, irow, word2vec):
     for iword,word in enumerate( words ):
         if word in word2vec:
             M[irow, iword, :] = word2vec[word]
 
 
-def select_patterns( sequences, targets ):
+def select_patterns(sequences, targets):
     sequences1 = []
     targets1 = []
 
@@ -90,7 +91,7 @@ def select_patterns( sequences, targets ):
 
 
 def count_words(words):
-    return len(filter(lambda z:z!=PAD_WORD,words))
+    return len(filter(lambda z:z != PAD_WORD,words))
 
 
 def generate_rows_word_copy3(sequences, targets, batch_size, mode):
@@ -128,7 +129,6 @@ def generate_rows_word_copy3(sequences, targets, batch_size, mode):
 
             y1_batch[batch_index, beg_pos] = True
             y2_batch[batch_index, end_pos] = True
-
 
             batch_index += 1
 
@@ -188,74 +188,6 @@ if run_mode == '':
             print('Unrecognized choice "{}"'.format(a1))
 
 
-max_inputseq_len = 0
-max_outputseq_len = 0 # максимальная длина ответа
-all_words = set()
-all_chars = set()
-
-# --------------------------------------------------------------------------
-
-print( 'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
-wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
-wc2v_dims = len(wc2v.syn0[0])
-print('wc2v_dims={0}'.format(wc2v_dims))
-
-# --------------------------------------------------------------------------
-
-df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-
-print('samples.count={}'.format(df.shape[0]))
-
-tokenizer = Tokenizer()
-for i,record in df.iterrows():
-    for phrase in [record['premise'], record['question']]:
-        all_chars.update( phrase )
-        words = tokenizer.tokenize(phrase)
-        all_words.update(words)
-        max_inputseq_len = max( max_inputseq_len, len(words) )
-
-    phrase = record['answer']
-    all_chars.update(phrase)
-    words = tokenizer.tokenize(phrase)
-    all_words.update(words)
-    max_outputseq_len = max(max_outputseq_len, len(words))
-
-for word in wc2v.vocab:
-    all_words.add(word)
-    all_chars.update(word)
-
-print('max_inputseq_len={}'.format(max_inputseq_len))
-print('max_outputseq_len={}'.format(max_outputseq_len))
-
-word2id = dict( [(c,i) for i,c in enumerate( itertools.chain([PAD_WORD], filter(lambda z:z!=PAD_WORD,all_words)))] )
-
-nb_chars = len(all_chars)
-nb_words = len(all_words)
-print('nb_chars={}'.format(nb_chars))
-print('nb_words={}'.format(nb_words))
-
-
-# --------------------------------------------------------------------------
-
-print( 'Loading the w2v model {}'.format(word2vector_path) )
-w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
-w2v_dims = len(w2v.syn0[0])
-print('w2v_dims={0}'.format(w2v_dims))
-
-word_dims = w2v_dims+wc2v_dims
-
-word2vec = dict()
-for word in wc2v.vocab:
-    v = np.zeros( word_dims )
-    v[w2v_dims:] = wc2v[word]
-    if word in w2v:
-        v[:w2v_dims] = w2v[word]
-
-    word2vec[word] = v
-
-del w2v
-del wc2v
-gc.collect()
 
 # В этих файлах будем сохранять натренированную сетку
 arch_filepath = os.path.join(tmp_folder, 'nn_wordcopy3.arch')
@@ -263,6 +195,71 @@ weights_path = os.path.join(tmp_folder, 'nn_wordcopy3.weights')
 
 
 if run_mode == 'train':
+    max_inputseq_len = 0
+    max_outputseq_len = 0  # максимальная длина ответа
+    all_words = set()
+    all_chars = set()
+
+    print('Loading the wordchar2vector model {}'.format(wordchar2vector_path))
+    wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
+    wc2v_dims = len(wc2v.syn0[0])
+    print('wc2v_dims={0}'.format(wc2v_dims))
+
+    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
+
+    print('samples.count={}'.format(df.shape[0]))
+
+    tokenizer = Tokenizer()
+    for i, record in df.iterrows():
+        for phrase in [record['premise'], record['question']]:
+            all_chars.update(phrase)
+            words = tokenizer.tokenize(phrase)
+            all_words.update(words)
+            max_inputseq_len = max(max_inputseq_len, len(words))
+
+        phrase = record['answer']
+        all_chars.update(phrase)
+        words = tokenizer.tokenize(phrase)
+        all_words.update(words)
+        max_outputseq_len = max(max_outputseq_len, len(words))
+
+    for word in wc2v.vocab:
+        all_words.add(word)
+        all_chars.update(word)
+
+    print('max_inputseq_len={}'.format(max_inputseq_len))
+    print('max_outputseq_len={}'.format(max_outputseq_len))
+
+    word2id = dict(
+        (c, i) for i, c in enumerate(itertools.chain([PAD_WORD], filter(lambda z: z != PAD_WORD, all_words))))
+
+    nb_chars = len(all_chars)
+    nb_words = len(all_words)
+    print('nb_chars={}'.format(nb_chars))
+    print('nb_words={}'.format(nb_words))
+
+    # --------------------------------------------------------------------------
+
+    print('Loading the w2v model {}'.format(word2vector_path))
+    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path,
+                                                          binary=not word2vector_path.endswith('.txt'))
+    w2v_dims = len(w2v.syn0[0])
+    print('w2v_dims={0}'.format(w2v_dims))
+
+    word_dims = w2v_dims + wc2v_dims
+
+    word2vec = dict()
+    for word in wc2v.vocab:
+        v = np.zeros(word_dims)
+        v[w2v_dims:] = wc2v[word]
+        if word in w2v:
+            v[:w2v_dims] = w2v[word]
+
+        word2vec[word] = v
+
+    del w2v
+    del wc2v
+    gc.collect()
 
     print('Constructing the NN model {} {}...'.format(net_arch, classifier_arch))
 
@@ -362,7 +359,8 @@ if run_mode == 'train':
 
             lstm = recurrent.LSTM(rnn_size, return_sequences=False)
 
-            pooler = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')
+            #pooler = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')
+            pooler = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
 
             conv_layer1 = conv(words_net1)
             conv_layer1 = pooler(conv_layer1)
@@ -439,13 +437,13 @@ if run_mode == 'train':
     decoder = Dense(rnn_size, activation='relu')(encoder_final)
     decoder = Dense(rnn_size//2, activation='relu')(decoder)
     decoder = Dense(rnn_size//3, activation='relu')(decoder)
-    #decoder = Dense(rnn_size, activation='relu')(decoder)
+    #decoder = Dense(rnn_size//4, activation='relu')(decoder)
     output_beg = Dense(output_dims, activation='softmax', name='output_beg')(decoder)
 
     decoder = Dense(rnn_size, activation='relu')(encoder_final)
     decoder = Dense(rnn_size//2, activation='relu')(decoder)
     decoder = Dense(rnn_size//3, activation='relu')(decoder)
-    #decoder = Dense(rnn_size, activation='relu')(decoder)
+    #decoder = Dense(rnn_size//4, activation='relu')(decoder)
     output_end = Dense(output_dims, activation='softmax', name='output_end')(decoder)
 
     model = Model(inputs=[words_net1, words_net2], outputs=[output_beg, output_end])
@@ -497,16 +495,16 @@ if run_mode == 'train':
 
 
     hist = model.fit_generator(generator=generate_rows_word_copy3(train_input1, train_output1, batch_size, 1),
-                               steps_per_epoch=int(nb_train_patterns / batch_size),
+                               steps_per_epoch=nb_train_patterns // batch_size,
                                epochs=200,
                                verbose=2,
                                callbacks=callbacks,
                                validation_data=generate_rows_word_copy3(val_input1, val_output1, batch_size, 1),
-                               validation_steps=int(nb_valid_patterns / batch_size)
+                               validation_steps=nb_valid_patterns // batch_size
                                )
 
 
-if run_mode== 'query':
+if run_mode == 'query':
 
     with open(os.path.join(tmp_folder, CONFIG_FILENAME), 'r') as f:
         model_config = json.load(f)
@@ -517,6 +515,34 @@ if run_mode== 'query':
     wordchar2vector_path = model_config['wordchar2vector_path']
     word_dims = model_config['word_dims']
     padding = model_config['padding']
+
+    tokenizer = Tokenizer()
+
+    print('Loading the wordchar2vector model {}'.format(wordchar2vector_path))
+    wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
+    wc2v_dims = len(wc2v.syn0[0])
+    print('wc2v_dims={0}'.format(wc2v_dims))
+
+    print('Loading the w2v model {}'.format(word2vector_path))
+    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path,
+                                                          binary=not word2vector_path.endswith('.txt'))
+    w2v_dims = len(w2v.syn0[0])
+    print('w2v_dims={0}'.format(w2v_dims))
+
+    word_dims = w2v_dims + wc2v_dims
+
+    word2vec = dict()
+    for word in wc2v.vocab:
+        v = np.zeros(word_dims)
+        v[w2v_dims:] = wc2v[word]
+        if word in w2v:
+            v[:w2v_dims] = w2v[word]
+
+        word2vec[word] = v
+
+    del w2v
+    del wc2v
+    gc.collect()
 
     with open(arch_filepath, 'r') as f:
         model = model_from_json(f.read())
@@ -549,8 +575,13 @@ if run_mode== 'query':
         X1_probe.fill(0)
         X2_probe.fill(0)
 
-        vectorize_words(words1, X1_probe, 0, word2vec )
-        vectorize_words(words2, X2_probe, 0, word2vec )
+        vectorize_words(words1, X1_probe, 0, word2vec)
+        vectorize_words(words2, X2_probe, 0, word2vec)
+
+        #for i1, word1 in enumerate(words1):
+        #    if len(word1)>0:
+        #        print(u'{} {} ==> {}'.format(i1, word1, X1_probe[0, i1, :]))
+
         y_probe = model.predict(x={'input_words1': X1_probe, 'input_words2': X2_probe})
 
         y1 = y_probe[0][0]

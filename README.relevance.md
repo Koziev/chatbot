@@ -116,7 +116,10 @@ lgb_relevancy.model (бустер, сохраненный в LightGBM) и lgb_re
 
 Исходный текст: https://github.com/Koziev/chatbot/blob/master/PyModels/train_skip_thoughts.py
 
-За основу взята идея из [Skip-Thoughts](https://github.com/ryankiros/skip-thoughts).
+За основу взята идея из [Skip-Thoughts](https://github.com/ryankiros/skip-thoughts). Основное
+достоинство модели - unsupervised режим тренировки, поэтому нет необходимости в трудоемкой
+разметке обучающих данных.
+
 Отличия от оригинала:
 
 1) Реализовано на Keras.
@@ -145,4 +148,8 @@ lgb_relevancy.model (бустер, сохраненный в LightGBM) и lgb_re
 
 ...to be written...
 
+
+# Полезные ссылки
+
+1. [aNMM: Ranking Short Answer Texts with Attention-Based Neural Matching Model](http://www.bigdatalab.ac.cn/~gjf/papers/2016/CIKM2016_yang.pdf)  
 

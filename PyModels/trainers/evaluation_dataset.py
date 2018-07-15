@@ -41,8 +41,6 @@ class EvaluationDataset(object):
             df = pd.read_csv(os.path.join(data_folder, 'premise_question_answer.csv'), encoding='utf-8', delimiter='\t',
                              quoting=3)
             for premise in df['premise'].unique():
-                # if premise.lower() == u'кого кошка ловит':
-                #    print('DEBUG!!!')
                 premise_words = self.tokenizer.tokenize(premise)
                 if u'кого' not in premise_words:
                     premise = pad_wordseq(premise_words, self.max_wordseq_len)

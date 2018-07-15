@@ -45,7 +45,8 @@ class GB_RelevancyDetector(RelevancyDetector):
 
     def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         """
-        Поиск наиболее релевантной предпосыл(ки|ок) с помощью XGB модели.
+        Поиск наиболее релевантной предпосыл(ки|ок) с помощью одной из моделей,
+        использующей градиентный бустинг (XGBoost, LightGBM).
 
         :param probe_phrase - юникодная строка-вопрос
         :param phrases - список проверяемых предпосылок из базы знаний
@@ -106,7 +107,8 @@ class GB_RelevancyDetector(RelevancyDetector):
             return best_premises, best_rels
 
     def unknown_shingle(self, shingle):
-        self.logger.error(u'Shingle "{}" is unknown'.format(shingle))
+        #self.logger.error(u'Shingle "{}" is unknown'.format(shingle))
+        pass
 
     def xgb_relevancy_vectorize_sample_x(self, X_data, idata,
                                          premise_shingles, question_shingles,
