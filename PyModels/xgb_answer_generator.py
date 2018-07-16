@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 '''
-Тренировка модели, которая посимвольно генерирует ответ для заданной предпосылки и вопроса.
+Тренировка модели, которая посимвольно (teacher forcing) генерирует ответ для заданной
+предпосылки и вопроса.
+
 Используется XGB.
 '''
 
@@ -12,8 +14,9 @@ import json
 import os
 import sys
 import argparse
+import codecs
 from collections import Counter
-
+import six
 import numpy as np
 import pandas as pd
 import sklearn.metrics
@@ -22,6 +25,9 @@ import xgboost
 from scipy.sparse import lil_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.random_projection import SparseRandomProjection
+from sklearn.metrics import classification_report
+from sklearn.metrics import confusion_matrix
+
 
 from utils.tokenizer import Tokenizer
 
@@ -33,13 +39,13 @@ NB_PREV_CHARS = 5 # кол-во пред. символов в сгенериро
 
 NB_SAMPLES = 1000000 # кол-во записей в датасете (до разбивки на тренировку и валидацию)
 
-MIN_SHINGLE_FREQ = 5
+MIN_SHINGLE_FREQ = 1
 
-NB_TREES = 1000
-MAX_DEPTH = 5
+NB_TREES = 10000
+MAX_DEPTH = 7
 
-BEG_LEN = 15  # длина в символах начального фрагмента фраз, который дает отдельные фичи
-END_LEN = 15  # длина с символах конечного фрагмента фраз
+BEG_LEN = 10  # длина в символах начального фрагмента фраз, который дает отдельные фичи
+END_LEN = 10  # длина с символах конечного фрагмента фраз
 
 
 # -------------------------------------------------------------------
@@ -70,11 +76,20 @@ def words2str(words):
     :param words:
     :return:
     """
-    return u' '.join(itertools.chain([BEG_WORD, u' '], words, [ u' ', END_WORD]))
+    return BEG_WORD + u' ' + u' '.join(words) + u' ' + END_WORD
 
 
 def undress(s):
     return s.replace(BEG_CHAR, u' ').replace(END_CHAR, u' ').strip()
+
+
+def encode_char(c):
+    if c == BEG_CHAR:
+        return u'\\b'
+    elif c == END_CHAR:
+        return u'\\r'
+    else:
+        return c
 
 
 def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answer_shingles,
@@ -82,6 +97,7 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
                        premise_end_shingles, question_end_shingles,
                        premise_sdr, question_sdr,
                        answer_prev_chars, word_index, char_index,
+                       premise_str,
                        inshingle2id, outshingle2id, outchar2id):
     ps = set(premise_shingles)
     qs = set(question_shingles)
@@ -132,6 +148,14 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
         #        X_data[idata, icol+i] = True
         X_data[idata, icol:icol+PHRASE_DIM] = question_sdr[0, :]
         icol += PHRASE_DIM
+
+    prev_char1 = answer_prev_chars[::-1][-1]
+    premise_str1 = premise_str.replace(BEG_CHAR+u' ', BEG_CHAR)
+    for c, char_index in outchar2id.items():
+        if prev_char1+c in premise_str1:
+            X_data[idata, icol+char_index] = True
+    icol += len(outchar2id)
+
 
 
 
@@ -189,6 +213,7 @@ def generate_answer(xgb_answer_generator, tokenizer,
                            premise_end_shingles, question_end_shingles,
                            premise_sdr, question_sdr,
                            answer_prev_chars, word_index, char_index,
+                           premise_wx,
                            inshingle2id, outshingle2id, outchar2id)
 
         D_data = xgboost.DMatrix(X_data, silent=True)
@@ -379,6 +404,7 @@ if run_mode == 'train':
     nb_features += nb_inshingles*2  # шинглы в начальных фрагментах предпосылки и вопроса
     nb_features += nb_inshingles*2  # шинглы в конечных фрагментах предпосылки и вопроса
     nb_features += 2*PHRASE_DIM  # SDR предпосылки и вопроса
+    nb_features += nb_outchars  # какие символы в предпосылке бывают после текущего символа
 
     print('nb_features={}'.format(nb_features))
 
@@ -412,7 +438,9 @@ if run_mode == 'train':
             premise_words = tokenizer.tokenize(premise)
             question_words = tokenizer.tokenize(question)
 
-            premise_shingles = ngrams(words2str(premise_words), SHINGLE_LEN)
+            premise_str = words2str(premise_words)
+
+            premise_shingles = ngrams(premise_str, SHINGLE_LEN)
             question_shingles = ngrams(words2str(question_words), SHINGLE_LEN)
 
             premise_beg_shingles = ngrams(words2str(premise_words)[:BEG_LEN], SHINGLE_LEN)
@@ -449,11 +477,13 @@ if run_mode == 'train':
                 else:
                     char_index = len(left_chars) - rpos - 1
 
-                vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answer_shingles,
+                vectorize_sample_x(X_data, idata,
+                                   premise_shingles, question_shingles, answer_shingles,
                                    premise_beg_shingles, question_beg_shingles,
                                    premise_end_shingles, question_end_shingles,
                                    premise_sdr, question_sdr,
                                    answer_prev_chars, word_index, char_index,
+                                   premise_str,
                                    inshingle2id, outshingle2id, outchar2id)
                 y_data.append(outchar2id[next_char])
 
@@ -473,6 +503,15 @@ if run_mode == 'train':
     for y in set(y_train)-set(y_test):
         c = id2outchar[y]
         print(u'Missing in y_test: {}'.format(c))
+
+
+    # DEBUG BEGIN
+    with codecs.open('../tmp/cy.txt', 'w', 'utf-8') as wrt:
+        cy = Counter()
+        cy.update(y_test)
+        for y, n in cy.most_common():
+            wrt.write(u'{:3d} {:2s} {}\n'.format(y, encode_char(id2outchar[y]), n))
+    # DEBUG END
 
     D_train = xgboost.DMatrix(X_train, y_train, silent=0)
     D_val = xgboost.DMatrix(X_test, y_test, silent=0)
@@ -524,9 +563,7 @@ if run_mode == 'train':
     cl.save_model(model_filename)
 
     # Финальные оценки точности
-
     y_pred = cl.predict(D_val)
-    y_pred = (y_pred >= 0.5).astype(np.int)
     acc = sklearn.metrics.accuracy_score(y_true=y_test, y_pred=y_pred)
     print('per char accuracy={}'.format(acc))
 
@@ -544,16 +581,21 @@ if run_mode == 'train':
 
         if undress(answer2) != undress(answer):
             nb_errors += 1
-            #print('(-) ', end='')
-        #else:
-            #print('(+) ', end='')
-        #print(u'true={} model={}'.format(undress(answer), undress(answer2)))
 
     print('per instance accuracy={}'.format(float(nb_test-nb_errors)/float(nb_test)))
 
+    report_path = os.path.join(tmp_folder, 'xgb_answer_generator.report.txt')
+    with codecs.open(report_path, 'w', 'utf-8') as wrt:
+        # Для classification_report нужен список только тех названий классов, которые
+        # встречаются в y_test, иначе получим неверный отчет и ворнинг в придачу.
+        class_names = [encode_char(id2outchar[y]) for y in sorted(set(y_test))]
+        wrt.write(classification_report(y_test, y_pred, target_names=class_names))
+        wrt.write('\n\n')
+        #wrt.write(confusion_matrix(y_test, y_pred, labels=class_names))
 
 if run_mode == 'query':
-
+    # Ручное тестирование натренированной модели генерации ответа.
+    # Сначала загружаем результаты тренировки.
     with open(config_path, 'r') as f:
         cfg = json.load(f)
 
@@ -587,7 +629,4 @@ if run_mode == 'query':
                                  SHINGLE_LEN, NB_PREV_CHARS, nb_features, id2outchar, phrase2sdr,
                                  premise, question)
 
-        print(u'{}'.format(answer))
-
-
-
+        print(u'Answer: {}'.format(answer))
