@@ -1,12 +1,17 @@
 # Модели для определения релевантности и выбора предпосылок
 
+Определение релевантности двух предложений является основной целого пласта методов
+и подзадач в NLP, информацию о которых можно найти по ключевым терминам "Natural Language Sentence Matching",
+"machine comprehension", "answer sentence selection", "natural language inference" и т.д.
+Например, см. описание модели в [Bilateral Multi-Perspective Matching for Natural Language Sentences](https://arxiv.org/abs/1702.03814).
+
 ## Оценка качества по отдельной задаче и датасету
 
 Сама по себе бинарная оценка релевантности двух предложений недостаточна
 для использования модели в чатботе. Поскольку чатбот выбирает наиболее
 релевантный факт для заданного вопроса из большого списка, то хочется,
 чтобы модель присваивала парам предпосылка-вопрос пригодную к сравнению
-оценку. Далее отранжировав пары по убыванию такой оценки, можно взять
+оценку (rank). Далее отранжировав пары по убыванию такой оценки, можно взять
 топовую пару и далее использовать этот наиболее релевантный факт для
 генерации ответа.
 
@@ -152,4 +157,6 @@ lgb_relevancy.model (бустер, сохраненный в LightGBM) и lgb_re
 # Полезные ссылки
 
 1. [aNMM: Ranking Short Answer Texts with Attention-Based Neural Matching Model](http://www.bigdatalab.ac.cn/~gjf/papers/2016/CIKM2016_yang.pdf)  
-
+2. [Deep Learning for Natural Language Processing: Theory and Practice](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/CIKM14_tutorial_HeGaoDeng.pdf)  
+3. [A Latent Semantic Model with Convolutional-Pooling Structure for Information Retrieval ](http://www.iro.umontreal.ca/~lisa/pointeurs/ir0895-he-2.pdf)  
+4. [Bilateral Multi-Perspective Matching for Natural Language Sentences](https://arxiv.org/abs/1702.03814)  
