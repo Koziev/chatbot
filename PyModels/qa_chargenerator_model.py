@@ -3,6 +3,8 @@
 Нейросетевая модель для посимвольной генерации ответа на вопрос, заданный
 к определенной фразе-предпосылке.
 
+Для проекта чат-бота https://github.com/Koziev/chatbot
+
 Генерируется полный ответ сразу (посимвольно).
 
 Датасет должен быть предварительно сгенерирован скриптом prepare_qa_dataset.py
@@ -19,6 +21,7 @@ import argparse
 import sys
 import six
 import codecs
+from collections import Counter
 
 import gensim
 import keras.callbacks
@@ -51,14 +54,20 @@ data_folder = '../data'
 NET_ARCH = 'lstm(cnn)'
 
 GENERATOR_ARCH = 'lstm(lstm)'
+#GENERATOR_ARCH = 'lstm(lstm(lstm))'
 #GENERATOR_ARCH = 'lstm'
 
 
 #BATCH_SIZE = 1000
 BATCH_SIZE = 400
 
+# Максимальная длина ответа в символах.
+MAX_ANSWER_LEN = 30
 
-MAX_ANSWER_LEN = 20
+# Кол-во ядер в сверточных слоях упаковщика предложений.
+nb_filters = 64
+
+USE_WORD_MATCHING = False
 
 # -------------------------------------------------------------------
 
@@ -257,7 +266,7 @@ if run_mode == 'train':
     for i, record in df.iterrows():
         answer = record['answer']
         if len(answer) <= MAX_ANSWER_LEN:  # для отладки модели
-            if answer not in [u'да', u'нет']:
+            if answer not in [u'да']:
                 all_chars.update(answer)
                 max_outputseq_len = max(max_outputseq_len, len(answer))
 
@@ -309,7 +318,6 @@ if run_mode == 'train':
     gc.collect()
     # -------------------------------------------------------------------
 
-    nb_filters = 128
     rnn_size = word_dims
 
     final_merge_size = 0  # вычисляемый параметр сетки - размер вектора на выходе энкодера
@@ -402,10 +410,14 @@ if run_mode == 'train':
 
             encoder_size += rnn_size
 
-    pq = match(inputs=[words_net1, words_net2], axes=-1, normalize=False, match_type='dot')
-    pq = Flatten()(pq)
+    # Слой для попарной похожести слов во входных цепочках.
+    if USE_WORD_MATCHING:
+        pq = match(inputs=[words_net1, words_net2], axes=-1, normalize=False, match_type='dot')
+        pq = Flatten()(pq)
+        encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2, [pq])))
+    else:
+        encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
 
-    encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2, [pq])))
     encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
     encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_final)
 
@@ -416,10 +428,15 @@ if run_mode == 'train':
 #    decoder = Dense(units=encoder_size, activation='relu')(decoder)
     decoder = RepeatVector(max_outputseq_len)(encoder_final)
 
-    if GENERATOR_ARCH == 'lstm(lstm)':
-        # Стек из двух рекуррентных слоев. Предполагается, что первый
-        # слой формирует грубую структуру ответа, а второй слой уточняет
-        # ее до точной цепочки символов.
+    # Стек из нескольких рекуррентных слоев. Предполагается, что первый
+    # слой формирует грубую структуру ответа, а второй слой уточняет
+    # ее до точной цепочки символов и т.д., а последний слой формирует
+    # цепочку символов
+    if GENERATOR_ARCH == 'lstm(lstm(lstm))':
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
+    elif GENERATOR_ARCH == 'lstm(lstm)':
         decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
         decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
     else:
@@ -441,7 +458,7 @@ if run_mode == 'train':
         question = row['question']
         answer = row['answer']
         if len(answer) <= MAX_ANSWER_LEN:
-            if answer not in [u'да', u'нет']:
+            if answer not in [u'да']:
 
                 answer = prepare_answer(answer)  # эксперимент
 
@@ -511,6 +528,11 @@ if run_mode == 'train':
     nval = len(val_input)
     print(u'Финальная валидация модели на {} сэмплах'.format(nval))
     id2char = dict([(i, c) for c, i in char2id.items()])
+
+    # Накопим кол-во ошибок и сэмплов для ответов разной длины.
+    answerlen2samples = Counter()
+    answerlen2errors = Counter()
+
     with codecs.open(os.path.join(tmp_folder, 'qa_chargenerator_model.validation.txt'), 'w', 'utf-8') as wrt:
         nb_steps = nval // BATCH_SIZE
         isample = 0
@@ -525,14 +547,27 @@ if run_mode == 'train':
                 target_chars = decode_ystr(y_batch[iy], id2char)
                 predicted_chars = decode_ystr(y_pred[iy], id2char)
 
+                answer_len = len(target_chars)
+                answerlen2samples[answer_len] += 1
+
                 if predicted_chars != target_chars:
                     wrt.write(u'Premise:      {}\n'.format(u' '.join(val_input[isample][0]).strip()))
                     wrt.write(u'Question:     {}\n'.format(u' '.join(val_input[isample][1]).strip()))
                     wrt.write(u'True answer:  {}\n'.format(target_chars))
                     wrt.write(u'Model answer: {}\n'.format(predicted_chars))
                     wrt.write('\n\n')
+                    answerlen2errors[answer_len] += 1
 
                 isample += 1
+
+    # Accuracy for answers with respect to their lengths:
+    with open(os.path.join(tmp_folder, 'qa_chargenerator_model.accuracy.csv'), 'w') as wrt:
+        wrt.write('answer_len\tnb_samples\taccuracy\n')
+        for answer_len in sorted(answerlen2samples.keys()):
+            support = answerlen2samples[answer_len]
+            nb_err = answerlen2errors[answer_len]
+            acc = 1.0 - float(nb_err)/float(support)
+            wrt.write(u'{}\t{}\t{}\n'.format(answer_len, support, acc))
 
 
 
