@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 '''
-Тренировка модели, которая посимвольно (teacher forcing) генерирует ответ для заданной
-предпосылки и вопроса.
+Тренировка модели, которая посимвольно в режиме teacher forcing учится генерировать
+ответ для заданной предпосылки и вопроса.
 
-Используется XGB.
+В качестве классификационного движка для выбора символов используется XGB.
+
+За один запуск модели выбирается один новый символ, который добавляется к ранее сгенерированной
+цепочке симоолов ответа (см. функцию generate_answer).
+
 '''
 
 from __future__ import division  # for python2 compatibility
@@ -15,6 +19,7 @@ import os
 import sys
 import argparse
 import codecs
+import gzip
 from collections import Counter
 import six
 import numpy as np
@@ -31,6 +36,8 @@ from sklearn.metrics import confusion_matrix
 
 from utils.tokenizer import Tokenizer
 
+# основной настроечный метапараметр - длина символьных шинглов для представления
+# предпосылки и вопроса (bag of shingles).
 SHINGLE_LEN = 3
 
 PHRASE_DIM = 0  #1024  # длина вектора SDR предложения; 0 если SDR не использовать
@@ -39,13 +46,14 @@ NB_PREV_CHARS = 5 # кол-во пред. символов в сгенериро
 
 NB_SAMPLES = 1000000 # кол-во записей в датасете (до разбивки на тренировку и валидацию)
 
-MIN_SHINGLE_FREQ = 1
-
-NB_TREES = 10000
-MAX_DEPTH = 7
+# Шинглы с частотой меньше указанной не будут давать входные фичи.
+MIN_SHINGLE_FREQ = 2
 
 BEG_LEN = 10  # длина в символах начального фрагмента фраз, который дает отдельные фичи
 END_LEN = 10  # длина с символах конечного фрагмента фраз
+
+NB_TREES = 10000
+MAX_DEPTH = 7  # макс. глубина для градиентного бустинга
 
 
 # -------------------------------------------------------------------
@@ -53,6 +61,7 @@ END_LEN = 10  # длина с символах конечного фрагмен
 input_path = '../data/premise_question_answer.csv'
 tmp_folder = '../tmp'
 data_folder = '../data'
+word2lemmas_path = '../data/ru_word2lemma.tsv.gz'
 
 # -------------------------------------------------------------------
 
@@ -97,7 +106,9 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
                        premise_end_shingles, question_end_shingles,
                        premise_sdr, question_sdr,
                        answer_prev_chars, word_index, char_index,
-                       premise_str,
+                       premise_str, premise_words,
+                       question_str, question_words,
+                       lexicon,
                        inshingle2id, outshingle2id, outchar2id):
     ps = set(premise_shingles)
     qs = set(question_shingles)
@@ -149,13 +160,39 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
         X_data[idata, icol:icol+PHRASE_DIM] = question_sdr[0, :]
         icol += PHRASE_DIM
 
+    # помечаем символы, которые могут быть после последнего символа в сгенерированной
+    # части ответа с точки зрения строки предпосылки, вопроса и т.д.
     prev_char1 = answer_prev_chars[::-1][-1]
+
     premise_str1 = premise_str.replace(BEG_CHAR+u' ', BEG_CHAR)
     for c, char_index in outchar2id.items():
         if prev_char1+c in premise_str1:
             X_data[idata, icol+char_index] = True
     icol += len(outchar2id)
 
+    question_str1 = question_str.replace(BEG_CHAR+u' ', BEG_CHAR)
+    for c, char_index in outchar2id.items():
+        if prev_char1+c in question_str1:
+            X_data[idata, icol+char_index] = True
+    icol += len(outchar2id)
+
+    premise_words_2grams = set()
+    for premise_word in premise_words:
+        for wordform in lexicon.get_forms(premise_word):
+            premise_words_2grams.update(ngrams(u' '+wordform+u' ', 2))
+    for c, char_index in outchar2id.items():
+        if prev_char1+c in premise_words_2grams:
+            X_data[idata, icol+char_index] = True
+    icol += len(outchar2id)
+
+    question_words_2grams = set()
+    for question_word in question_words:
+        for wordform in lexicon.get_forms(question_word):
+            question_words_2grams.update(ngrams(u' '+wordform+u' ', 2))
+    for c, char_index in outchar2id.items():
+        if prev_char1+c in question_words_2grams:
+            X_data[idata, icol+char_index] = True
+    icol += len(outchar2id)
 
 
 
@@ -213,7 +250,9 @@ def generate_answer(xgb_answer_generator, tokenizer,
                            premise_end_shingles, question_end_shingles,
                            premise_sdr, question_sdr,
                            answer_prev_chars, word_index, char_index,
-                           premise_wx,
+                           premise_wx, premise_words,
+                           question_wx, question_words,
+                           lexicon,
                            inshingle2id, outshingle2id, outchar2id)
 
         D_data = xgboost.DMatrix(X_data, silent=True)
@@ -226,6 +265,43 @@ def generate_answer(xgb_answer_generator, tokenizer,
     return u'{}'.format(answer_chain[1:-1]).strip()
 
 
+class Word2Lemmas(object):
+    def __init__(self):
+        pass
+
+    def load(self, path):
+        print('Loading lexicon from {}'.format(path))
+        self.lemmas = dict()
+        self.forms = dict()
+        with gzip.open(path, 'r') as rdr:
+            for line in rdr:
+                tx = line.strip().decode('utf8').split('\t')
+                if len(tx) == 2:
+                    form = tx[0]
+                    lemma = tx[1]
+
+                    if form not in self.forms:
+                        self.forms[form] = [lemma]
+                    else:
+                        self.forms[form].append(lemma)
+
+                    if lemma not in self.lemmas:
+                        self.lemmas[lemma] = {form}
+                    else:
+                        self.lemmas[lemma].add(form)
+        print('Lexicon loaded: {} lemmas, {} wordforms'.format(len(self.lemmas), len(self.forms)))
+
+    def get_forms(self, word):
+        if word in self.forms:
+            #result = set()
+            #for lemma in self.forms[word]:
+            #    result.update(self.lemmas[lemma])
+            #return result
+            return set(itertools.chain(*(self.lemmas[lemma] for lemma in self.forms[word])))
+        else:
+            return [word]
+
+
 # -------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(description='Answer text generator')
@@ -236,6 +312,11 @@ args = parser.parse_args()
 run_mode = args.run_mode
 
 tokenizer = Tokenizer()
+
+lexicon = Word2Lemmas()
+lexicon.load(word2lemmas_path)
+#for w in lexicon.get_forms(u'дяди'):
+#    print(u'{}'.format(w))
 
 config_path = os.path.join(tmp_folder,'xgb_answer_generator.config')
 
@@ -405,6 +486,9 @@ if run_mode == 'train':
     nb_features += nb_inshingles*2  # шинглы в конечных фрагментах предпосылки и вопроса
     nb_features += 2*PHRASE_DIM  # SDR предпосылки и вопроса
     nb_features += nb_outchars  # какие символы в предпосылке бывают после текущего символа
+    nb_features += nb_outchars  # какие символы бывают в любых формах слов предпосылки
+    nb_features += nb_outchars  # какие символы в вопросе бывают после текущего символа
+    nb_features += nb_outchars  # какие символы бывают в любых формах слов вопроса
 
     print('nb_features={}'.format(nb_features))
 
@@ -439,6 +523,7 @@ if run_mode == 'train':
             question_words = tokenizer.tokenize(question)
 
             premise_str = words2str(premise_words)
+            question_str = words2str(question_words)
 
             premise_shingles = ngrams(premise_str, SHINGLE_LEN)
             question_shingles = ngrams(words2str(question_words), SHINGLE_LEN)
@@ -483,7 +568,9 @@ if run_mode == 'train':
                                    premise_end_shingles, question_end_shingles,
                                    premise_sdr, question_sdr,
                                    answer_prev_chars, word_index, char_index,
-                                   premise_str,
+                                   premise_str, premise_words,
+                                   question_str, question_words,
+                                   lexicon,
                                    inshingle2id, outshingle2id, outchar2id)
                 y_data.append(outchar2id[next_char])
 
@@ -539,7 +626,7 @@ if run_mode == 'train':
                        evals=[(D_val, 'val')],
                        num_boost_round=NB_TREES,
                        verbose_eval=10,
-                       early_stopping_rounds=10)
+                       early_stopping_rounds=20)
 
     print('Training is finished')
 
@@ -562,10 +649,14 @@ if run_mode == 'train':
 
     cl.save_model(model_filename)
 
-    # Финальные оценки точности
+    # Финальные оценки точности.
     y_pred = cl.predict(D_val)
     acc = sklearn.metrics.accuracy_score(y_true=y_test, y_pred=y_pred)
     print('per char accuracy={}'.format(acc))
+
+    # Накопим кол-во ошибок и сэмплов для ответов разной длины.
+    answerlen2samples = Counter()
+    answerlen2errors = Counter()
 
     nb_errors = 0
     nb_test = min(1000, nb_test)
@@ -578,17 +669,28 @@ if run_mode == 'train':
                                   outshingle2id, inshingle2id, outchar2id,
                                   SHINGLE_LEN, NB_PREV_CHARS, nb_features, id2outchar, phrase2sdr,
                                   premise, question)
-
+        answer_len = len(answer)
+        answerlen2samples[answer_len] += 1
         if undress(answer2) != undress(answer):
             nb_errors += 1
+            answerlen2errors[answer_len] += 1
 
     print('per instance accuracy={}'.format(float(nb_test-nb_errors)/float(nb_test)))
 
     report_path = os.path.join(tmp_folder, 'xgb_answer_generator.report.txt')
     with codecs.open(report_path, 'w', 'utf-8') as wrt:
+        wrt.write(u'Accuracy for answers with respect to their lengths:\n')
+        for answer_len in sorted(answerlen2samples.keys()):
+            support = answerlen2samples[answer_len]
+            nb_err = answerlen2errors[answer_len]
+            acc = 1.0 - float(nb_err)/float(support)
+            wrt.write(u'{:3d} {}\n'.format(answer_len, acc))
+
+        wrt.write('\n\n')
+
         # Для classification_report нужен список только тех названий классов, которые
         # встречаются в y_test, иначе получим неверный отчет и ворнинг в придачу.
-        class_names = [encode_char(id2outchar[y]) for y in sorted(set(y_test))]
+        class_names = [encode_char(id2outchar[y]) for y in sorted(set(y_test) | set(y_pred))]
         wrt.write(classification_report(y_test, y_pred, target_names=class_names))
         wrt.write('\n\n')
         #wrt.write(confusion_matrix(y_test, y_pred, labels=class_names))
