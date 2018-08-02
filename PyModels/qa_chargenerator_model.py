@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 '''
 Нейросетевая модель для посимвольной генерации ответа на вопрос, заданный
-к определенной фразе-предпосылке.
+к определенной фразе-предпосылке. Генерируется полный ответ сразу (в виде цепочки символов).
 
 Для проекта чат-бота https://github.com/Koziev/chatbot
 
-Генерируется полный ответ сразу (посимвольно).
-
-Датасет должен быть предварительно сгенерирован скриптом prepare_qa_dataset.py
+Используемые датасеты должны быть предварительно сгенерированы
+скриптом scripts/prepare_datasets.sh
 '''
 
 from __future__ import division  # for python2 compatibility
@@ -29,6 +28,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras import initializers
 from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D
 from keras.layers import Input
 from keras.layers import recurrent
@@ -39,6 +39,7 @@ from keras.layers.wrappers import TimeDistributed
 from keras.models import Model
 from sklearn.model_selection import train_test_split
 from keras.models import model_from_json
+import keras_contrib.optimizers.ftml
 
 from utils.tokenizer import Tokenizer
 from trainers.word_embeddings import WordEmbeddings
@@ -53,9 +54,9 @@ data_folder = '../data'
 #NET_ARCH = 'lstm+cnn'
 NET_ARCH = 'lstm(cnn)'
 
+#GENERATOR_ARCH = 'lstm'
 GENERATOR_ARCH = 'lstm(lstm)'
 #GENERATOR_ARCH = 'lstm(lstm(lstm))'
-#GENERATOR_ARCH = 'lstm'
 
 
 #BATCH_SIZE = 1000
@@ -65,9 +66,20 @@ BATCH_SIZE = 400
 MAX_ANSWER_LEN = 30
 
 # Кол-во ядер в сверточных слоях упаковщика предложений.
-nb_filters = 64
+nb_filters = 128
 
 USE_WORD_MATCHING = False
+
+initializer = 'random_normal'
+
+
+# w2v_path = '~/w2v/w2v.CBOW=0_WIN=5_DIM=32.txt'
+w2v_path = '~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin'
+# w2v_path = '~/polygon/WordSDR2/sdr.dat'
+# w2v_path = '~/polygon/w2v/w2v.CBOW=0_WIN=5_DIM=128.txt'
+# w2v_path = r'f:\Word2Vec\word_vectors_cbow=1_win=5_dim=32.txt'
+
+
 
 # -------------------------------------------------------------------
 
@@ -292,13 +304,8 @@ if run_mode == 'train':
 
     # --------------------------------------------------------------------------
 
-    # w2v_path = '/home/eek/polygon/w2v/w2v.CBOW=0_WIN=5_DIM=32.txt'
-    w2v_path = '/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin'
-    # w2v_path = '/home/eek/polygon/WordSDR2/sdr.dat'
-    # w2v_path = '/home/eek/polygon/w2v/w2v.CBOW=0_WIN=5_DIM=128.txt'
-    # w2v_path = r'f:\Word2Vec\word_vectors_cbow=1_win=5_dim=32.txt'
-    print('Loading the w2v model {}'.format(w2v_path))
-    w2v = gensim.models.KeyedVectors.load_word2vec_format(w2v_path, binary=not w2v_path.endswith('.txt'))
+    print('Loading the w2v model {}'.format(os.path.expanduser(w2v_path)))
+    w2v = gensim.models.KeyedVectors.load_word2vec_format(os.path.expanduser(w2v_path), binary=not w2v_path.endswith('.txt'))
     w2v_dims = len(w2v.syn0[0])
     print('w2v_dims={0}'.format(w2v_dims))
 
@@ -390,12 +397,15 @@ if run_mode == 'train':
             # и синтаксических конструкций
             conv = Conv1D(filters=nb_filters,
                           kernel_size=kernel_size,
+                          kernel_initializer=initializer,
                           padding='valid',
                           activation='relu',
                           strides=1,
                           name='shared_conv_{}'.format(kernel_size))
 
-            lstm = recurrent.LSTM(rnn_size, return_sequences=False)
+            lstm = recurrent.LSTM(rnn_size,
+                                  return_sequences=False,
+                                  kernel_initializer='random_normal')
             pooler = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
 
             conv_layer1 = conv(words_net1)
@@ -418,8 +428,8 @@ if run_mode == 'train':
     else:
         encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
 
-    encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
-    encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_final)
+    encoder_final = Dense(units=int(encoder_size), activation='relu', kernel_initializer=initializer)(encoder_merged)
+    encoder_final = Dense(units=int(encoder_size), activation='relu', kernel_initializer=initializer)(encoder_final)
 
     # декодер генерирует цепочку символов ответа
     output_dims = nb_chars
@@ -433,19 +443,23 @@ if run_mode == 'train':
     # ее до точной цепочки символов и т.д., а последний слой формирует
     # цепочку символов
     if GENERATOR_ARCH == 'lstm(lstm(lstm))':
-        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
-        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
-        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True, kernel_initializer=initializer)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True, kernel_initializer=initializer)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True, kernel_initializer=initializer)(decoder)
     elif GENERATOR_ARCH == 'lstm(lstm)':
-        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
-        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True, kernel_initializer=initializer)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True, kernel_initializer=initializer)(decoder)
     else:
-        decoder = recurrent.LSTM(encoder_size, return_sequences=True)(decoder)
+        decoder = recurrent.LSTM(encoder_size, return_sequences=True, kernel_initializer=initializer)(decoder)
 
-    decoder = TimeDistributed(Dense(nb_chars, activation='softmax'), name='output')(decoder)
+    decoder = TimeDistributed(Dense(nb_chars, activation='softmax', kernel_initializer=initializer), name='output')(decoder)
 
     model = Model(inputs=[words_net1, words_net2], outputs=decoder)
-    model.compile(loss='categorical_crossentropy', optimizer='nadam')
+
+    #opt = 'nadam'
+    #opt = 'rmsprop'
+    opt = keras_contrib.optimizers.FTML()
+    model.compile(loss='categorical_crossentropy', optimizer=opt)
 
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
