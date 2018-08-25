@@ -14,3 +14,6 @@ class RelevancyDetector(ModelApplicator):
 
     def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         raise NotImplemented()
+
+    def calc_relevancy1(self, premise, question, text_utils, word_embeddings):
+        raise NotImplemented()

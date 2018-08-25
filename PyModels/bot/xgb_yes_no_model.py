@@ -25,7 +25,7 @@ class XGB_YesNoModel(YesNoModel):
         self.xgb_yesno_nb_features = model_config['nb_features']
         self.xgb_yesno_feature_names = model_config['feature_names']
         self.xgb_yesno = xgboost.Booster()
-        self.xgb_yesno.load_model( self.get_model_filepath( models_folder,  model_config['model_filename'] ) )
+        self.xgb_yesno.load_model(self.get_model_filepath(models_folder, model_config['model_filename']))
 
     def xgb_yesno_vectorize_sample_x(self, X_data, idata, premise_shingles, question_shingles, shingle2id):
         ps = set(premise_shingles)
@@ -39,19 +39,25 @@ class XGB_YesNoModel(YesNoModel):
         icol = 0
         for shingle in common_shingles:
             if shingle not in shingle2id:
-                print(u'Missing shingle {} in yes_no data'.format(shingle))
-            X_data[idata, icol + shingle2id[shingle]] = True
+                self.logger.error(u'Missing shingle {} in yes_no data'.format(shingle))
+            else:
+                X_data[idata, icol + shingle2id[shingle]] = True
 
         icol += nb_shingles
         for shingle in notmatched_ps:
-            X_data[idata, icol + shingle2id[shingle]] = True
+            if shingle not in shingle2id:
+                self.logger.error(u'Missing shingle {} in yes_no data'.format(shingle))
+            else:
+                X_data[idata, icol + shingle2id[shingle]] = True
 
         icol += nb_shingles
         for shingle in notmatched_qs:
-            X_data[idata, icol + shingle2id[shingle]] = True
+            if shingle not in shingle2id:
+                self.logger.error(u'Missing shingle {} in yes_no data'.format(shingle))
+            else:
+                X_data[idata, icol + shingle2id[shingle]] = True
 
     def calc_yes_no(self, premise_str, question_str, text_utils, word_embeddings):
-
         #premise_words = self.text_utils.pad_wordseq(text_utils.tokenize(best_premise), max_wordseq_len2)
         #question_words = self.text_utils.pad_wordseq(text_utils.tokenize(question), max_wordseq_len2)
 

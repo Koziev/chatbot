@@ -30,6 +30,7 @@ else:
 
 paraphrases_path = '../data/premise_question_relevancy.csv'
 pqa_path = '../data/premise_question_answer.csv'
+pqa_multy_path = '../data/qa_multy.txt'
 eval_path = '../data/evaluate_relevancy.txt'
 premises = ['../data/premises.txt', '../data/premises_1s.txt']
 
@@ -71,6 +72,15 @@ print('Parsing {}'.format(eval_path))
 with codecs.open(eval_path, 'r', 'utf-8') as rdr:
     for line in rdr:
         phrase = line.replace(u'T:', u'').replace(u'Q:', u'').strip()
+        words = tokenizer.tokenize(phrase)
+        known_words.update(words)
+        dataset_words.update(words)
+
+# Добавим слова, которые употребляются в датасете с выводами
+print('Parsing {}'.format(pqa_multy_path))
+with codecs.open(pqa_multy_path, 'r', 'utf-8') as rdr:
+    for line in rdr:
+        phrase = line.replace(u'T:', u'').replace(u'Q:', u'').replace(u'A:', u'').strip()
         words = tokenizer.tokenize(phrase)
         known_words.update(words)
         dataset_words.update(words)

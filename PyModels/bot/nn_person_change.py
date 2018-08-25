@@ -54,9 +54,9 @@ class NN_PersonChange(PersonChangeModel):
         inwords = text_utils.tokenize(sentence_str)
         outwords = []
         for word in inwords:
-            if target_person == '2s' and word in self.w1s:
+            if target_person == '2s' and word in self.w1s and word in self.person_change_1s_2s:
                 outwords.append(self.person_change_1s_2s[word])
-            elif target_person == '1s' and word in self.w2s:
+            elif target_person == '1s' and word in self.w2s and word in self.person_change_2s_1s:
                 outwords.append(self.person_change_2s_1s[word])
             else:
                 outwords.append(word)

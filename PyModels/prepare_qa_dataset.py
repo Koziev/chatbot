@@ -21,9 +21,10 @@ tmp_folder = '../tmp'
 data_folder = '../data'
 paraphrases_path = '../data/paraphrases.txt'
 qa_path = '../data/qa.txt'
+contradictions_path = '../data/contradictions.txt'
 
 USE_AUTOGEN = True  # добавлять ли сэмплы из автоматически сгенерированных датасетов
-
+MAX_AUTOGEN_SAMPLES = 5000
 
 # ---------------------------------------------------------------
 
@@ -32,7 +33,7 @@ def ru_sanitize(s):
     return s.replace(u'ё', u'е')
 
 
-def normalize_qline( line ):
+def normalize_qline(line):
     line = line.replace(u'(+)', u'')
     line = line.replace(u'(-)', u'')
     line = line.replace(u'T:', u'')
@@ -52,6 +53,7 @@ tokenizer = Tokenizer()
 records = [] # список из (предпосылка, вопрос, ответ, паттерн_создан_вручную)
 
 added_records_set = set() # для предотвращения повторов
+
 
 def add_record(premise, question, answer, is_handmade):
     s1 = ru_sanitize(premise.strip())
@@ -99,7 +101,7 @@ print('{:<6d} patterns'.format(nb_paraphrases))
 
 # 1) Используем созданные вручную паттерны из qa_path
 # 2) Добавляем автоматически извлеченные паттерны
-px = [ (qa_path, True) ]
+px = [(qa_path, True)]
 
 if USE_AUTOGEN:
     px2 = ['current_time_pqa.txt',
@@ -133,11 +135,13 @@ for p, is_handmade in px:
         questions = []  # список пар (вопрос, ответ)
 
         # В автоматически сгенерированных корпусах вопросов-ответов может быть
-        # очень много записей, некоторые их которых могут быть не совсем качественные.
+        # очень много записей, некоторые из которых могут быть не совсем качественные.
         # Поэтому ограничим их число в пользу вручную сформированного корпуса.
         max_samples = 10000000
+        filter_answer_complexity = False
         if p != qa_path:
-            max_samples = 5000
+            max_samples = MAX_AUTOGEN_SAMPLES
+            filter_answer_complexity = True
 
         samples_count = 0
         while samples_count <= max_samples:
@@ -156,9 +160,14 @@ for p, is_handmade in px:
                     if len(text) == 1:
                         for premise in text:
                             for question in questions:
-                                add_record(premise, question[0], question[1], is_handmade)
-                                nb_patterns0 += 1
-                                samples_count += 1
+                                answer = question[1]
+                                if not filter_answer_complexity or len(answer) >= 6 or u' ' in answer:
+                                    # Исключаем паттерны с ответами типа "я" и "ты", так как их
+                                    # очень много, и для тренировки сеточного генератора ответов
+                                    # они дают бесполезную нагрузку.
+                                    add_record(premise, question[0], answer, is_handmade)
+                                    nb_patterns0 += 1
+                                    samples_count += 1
 
                     loading_state = 'T'
                     questions = []
@@ -171,6 +180,22 @@ for p, is_handmade in px:
                 questions.append((q, a))
 
     print('{:<6d} patterns'.format(nb_patterns0))
+# ---------------------------------------------------------------------------------------
+
+# Все паттерны из contradictions.txt интерпретируются с ответом "НЕТ"
+with codecs.open(contradictions_path, 'r', 'utf-8') as rdr:
+    buf = []
+    for line in rdr:
+        line = line.strip()
+        if len(line) == 0:
+            if len(buf) == 2:
+                premise = normalize_qline(buf[0])
+                question = normalize_qline(buf[1])
+                add_record(premise, question, u'нет', True)
+                buf = []
+        else:
+            buf.append(line)
+
 # ---------------------------------------------------------------------------------------
 
 print('Total number of samples={}'.format(len(records)))
@@ -247,5 +272,5 @@ print('answer   ==> {}'.format(len(answer_words)))
 print('total    ==> {}'.format(len(all_words)))
 
 print('\nyes/no balance:')
-print('# of yes={}'.format( n_yes ))
-print('# of no={}'.format( n_no ))
+print('# of yes={}'.format(n_yes))
+print('# of no={}'.format(n_no))

@@ -16,6 +16,7 @@ class BaseDialogSession(object):
         self.interlocutor = interlocutor
         self.facts_storage = facts_storage
         self.answer_buffer = []
+        self.conversation_history = []  # фразы беседы
 
     def add_to_buffer(self, phrase):
         """
@@ -45,3 +46,6 @@ class BaseDialogSession(object):
         :param fact:
         """
         self.facts_storage.store_new_fact(interlocutor=self.interlocutor, fact=fact)
+
+    def add_phrase_to_history(self, interpreted_phrase):
+        self.conversation_history.append(interpreted_phrase)

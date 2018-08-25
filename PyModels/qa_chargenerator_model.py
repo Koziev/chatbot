@@ -181,6 +181,7 @@ class VisualizeCallback(keras.callbacks.Callback):
         self.stop_epoch = 0
         self.early_stopping = 20
         self.wait_epoch = 0
+        self.val_acc_history = []  # для сохранения кривой обучения
 
     def decode_str(self, y):
         return decode_ystr(y, self.id2char)
@@ -222,6 +223,7 @@ class VisualizeCallback(keras.callbacks.Callback):
                     nb_shown += 1
 
         acc = (nval-nb_errors)/float(nval)
+        self.val_acc_history.append(acc)
         if acc > self.best_acc:
             print(colors.ok+'New best instance accuracy={}\n'.format(acc)+colors.close)
             self.wait_epoch = 0
@@ -236,6 +238,11 @@ class VisualizeCallback(keras.callbacks.Callback):
                 self.model.stop_training = True
                 self.stop_epoch = self.epoch
 
+    def save_learning_curve(self, path):
+        with open(path, 'w') as wrt:
+            wrt.write('epoch\tacc\n')
+            for i, acc in enumerate(self.val_acc_history):
+                wrt.write('{}\t{}\n'.format(i+1,acc))
 
 # -------------------------------------------------------------------
 
@@ -458,7 +465,8 @@ if run_mode == 'train':
 
     #opt = 'nadam'
     #opt = 'rmsprop'
-    opt = keras_contrib.optimizers.FTML()
+    opt = 'adam'
+    #opt = keras_contrib.optimizers.FTML()
     model.compile(loss='categorical_crossentropy', optimizer=opt)
 
     with open(arch_filepath, 'w') as f:
@@ -518,6 +526,8 @@ if run_mode == 'train':
                                )
 
     print('Training is finished.')
+
+    viz.save_learning_curve(os.path.join(tmp_folder, 'qa_chargenerator.learning_curve.tsv'))
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {

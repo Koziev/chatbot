@@ -3,11 +3,10 @@
 Тренировка модели, которая посимвольно в режиме teacher forcing учится генерировать
 ответ для заданной предпосылки и вопроса.
 
-В качестве классификационного движка для выбора символов используется XGB.
+В качестве классификационного движка для выбора символов используется XGBoost.
 
 За один запуск модели выбирается один новый символ, который добавляется к ранее сгенерированной
-цепочке симоолов ответа (см. функцию generate_answer).
-
+цепочке символов ответа (см. функцию generate_answer).
 '''
 
 from __future__ import division  # for python2 compatibility
@@ -50,18 +49,11 @@ NB_SAMPLES = 1000000 # кол-во записей в датасете (до ра
 MIN_SHINGLE_FREQ = 2
 
 BEG_LEN = 10  # длина в символах начального фрагмента фраз, который дает отдельные фичи
-END_LEN = 10  # длина с символах конечного фрагмента фраз
+END_LEN = 10  # длина в символах конечного фрагмента фраз, который дает отдельные фичи
 
 NB_TREES = 10000
-MAX_DEPTH = 7  # макс. глубина для градиентного бустинга
+MAX_DEPTH = 8  # макс. глубина для градиентного бустинга
 
-
-# -------------------------------------------------------------------
-
-input_path = '../data/premise_question_answer.csv'
-tmp_folder = '../tmp'
-data_folder = '../data'
-word2lemmas_path = '../data/ru_word2lemma.tsv.gz'
 
 # -------------------------------------------------------------------
 
@@ -306,10 +298,23 @@ class Word2Lemmas(object):
 
 parser = argparse.ArgumentParser(description='Answer text generator')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query')
+parser.add_argument('--input', type=str, default='../data/premise_question_answer.csv', help='training dataset path')
+parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
+parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
+parser.add_argument('--word2lemmas', type=str, default='../data/ru_word2lemma.tsv.gz')
+
 
 args = parser.parse_args()
 
 run_mode = args.run_mode
+tmp_folder = args.tmp
+data_folder = args.data_dir
+
+# Этот датасет создается скриптом prepare_qa_dataset.py
+input_path = args.input
+
+# Отбор и упаковка пар словоформа-лемма выполняется скриптом prepare_word2lemmas.py
+word2lemmas_path = args.word2lemmas
 
 tokenizer = Tokenizer()
 
@@ -641,7 +646,9 @@ if run_mode == 'train':
                     'shingle_len': SHINGLE_LEN,
                     'NB_PREV_CHARS': NB_PREV_CHARS,
                     'BEG_LEN': BEG_LEN,
+                    'END_LEN': END_LEN,
                     'nb_features': nb_features,
+                    'word2lemmas_path': word2lemmas_path
                    }
 
     with open(config_path, 'w') as f:
@@ -687,13 +694,24 @@ if run_mode == 'train':
             wrt.write(u'{:3d} {}\n'.format(answer_len, acc))
 
         wrt.write('\n\n')
-
+        wrt.write('Multiclass classification report:\n')
         # Для classification_report нужен список только тех названий классов, которые
         # встречаются в y_test, иначе получим неверный отчет и ворнинг в придачу.
         class_names = [encode_char(id2outchar[y]) for y in sorted(set(y_test) | set(y_pred))]
         wrt.write(classification_report(y_test, y_pred, target_names=class_names))
         wrt.write('\n\n')
         #wrt.write(confusion_matrix(y_test, y_pred, labels=class_names))
+
+    # Accuracy for answers with respect to their lengths:
+    with open(os.path.join(tmp_folder, 'xgb_answer_generator.accuracy.csv'), 'w') as wrt:
+        wrt.write('answer_len\tnb_samples\taccuracy\n')
+        for answer_len in sorted(answerlen2samples.keys()):
+            support = answerlen2samples[answer_len]
+            nb_err = answerlen2errors[answer_len]
+            acc = 1.0 - float(nb_err)/float(support)
+            wrt.write(u'{}\t{}\t{}\n'.format(answer_len, support, acc))
+
+
 
 if run_mode == 'query':
     # Ручное тестирование натренированной модели генерации ответа.
@@ -715,7 +733,7 @@ if run_mode == 'query':
 
     phrase2sdr = None
 
-    id2outchar = dict([(i, c) for c, i in outchar2id.items()])
+    id2outchar = dict((i, c) for c, i in outchar2id.items())
 
     while True:
         premise = raw_input('Premise:> ').decode(sys.stdout.encoding).strip().lower()

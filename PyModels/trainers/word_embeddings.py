@@ -45,7 +45,7 @@ class WordEmbeddings(object):
           вектор встраивания для слова. 
         """
 
-        print('Loading the wordchar2vector model {} '.format(wordchar2vector_path), end='' )
+        print('Loading the wordchar2vector model {} '.format(wordchar2vector_path), end='')
         # Грузим заранее подготовленные векторы слов для модели
         # встраивания wordchar2vector (см. wordchar2vector.py)
         wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)

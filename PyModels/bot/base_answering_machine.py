@@ -17,6 +17,8 @@ class BaseAnsweringMachine(object):
         """
         raise NotImplemented()
 
+    def start_conversation(self):
+        pass
 
     def push_phrase(self, interlocutor, phrase):
         """

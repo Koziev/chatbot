@@ -43,6 +43,29 @@ class GB_RelevancyDetector(RelevancyDetector):
         self.xgb_relevancy_nb_features = model_config['nb_features']
         self.xgb_relevancy_lemmatize = model_config['lemmatize']
 
+    def calc_relevancy1(self, premise, question, text_utils, word_embeddings):
+        X_data = lil_matrix((1, self.xgb_relevancy_nb_features), dtype=self.x_matrix_type)
+
+        if self.xgb_relevancy_lemmatize:
+            premise_words = text_utils.tokenize(premise)
+            question_words = text_utils.tokenize(question)
+        else:
+            premise_words = text_utils.lemmatize(premise)
+            question_words = text_utils.lemmatize(question)
+
+        premise_wx = text_utils.words2str(premise_words)
+        question_wx = text_utils.words2str(question_words)
+
+        premise_shingles = set(text_utils.ngrams(premise_wx, self.xgb_relevancy_shingle_len))
+        question_shingles = set(text_utils.ngrams(question_wx, self.xgb_relevancy_shingle_len))
+
+        self.xgb_relevancy_vectorize_sample_x(X_data, 0, premise_shingles, question_shingles,
+                                              self.xgb_relevancy_shingle2id)
+
+        y_probe = self.predict_by_model(X_data)
+        return y_probe[0]
+
+
     def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         """
         Поиск наиболее релевантной предпосыл(ки|ок) с помощью одной из моделей,

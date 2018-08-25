@@ -8,18 +8,17 @@ import numpy as np
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
 from word_embeddings import WordEmbeddings
-from xgb_relevancy_detector import XGB_RelevancyDetector
+#from xgb_relevancy_detector import XGB_RelevancyDetector
 from lgb_relevancy_detector import LGB_RelevancyDetector
-from xgb_yes_no_model import XGB_YesNoModel
-from nn_model_selector import NN_ModelSelector
 from xgb_person_classifier_model import XGB_PersonClassifierModel
-from nn_wordcopy3 import NN_WordCopy3
 from nn_person_change import NN_PersonChange
+from answer_builder import AnswerBuilder
+from interpreted_phrase import InterpretedPhrase
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
     """
-    Простой чат-бот на основе набора нейросетевых и прочих моделей (https://github.com/Koziev/chatbot).
+    Чат-бот на основе набора нейросетевых и прочих моделей (https://github.com/Koziev/chatbot).
     """
 
     def __init__(self, facts_storage, text_utils):
@@ -29,6 +28,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.session_factory = SimpleDialogSessionFactory(self.facts_storage)
         self.text_utils = text_utils
         self.logger = logging.getLogger('SimpleAnsweringMachine')
+        self.scripting = None
+
+        # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
+        # для генерации ответа на основе факта.
+        self.min_premise_relevancy = 0.2
 
     def get_model_filepath(self, models_folder, old_filepath):
         """
@@ -38,8 +42,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         _, tail = os.path.split(old_filepath)
         return os.path.join( models_folder, tail)
 
-
-    def load_models(self, models_folder):
+    def load_models(self, models_folder, w2v_folder):
         self.logger.info(u'Loading models from {}'.format(models_folder))
         self.models_folder = models_folder
 
@@ -66,17 +69,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.relevancy_detector = LGB_RelevancyDetector()
         self.relevancy_detector.load(models_folder)
 
-        # Модель для выбора ответов yes|no на базе XGB
-        self.yes_no_model = XGB_YesNoModel()
-        self.yes_no_model.load(models_folder)
-
-        # Модель для выбора способа генерации ответа
-        self.model_selector = NN_ModelSelector()
-        self.model_selector.load(models_folder)
-
-        # нейросетевые модели для генерации ответа.
-        self.word_copy_model = NN_WordCopy3()
-        self.word_copy_model.load(models_folder)
+        # Комплексная модель (группа моделей) для генерации текста ответа
+        self.answer_builder = AnswerBuilder()
+        self.answer_builder.load_models(models_folder)
 
         # Классификатор грамматического лица на базе XGB
         self.person_classifier = XGB_PersonClassifierModel()
@@ -89,8 +84,29 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Загрузка векторных словарей
         self.word_embeddings = WordEmbeddings()
         self.word_embeddings.load_wc2v_model(self.wordchar2vector_path)
-        self.word_embeddings.load_w2v_model(self.word_copy_model.w2v_path)
-        self.word_embeddings.load_w2v_model(self.model_selector.w2v_path)
+        for p in self.answer_builder.get_w2v_paths():
+            p = os.path.join(w2v_folder, os.path.basename(p))
+            self.word_embeddings.load_w2v_model(p)
+
+    def set_scripting(self, scripting):
+        self.scripting = scripting
+
+    def start_conversation(self, interlocutor):
+        """
+        Начало общения бота с interlocutor. Ни одной реплики еще не было.
+        Бот может поприветствовать собеседника или напомнить ему что-то, если
+        в сессии с ним была какая-то напоминалка, т.д. Фразу, которую надо показать собеседнику,
+        поместим в буфер выходных фраз с помощью метода say, а внешний цикл обработки уже извлечет ее оттуда
+        и напечатает в консоли и т.д.
+
+        :param interlocutor: строковый идентификатор собеседника.
+        :return: строка реплики, которую скажет бот.
+        """
+        session = self.get_session(interlocutor)
+        if self.scripting is not None:
+            phrase = self.scripting.start_conversation(self, session)
+            if phrase is not None:
+                self.say(session, phrase)
 
     def change_person(self, phrase, target_person):
         return self.person_changer.change_person(phrase, target_person, self.text_utils, self.word_embeddings)
@@ -98,9 +114,42 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def get_session_factory(self):
         return self.session_factory
 
-    def push_phrase(self, interlocutor, phrase):
-        session = self.get_session(interlocutor)
+    def is_question(self, phrase):
+        return phrase[-1] == u'?'
 
+    def interpret_phrase(self, session, raw_phrase):
+        interpreted = InterpretedPhrase(raw_phrase)
+        phrase = raw_phrase
+
+        # история фраз доступна в session как conversation_history
+        # ...
+
+        # TODO: в будущем смена грамматического лица должна уйти в более общую
+        # модель интерпретации реплик.
+        # ---------------------------------------------------------------------
+        # Может потребоваться смена грамматического лица.
+        # Сначала определим грамматическое лицо введенного предложения.
+        person = self.person_classifier.detect_person(raw_phrase, self.text_utils, self.word_embeddings)
+        if self.trace_enabled:
+            self.logger.debug('detected person={}'.format(person))
+
+        if person == '1s':
+            phrase = self.change_person(raw_phrase, '2s')
+        elif person == '2s':
+            phrase = self.change_person(raw_phrase, '1s')
+
+        interpreted.interpretation = phrase
+        interpreted.is_question = self.is_question(raw_phrase)
+        interpreted.phrase_person = person
+        return interpreted
+
+    def say(self, session, answer):
+        answer_interpretation = InterpretedPhrase(answer)
+        answer_interpretation.is_bot_phrase = True
+        session.add_to_buffer(answer)
+        session.add_phrase_to_history(answer_interpretation)
+
+    def push_phrase(self, interlocutor, phrase):
         question = self.text_utils.canonize_text(phrase)
         if question == u'#traceon':
             self.trace_enabled = True
@@ -113,89 +162,108 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 print(u'{}'.format(fact))
             return
 
-        question0 = question
+        session = self.get_session(interlocutor)
 
-        # Может потребоваться смена грамматического лица.
-        # Сначала определим грамматическое лицо введенного предложения.
-        person = self.person_classifier.detect_person(question, self.text_utils, self.word_embeddings)
-        if self.trace_enabled:
-            self.logger.debug('detected person={}'.format(person))
+        # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
+        # так что мы можем раскрыть анафору, подставить в явном виде эллипсис и т.д.
+        interpreted_phrase = self.interpret_phrase(session, question)
 
-        if person == '1s':
-            question = self.change_person(question, '2s')
-        elif person == '2s':
-            question = self.change_person(question, '1s')
+        # Интерпретация фраз и в общем случае реакция на них зависит и от истории
+        # общения, поэтому результат интерпретации сразу добавляем в историю.
+        session.add_phrase_to_history(interpreted_phrase)
 
-        if question0[-1] in u'.!':
+        answer_generated = False
+
+        if not interpreted_phrase.is_question:
             # Утверждение добавляем как факт в базу знаний, в раздел для
             # текущего собеседника.
             # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
             # для текущего собеседника.
             fact_person = '3'
-            if person == '1s':
+            if interpreted_phrase.phrase_person == '1s':
                 fact_person = '2s'
-            elif person == '2s':
+            elif interpreted_phrase.phrase_person == '2s':
                 fact_person = '1s'
-            fact = question
+            fact = interpreted_phrase.interpretation
             if self.trace_enabled:
                 print(u'Adding [{}] to knowledge base'.format(fact))
             self.facts_storage.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
 
-            # подбираем подходящую реплику в ответ на не-вопрос собеседника.
-            smalltalk_phrases = self.facts_storage.enumerate_smalltalk_replicas()
-            best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
-                                                                               [(item.query, -1, -1) for item in smalltalk_phrases],
-                                                                               self.text_utils,
-                                                                               self.word_embeddings)
+            if self.scripting is not None:
+                answer = self.scripting.generate_response4nonquestion(self, interlocutor, interpreted_phrase)
+                if answer is not None:
+                    answer_generated = True
 
-            # todo: если релевантность найденной реплики слишком мала, то нужен другой алгоритм...
-            for item in smalltalk_phrases:
-                if item.query == best_premise:
-                    # выбираем случайный вариант ответа
-                    # TODO: уточнить выбор, подбирая наиболее релевантный вариант, так что выдаваемая
-                    # реплика будет учитывать либо текущий дискурс, либо ???...
-                    # Следует учесть, от ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-                    # поэтому их следует сначала нормализовать.
-                    selected_replica = np.random.choice(item.answers)
-                    session.add_to_buffer(selected_replica)
-                    break
+            if not answer_generated:
+                # подбираем подходящую реплику в ответ на не-вопрос собеседника.
+                smalltalk_phrases = self.facts_storage.enumerate_smalltalk_replicas()
+                best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
+                                                                                   [(item.query, -1, -1) for item in smalltalk_phrases],
+                                                                                   self.text_utils,
+                                                                                   self.word_embeddings)
 
-            return
+                # если релевантность найденной реплики слишком мала, то нужен другой алгоритм...
+                for item in smalltalk_phrases:
+                    if item.query == best_premise:
+                        # выбираем случайный вариант ответа
+                        # TODO: уточнить выбор, подбирая наиболее релевантный вариант, так что выдаваемая
+                        # реплика будет учитывать либо текущий дискурс, либо ???...
+                        # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+                        # поэтому их следует сначала нормализовать.
+                        answer = np.random.choice(item.answers)
+                        answer_generated = True
+                        break
 
+            if answer_generated:
+                self.say(session, answer)
+        else:
+            # обрабатываем вопрос
+            answer = self.build_answer(interlocutor, interpreted_phrase)
+            if answer is not None:
+                self.say(session, answer)
+
+            # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
+            # Например, для смены темы разговора.
+            if self.scripting is not None:
+                additional_speech = self.scripting.generate_after_answer(self, interlocutor, interpreted_phrase, answer)
+                if additional_speech is not None:
+                    self.say(session, additional_speech)
+
+
+    def build_answer0(self, interlocutor, interpreted_phrase):
         if self.trace_enabled:
-            self.logger.debug(u'Question to process={}'.format(question))
+            self.logger.debug(u'Question to process={}'.format(interpreted_phrase.interpretation))
 
         # определяем наиболее релевантную предпосылку
         memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
-        best_premise, best_rel = self.relevancy_detector.get_most_relevant(question, memory_phrases, self.text_utils, self.word_embeddings)
+        best_premise, best_rel = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
+                                                                           memory_phrases,
+                                                                           self.text_utils,
+                                                                           self.word_embeddings)
         if self.trace_enabled:
             self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
 
-        # Определяем способ генерации ответа
-        model_selector = self.model_selector.select_model(premise_str=best_premise,
-                                                          question_str=question,
-                                                          text_utils=self.text_utils,
-                                                          word_embeddings=self.word_embeddings)
-        if self.trace_enabled:
-            self.logger.debug('model_selector={}'.format(model_selector))
-
         answer = u''
+        if best_rel >= self.min_premise_relevancy:
+            # генерация ответа на основе выбранной предпосылки.
+            answer = self.answer_builder.build_answer_text(best_premise,
+                                                           interpreted_phrase.interpretation,
+                                                           self.text_utils,
+                                                           self.word_embeddings)
 
-        if model_selector == 0:
-            # Ответ генерируется через классификацию на 2 варианта yes|no
-            y = self.yes_no_model.calc_yes_no(best_premise, question, self.text_utils, self.word_embeddings)
-            if y < 0.5:
-                answer = u'нет'  # TODO: вынести во внешние ресурсы
-            else:
-                answer = u'да'  # TODO: вынести во внешние ресурсы
+        return answer, best_rel
 
-        elif model_selector == 1:
-            # ответ генерируется через копирование слов из предпосылки.
-            answer = self.word_copy_model.generate_answer(best_premise, question, self.text_utils, self.word_embeddings)
-        else:
-            answer = 'ERROR: answering model for {} is not implemented'.format(model_selector)
 
-        session.add_to_buffer(answer)
+    def build_answer(self, interlocutor, interpreted_phrase):
+        answer, answer_confidense = self.build_answer0(interlocutor, interpreted_phrase)
+        if answer_confidense < self.min_premise_relevancy:
+            # тут нужен алгоритм генерации ответа в условиях, когда
+            # у бота нет нужных фактов. Это может быть как ответ "не знаю",
+            # так и вариант "нет" для определенных категорий вопросов.
+            if self.scripting is not None:
+                answer = self.scripting.buid_answer(self, interlocutor, interpreted_phrase)
+
+        return answer
 
     def pop_phrase(self, interlocutor):
         session = self.get_session(interlocutor)

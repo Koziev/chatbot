@@ -40,7 +40,9 @@ AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, с
 # Автоматически сгенерированных сэмплов очень много, намного больше чем вручную
 # составленных, поэтому ограничим количество паттернов для каждого типа автоматически
 # сгенерированных.
-MAX_NB_AUTOGEN = 2000  # макс. число автоматически сгенерированных сэмплов одного типа
+MAX_NB_AUTOGEN = 500  # макс. число автоматически сгенерированных сэмплов одного типа
+
+n_negative_per_positive = 4
 
 tmp_folder = '../tmp'
 data_folder = '../data'
@@ -60,7 +62,6 @@ if USE_AUTOGEN:
 questions_path = '../data/questions.txt'
 
 include_repeats = True
-n_negative_per_positive = 5
 
 # Добавлять ли сэмплы, в которых задается релевантность предпосылки и вопроса,
 # например:
@@ -398,7 +399,6 @@ if INCLUDE_PREMISE_QUESTION:
                         res_dataset.add_pair(negative_premise, good_question, 0, AUTOGEN_WEIGHT)
                         negat_pairs_count += 1
 
-
         print('done, posit_pairs_count={} negat_pairs_count={}'.format(posit_pairs_count, negat_pairs_count))
 # ---------------------------------------------------------------------------------------
 
@@ -428,7 +428,7 @@ while negative_pairs < N_NEGATIVE:
         res_dataset.add_pair(line1[0], line2[0], 0, AUTOGEN_WEIGHT)
         negative_pairs += 1
 
-print( 'random negatives count=', negative_pairs )
+print('random negatives count=', negative_pairs)
 
 # ---------------------------------------------------------------------------
 
@@ -437,7 +437,7 @@ print( 'random negatives count=', negative_pairs )
 # Подготовка датасетов с перестановочными перефразировками выполняется
 # C# кодом, находящимся здесь: https://github.com/Koziev/NLP_Datasets/tree/master/ParaphraseDetection
 
-if True             :
+if True:
     srcpaths = ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']
 
     nb_permut = res_dataset.positive_count()/len(srcpaths) # кол-во перестановочных перефразировок одной длины,
@@ -455,8 +455,8 @@ if True             :
             nperm=0
             for line in inf:
                 line = line.strip()
-                if len(line)==0:
-                    if len(lines)>1:
+                if len(line) == 0:
+                    if len(lines) > 1:
 
                         for i1 in range(len(lines)):
                             for i2 in range(len(lines)):

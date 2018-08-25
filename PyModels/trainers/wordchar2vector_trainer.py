@@ -237,13 +237,17 @@ class Wordchar2Vector_Trainer(object):
         print('max_word_len={}'.format(max_word_len))
 
         # ограничиваем число слов для обучения и валидации
-        if len(known_words)>nb_samples:
+        if len(known_words) > nb_samples:
             known_words = set(list(known_words)[:nb_samples])
 
         val_share = 0.3
         random.seed(self.seed)
         train_words = set(filter(lambda z: random.random() > val_share, known_words))
         val_words = set(filter(lambda z: z not in train_words, known_words))
+
+        # В тренировочный набор добавляем особое "пустое" слово, которое нужно
+        # в качестве заполнителя при выравнивании цепочек слов разной длины.
+        train_words.add(u'')
 
         train_words = raw_wordset(train_words, max_word_len)
         val_words = raw_wordset(val_words, max_word_len)
@@ -267,7 +271,7 @@ class Wordchar2Vector_Trainer(object):
 
         mask_zero = self.arch_type == 'rnn'
 
-        if self.char_dims>0:
+        if self.char_dims > 0:
             # Символы будут представляться векторами заданной длины,
             # и по мере обучения вектора будут корректироваться для
             # уменьшения общего лосса.
@@ -321,11 +325,11 @@ class Wordchar2Vector_Trainer(object):
             encoder = recurrent.LSTM(units=self.vec_size, return_sequences=False)(encoder)
 
         elif self.arch_type == 'bidir_lstm':
-            encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size/2), return_sequences=False))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size//2, return_sequences=False))(encoder)
 
         elif self.arch_type == 'lstm(lstm)':
-            encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size / 2), return_sequences=True))(encoder)
-            encoder = Bidirectional(recurrent.LSTM(units=int(self.vec_size / 2), return_sequences=False))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size//2, return_sequences=True))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size//2, return_sequences=False))(encoder)
 
         elif self.arch_type == 'lstm+cnn':
             conv_list = []
@@ -464,12 +468,12 @@ class Wordchar2Vector_Trainer(object):
             workout_count += 1
             visualizer.new_epochs()
             hist = model.fit_generator(generator=generate_rows(train_words, self.batch_size, char2index, seq_len, 1),
-                                       steps_per_epoch=int(len(train_words) / self.batch_size),
+                                       steps_per_epoch=len(train_words) // self.batch_size,
                                        epochs=remaining_epochs,
                                        verbose=1,
                                        callbacks=[visualizer],  # csv_logger, model_checkpoint, early_stopping],
                                        validation_data=generate_rows(val_words, self.batch_size, char2index, seq_len, 1),
-                                       validation_steps=int(len(val_words) / self.batch_size),
+                                       validation_steps=len(val_words) // self.batch_size,
                                        )
             remaining_epochs -= len(hist.history)
             batch_size = batch_size // 2
@@ -517,7 +521,7 @@ class Wordchar2Vector_Trainer(object):
         with codecs.open(result_path, 'w', 'utf-8') as wrt:
             wrt.write('{} {}\n'.format(nb_words, self.vec_size))
 
-            nb_batch = int(nb_words/self.batch_size) + (0 if (nb_words%self.batch_size) == 0 else 1)
+            nb_batch = nb_words//self.batch_size + (0 if (nb_words%self.batch_size) == 0 else 1)
             wx = list(output_words)
             words = raw_wordset(wx, self.max_word_len)
 
@@ -525,10 +529,10 @@ class Wordchar2Vector_Trainer(object):
             word_index=0
             while words_remainder > 0:
                 print('words_remainder={:<10d}'.format(words_remainder), end='\r')
-                nw = min( self.batch_size, words_remainder )
+                nw = min(self.batch_size, words_remainder)
                 batch_words = words[word_index:word_index+nw]
                 X_data = build_input(batch_words, self.max_word_len, self.char2index)
-                y_pred = model.predict( x=X_data, batch_size=nw, verbose=0 )
+                y_pred = model.predict(x=X_data, batch_size=nw, verbose=0)
 
                 for iword, (word,corrupt_word) in enumerate(batch_words):
                     word_vect = y_pred[iword, :]
