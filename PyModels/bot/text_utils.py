@@ -50,7 +50,7 @@ class TextUtils(object):
         return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip()) > 0]
 
     # Слева добавляем пустые слова
-    def pad_wordseq(self, words, n):
+    def lpad_wordseq(self, words, n):
         return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words))
 
     # Справа добавляем пустые слова
