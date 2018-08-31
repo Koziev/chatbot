@@ -246,7 +246,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         answer = u''
         if best_rel >= self.min_premise_relevancy:
             # генерация ответа на основе выбранной предпосылки.
-            answer = self.answer_builder.build_answer_text(best_premise,
+            answer = self.answer_builder.build_answer_text([best_premise],
                                                            interpreted_phrase.interpretation,
                                                            self.text_utils,
                                                            self.word_embeddings)

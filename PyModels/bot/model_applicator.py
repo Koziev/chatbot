@@ -8,7 +8,7 @@ class ModelApplicator(object):
     моделей в движке чат-бота.
     """
     def __init__(self):
-        pass
+        self.w2v_path = None
 
     def load(self, models_folder):
         """

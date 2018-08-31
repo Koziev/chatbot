@@ -57,7 +57,11 @@ class XGB_YesNoModel(YesNoModel):
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
-    def calc_yes_no(self, premise_str, question_str, text_utils, word_embeddings):
+    def calc_yes_no(self, premise_str_list, question_str, text_utils, word_embeddings):
+        assert(len(premise_str_list) <= 1)
+
+        premise_str = premise_str_list[0] if len(premise_str_list) == 1 else u''
+
         #premise_words = self.text_utils.pad_wordseq(text_utils.tokenize(best_premise), max_wordseq_len2)
         #question_words = self.text_utils.pad_wordseq(text_utils.tokenize(question), max_wordseq_len2)
 

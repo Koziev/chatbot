@@ -11,12 +11,12 @@ class ModelSelector(ModelApplicator):
     def __init__(self):
         pass
 
-    def select_model(self, premise_str, question_str, text_utils, word_embeddings):
+    def select_model(self, premise_str_list, question_str, text_utils, word_embeddings):
         """
         Данный метод должен быть перегружен в производном классе, реализуя конкретный
         алгоритм классификации способа генерации ответа на пару предпосылка (premise_str)
         + вопрос (question_str)
-        :param premise_str: unicode строка с предпосылкой
+        :param premise_str_list: unicode строки с предпосылками (0 предпосылок или больше)
         :param question_str: unicode строка с вопросом
         :param text_utils: экземпляр класса TextUtils
         :param word_embeddings: экземпляр класса WordEmbeddings
