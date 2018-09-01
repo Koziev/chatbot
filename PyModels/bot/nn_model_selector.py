@@ -32,7 +32,7 @@ class NN_ModelSelector(ModelSelector):
         self.word_dims = self.model_config['word_dims']
         self.w2v_path = self.model_config['w2v_path']
         self.padding = self.model_config['padding']
-        self.max_wordseq_len = self.model_config['max_inputseq_len']
+        self.max_inputseq_len = self.model_config['max_inputseq_len']
         self.max_nb_premises = self.model_config['max_nb_premises']
 
         self.w2v_filename = os.path.basename(self.w2v_path)
@@ -52,9 +52,6 @@ class NN_ModelSelector(ModelSelector):
 
         assert(len(premise_str_list) <= self.max_nb_premises)
         assert(len(question_str) > 0)
-
-        self.X1_probe.fill(0)
-        self.X2_probe.fill(0)
 
         # Очищаем содержимое входных тензоров от результатов предыдущего расчета
         for i in range(self.max_nb_premises+1):

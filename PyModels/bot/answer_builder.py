@@ -49,16 +49,16 @@ class AnswerBuilder(object):
         paths = []
 
         if self.word_copy_model.w2v_path is not None:
-            paths.append(self.word_copy_model.w2v_path)
+            paths.append(self.word_copy_model.get_w2v_path())
 
         if self.model_selector.w2v_path is not None:
-            paths.append(self.model_selector.w2v_path)
+            paths.append(self.model_selector.get_w2v_path())
 
         if self.yes_no_model.w2v_path is not None:
-            paths.append(self.yes_no_model.w2v_path)
+            paths.append(self.yes_no_model.get_w2v_path())
 
         if self.answer_generator.w2v_path is not None:
-            paths.append(self.answer_generator.w2v_path)
+            paths.append(self.answer_generator.get_w2v_path())
 
         return paths
 

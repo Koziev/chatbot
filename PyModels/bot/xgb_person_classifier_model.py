@@ -24,7 +24,7 @@ class XGB_PersonClassifierModel(PersonClassifierModel):
         self.xgb_person_classifier_shingle2id = model_config['shingle2id']
         self.xgb_person_classifier_nb_features = model_config['nb_features']
         self.xgb_person_classifier = xgboost.Booster()
-        self.xgb_person_classifier.load_model(self.get_model_filepath( models_folder, model_config['model_filename']))
+        self.xgb_person_classifier.load_model(self.get_model_filepath(models_folder, model_config['model_filename']))
 
     def detect_person(self, sentence_str, text_utils, word_embeddings):
         words = text_utils.tokenize(sentence_str)
@@ -33,10 +33,9 @@ class XGB_PersonClassifierModel(PersonClassifierModel):
         shingles = text_utils.ngrams(wx, self.xgb_person_classifier_shingle_len)
         X_data = lil_matrix((1, self.xgb_person_classifier_nb_features), dtype='bool')
         for shingle in shingles:
-            X_data[0, self.xgb_person_classifier_shingle2id[shingle]] = True
+            if shingle in self.xgb_person_classifier_shingle2id:
+                X_data[0, self.xgb_person_classifier_shingle2id[shingle]] = True
         D_data = xgboost.DMatrix(X_data)
         y = self.xgb_person_classifier.predict(D_data)
-        person = ['1s', '2s', '3'][ int(y[0]) ]
+        person = ['1s', '2s', '3'][int(y[0])]
         return person
-
-

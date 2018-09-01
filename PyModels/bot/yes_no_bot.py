@@ -47,21 +47,19 @@ class YesNoBot:
         premises = [self.text_utils.canonize_text(f) for f in premises0]
         question = self.text_utils.canonize_text(question0)
 
-        if False:
-            if len(premises) == 1:
-                # Проверим, что введенная пользователем предпосылка релевантна заданному вопросу.
-                premise = premises[0]
-                rel = self.relevancy_detector.calc_relevancy1(premise, question, self.text_utils, self.word_embeddings)
-                self.logger.debug('relevancy={}'.format(rel))
-                if rel < 0.5:
-                    if self.show_relevancy:
-                        return self.get_unknown_answer() + ' ({})'.format(rel)
-                    else:
-                        return self.get_unknown_answer()
+        rel = 1.0
+        if len(premises) == 1:
+            # Проверим, что введенная пользователем предпосылка релевантна заданному вопросу.
+            premise = premises[0]
+            rel = self.relevancy_detector.calc_relevancy1(premise, question, self.text_utils, self.word_embeddings)
+            self.logger.debug('relevancy={}'.format(rel))
 
         y = self.yes_no_model.calc_yes_no(premises, question, self.text_utils, self.word_embeddings)
         self.logger.debug('y={}'.format(y))
-        if y < 0.5:
-            return self.get_no_answer()
 
-        return self.get_yes_answer()
+        answer = None
+        if y < 0.5:
+            answer = self.get_no_answer()
+        else:
+            answer = self.get_yes_answer()
+        return u'{} ({:4.2f})'.format(answer, rel)

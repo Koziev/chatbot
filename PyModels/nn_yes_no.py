@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 '''
-Тренировка модели классификации yes/no двух фраз (предпосылка и вопрос) для
-вопросно-ответной системы https://github.com/Koziev/chatbot.
+Тренировка модели классификации yes/no для сэмплов с несколькими (от 0 до n)
+предпосылками и вопросом.
+Для вопросно-ответной системы https://github.com/Koziev/chatbot.
 Используется нейросетка (Keras).
-Датасет должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py)
+Датасет "pqa_yes_no.dat" должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py)
+Также нужна модель встраивания слов (word2vector) и модель посимвольного встраивания (wordchar2vector).
 '''
 
 from __future__ import division  # for python2 compatibility
@@ -15,12 +17,11 @@ import json
 import os
 import sys
 import gensim
+import codecs
 import keras.callbacks
 import numpy as np
-import pandas as pd
 import tqdm
 import argparse
-
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
@@ -32,6 +33,7 @@ from keras.models import Model
 from keras.models import model_from_json
 
 from sklearn.model_selection import train_test_split
+import sklearn.metrics
 
 from utils.tokenizer import Tokenizer
 
@@ -40,69 +42,65 @@ PAD_WORD = u''
 padding = 'left'
 
 
-def count_words(words):
-    return len(filter(lambda z: z != PAD_WORD, words))
+class Sample:
+    def __init__(self, premises, question, answer):
+        self.premises = premises[:]
+        self.question = question
+        self.answer = answer
 
 
-# Слева добавляем пустые слова
+
 def pad_wordseq(words, n):
-    return list( itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ) )
+    """Слева добавляем пустые слова"""
+    return list(itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ))
 
-
-# Справа добавляем пустые слова
 def rpad_wordseq(words, n):
-    return list( itertools.chain( words, itertools.repeat(PAD_WORD, n-len(words)) ) )
+    """Справа добавляем пустые слова"""
+    return list(itertools.chain(words, itertools.repeat(PAD_WORD, n-len(words))))
 
 
-def vectorize_words( words, M, irow, word2vec ):
-    for iword, word in enumerate( words ):
+def vectorize_words(words, M, irow, word2vec):
+    for iword, word in enumerate(words):
         if word in word2vec:
             M[irow, iword, :] = word2vec[word]
 
 
-def select_patterns( sequences, targets ):
-    sequences1 = []
-    targets1 = []
-
-    for seq, target in itertools.izip(sequences, targets):
-        #premise = seq[0]
-        answer = target[0]
-
-        copy_pattern = False
-
-        if len(answer) == 1 and answer[0] in [u'да', u'нет']:
-            copy_pattern = True
-
-        if copy_pattern:
-            sequences1.append(seq)
-            targets1.append(target)
-
-    return sequences1, targets1
-
-
-def generate_rows( sequences, targets, batch_size, mode ):
+def generate_rows(nb_premises, samples, batch_size, mode):
     batch_index = 0
     batch_count = 0
 
-    X1_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
-    X2_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
+    Xn_batch = []
+    for _ in range(nb_premises+1):
+        x = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
+        Xn_batch.append(x)
+
+    inputs = {}
+    for ipremise in range(nb_premises):
+        inputs['premise{}'.format(ipremise)] = Xn_batch[ipremise]
+    inputs['question'] = Xn_batch[nb_premises]
+
     y_batch = np.zeros((batch_size, output_dims), dtype=np.bool)
 
-    weights = np.zeros((batch_size))
+    weights = np.zeros((batch_size), dtype=np.float32)
     weights.fill(1.0)
 
     while True:
-        for irow, (seq, target) in enumerate(itertools.izip(sequences,targets)):
-            vectorize_words(seq[0], X1_batch, batch_index, word2vec)
-            vectorize_words(seq[1], X2_batch, batch_index, word2vec)
+        for irow, sample in enumerate(samples):
+            for ipremise, premise in enumerate(sample.premises):
+                words = tokenizer.tokenize(premise)
+                words = pad_wordseq(words, max_inputseq_len)
+                vectorize_words(words, Xn_batch[ipremise], batch_index, word2vec)
 
-            answer = target[0]
-            if answer[0] == u'нет':
+            words = tokenizer.tokenize(sample.question)
+            words = pad_wordseq(words, max_inputseq_len)
+            vectorize_words(words, Xn_batch[nb_premises], batch_index, word2vec)
+
+            if sample.answer == u'нет':
                 y_batch[batch_index, 0] = True
-                weights[batch_index] = float(nb_no+nb_yes) / nb_yes
+                weights[batch_index] = 1.0  #float(nb_no+nb_yes) / nb_yes
             else:
                 y_batch[batch_index, 1] = True
-                weights[batch_index] = float(nb_no+nb_yes) / nb_no
+                weights[batch_index] = 1.0  #float(nb_no+nb_yes) / nb_no
 
             batch_index += 1
 
@@ -110,95 +108,15 @@ def generate_rows( sequences, targets, batch_size, mode ):
                 batch_count += 1
 
                 if mode == 1:
-                    yield ({'input_words1': X1_batch, 'input_words2': X2_batch}, {'output': y_batch}, weights)
+                    yield (inputs, {'output': y_batch}, weights)
                 else:
-                    yield {'input_words1': X1_batch, 'input_words2': X2_batch}
+                    yield inputs
 
                 # очищаем матрицы порции для новой порции
-                X1_batch.fill(0)
-                X2_batch.fill(0)
+                for x in Xn_batch:
+                    x.fill(0)
                 y_batch.fill(0)
                 batch_index = 0
-
-
-class colors:
-    ok = '\033[92m'
-    fail = '\033[91m'
-    close = '\033[0m'
-
-# Визуализатор для модели генерации ответов ДА/НЕТ
-class VisualizeCallback_YesNo(keras.callbacks.Callback):
-
-    def __init__(self, model, tokenizer, word2vec, max_seq_len, val_inputs, val_outputs ):
-        self.epoch = 0
-        self.max_seq_len = max_seq_len
-        self.model = model
-        self.word2vec = word2vec
-        self.tokenizer = tokenizer
-        self.val_inputs = val_inputs
-        self.val_outputs = val_outputs
-
-    def on_epoch_end(self, batch, logs={}):
-        self.epoch = self.epoch+1
-
-        if False:
-            batch_size = 1
-
-            valdata = [(u'я не сплю', u'я сплю', u'нет'),
-                       (u'я не люблю шоколад', u'я люблю шоколад', u'нет'),
-                       (u'я люблю мед', u'я люблю мед', u'да'),
-                       (u'кошки не плавают в бассейне', u'кошки плавают в бассейне', u'нет'),
-                       (u'ты не спишь', u'ты спишь', u'нет'),
-                       (u'кошки не спят', u'кошки спят', u'нет')]
-
-            for val_premise, val_question, val_answer in valdata:
-                premise_words = tokenizer.tokenize(val_premise)
-                question_words = tokenizer.tokenize(val_question)
-
-                premise_words = pad_wordseq(premise_words, max_inputseq_len)
-                question_words = pad_wordseq(question_words, max_inputseq_len)
-
-                X1_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
-                X2_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
-                vectorize_words(premise_words, X1_batch, 0, word2vec)
-                vectorize_words(question_words, X2_batch, 0, word2vec)
-
-                y_pred = model.predict( {'input_words1': X1_batch, 'input_words2': X2_batch} )
-
-                y = np.argmax(y_pred[0])
-                model_answer = u'нет' if y==0 else u'да'
-
-                print(colors.ok + '☑ ' + colors.close if model_answer == val_answer else colors.fail + '☒ ' + colors.close,
-                      end='')
-
-                print(u'premise={}\t\tquestion={}\t\tmodel_answer={}'.format(val_premise, val_question, model_answer))
-
-        batch_size = 10
-        indexes = np.random.permutation(range(len(self.val_inputs)))[:batch_size]
-        X1_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
-        X2_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
-        for batch_index, i in enumerate(indexes):
-            premise_words, question_words, premise, question = self.val_inputs[i]
-
-            premise_words = pad_wordseq(premise_words, max_inputseq_len)
-            question_words = pad_wordseq(question_words, max_inputseq_len)
-            vectorize_words(premise_words, X1_batch, batch_index, word2vec)
-            vectorize_words(question_words, X2_batch, batch_index, word2vec)
-
-        y_pred = model.predict({'input_words1': X1_batch, 'input_words2': X2_batch})
-        for batch_index, i in enumerate(indexes):
-            premise_words, question_words, premise, question = self.val_inputs[i]
-            answer_words, answer = self.val_outputs[i]
-            y = np.argmax(y_pred[batch_index])
-            model_answer = u'нет' if y == 0 else u'да'
-
-            print(colors.ok + '☑ ' + colors.close if model_answer == answer else colors.fail + '☒ ' + colors.close,
-                  end='')
-
-            premise = premise.ljust(30)
-            question = question.ljust(30)
-
-            print(u'P={} Q={} A={}\tmodel_answer={}'.format(premise, question, answer, model_answer))
 
 
 
@@ -209,7 +127,7 @@ parser = argparse.ArgumentParser(description='Neural model for yes/no answer cla
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train query')
 parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: ff | lstm | lstm(lstm) | lstm(cnn) | lstm+cnn | cnn | cnn2')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
-parser.add_argument('--input', type=str, default='../data/premise_question_answer.csv', help='path to input dataset')
+parser.add_argument('--input', type=str, default='../data/pqa_yes_no.dat', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
 parser.add_argument('--word2vector', type=str, default='/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
@@ -248,41 +166,51 @@ if run_mode == 'train':
 
     # --------------------------------------------------------------------------
 
-    # Загружаем датасет, содержащий тройки ПРЕДПОСЫЛКА-ВОПРОС-ОТВЕТ
-    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-
-    print('samples.count={}'.format(df.shape[0]))
-
+    # Загружаем датасет, содержащий сэмплы ПРЕДПОСЫЛКИ-ВОПРОС-ОТВЕТ
+    print(u'Loading samples from {}'.format(input_path))
+    samples = []
     nb_yes = 0 # кол-во ответов "да"
     nb_no = 0 # кол-во ответов "нет"
-
+    max_nb_premises = 0  # макс. число предпосылок в сэмплах
     tokenizer = Tokenizer()
-    for i, record in df.iterrows():
-        for phrase in [record['premise'], record['question']]:
-            all_chars.update( phrase )
-            words = tokenizer.tokenize(phrase)
-            all_words.update(words)
-            max_inputseq_len = max( max_inputseq_len, len(words) )
 
-        phrase = record['answer']
-        all_chars.update(phrase)
-        words = tokenizer.tokenize(phrase)
-        all_words.update(words)
-        max_outputseq_len = max(max_outputseq_len, len(words))
+    with codecs.open(input_path, 'r', 'utf-8') as rdr:
+        lines = []
+        for line in rdr:
+            line = line.strip()
+            if len(line) == 0:
+                if len(lines) > 0:
+                    premises = lines[:-2]
+                    question = lines[-2]
+                    answer = lines[-1]
+                    sample = Sample(premises, question, answer)
+                    samples.append(sample)
 
-        answer = record['answer'].lower().strip()
-        if answer == u'да':
-            nb_yes +=1
-        elif answer == u'нет':
-            nb_no += 1
+                    max_nb_premises = max(max_nb_premises, len(premises))
 
+                    if answer == u'да':
+                        nb_yes += 1
+                    elif answer == u'нет':
+                        nb_no += 1
+
+                    for phrase in lines:
+                        all_chars.update(phrase)
+                        words = tokenizer.tokenize(phrase)
+                        all_words.update(words)
+                        max_inputseq_len = max(max_inputseq_len, len(words))
+
+                    lines = []
+
+            else:
+                lines.append(line)
+
+    print('samples.count={}'.format(len(samples)))
+    print('max_inputseq_len={}'.format(max_inputseq_len))
+    print('max_nb_premises={}'.format(max_nb_premises))
 
     for word in wc2v.vocab:
         all_words.add(word)
         all_chars.update(word)
-
-    print('max_inputseq_len={}'.format(max_inputseq_len))
-    print('max_outputseq_len={}'.format(max_outputseq_len))
 
     word2id = dict([(c, i) for i, c in enumerate(itertools.chain([PAD_WORD], filter(lambda z: z != PAD_WORD,all_words)))])
 
@@ -315,103 +243,54 @@ if run_mode == 'train':
     del w2v
     #del wc2v
     gc.collect()
-    # -------------------------------------------------------------------
+    # --------------------------------------------------------------------------------
 
+    # сохраним конфиг модели, чтобы ее использовать в чат-боте
+    model_config = {
+                    'engine': 'nn',
+                    'max_inputseq_len': max_inputseq_len,
+                    'w2v_path': word2vector_path,
+                    'wordchar2vector_path': wordchar2vector_path,
+                    'PAD_WORD': PAD_WORD,
+                    'padding': padding,
+                    'model_folder': tmp_folder,
+                    'word_dims': word_dims,
+                    'max_nb_premises': max_nb_premises,
+                    'arch_filepath': arch_filepath,
+                    'weights_filepath': weights_path
+                   }
+
+    with open(config_path, 'w') as f:
+        json.dump(model_config, f)
+    # -------------------------------------------------------------------
 
     print('Constructing neural net: {}...'.format(net_arch))
 
     nb_filters = 128
     rnn_size = word_dims
 
-    final_merge_size = 0
+    inputs = []
+    input_question = Input(shape=(max_inputseq_len, word_dims,), dtype='float32', name='question')
+    inputs.append(input_question)
 
-    # --------------------------------------------------------------------------------
+    for ipremise in range(max_nb_premises):
+        input_premise = Input(shape=(max_inputseq_len, word_dims,), dtype='float32', name='premise{}'.format(ipremise))
+        inputs.append(input_premise)
 
-    # сохраним конфиг модели, чтобы ее использовать в чат-боте
-    model_config = {
-                    'max_inputseq_len': max_inputseq_len,
-                    'max_outputseq_len': max_outputseq_len,
-                    'w2v_path': word2vector_path,
-                    'wordchar2vector_path': wordchar2vector_path,
-                    'PAD_WORD': PAD_WORD,
-                    'model_folder': tmp_folder,
-                    'word_dims': word_dims
-                   }
-
-    with open(config_path, 'w') as f:
-        json.dump(model_config, f)
-
-    # ------------------------------------------------------------------
-
-    words_net1 = Input(shape=(max_inputseq_len, word_dims,), dtype='float32', name='input_words1')
-    words_net2 = Input(shape=(max_inputseq_len, word_dims,), dtype='float32', name='input_words2')
-
-    layers1 = []
-    layers2 = []
+    layers = []
     encoder_size = 0
 
     if net_arch == 'lstm':
-        # энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
-        # предложения.
+        # Энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
+        # предложения. Этот слой общий для всех входных предложений.
         shared_words_rnn = Bidirectional(recurrent.LSTM(rnn_size,
                                                         input_shape=(max_inputseq_len, word_dims),
                                                         return_sequences=False))
 
-        encoder_rnn1 = shared_words_rnn(words_net1)
-        encoder_rnn2 = shared_words_rnn(words_net2)
-
-        layers1.append(encoder_rnn1)
-        layers2.append(encoder_rnn2)
-        encoder_size = rnn_size*2
-
-    # --------------------------------------------------------------------------
-
-    if net_arch == 'lstm+cnn':
-        conv1 = []
-        conv2 = []
-        conv3 = []
-
-        repr_size = 0
-
-        # энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
-        # предложения.
-        shared_words_rnn = Bidirectional(recurrent.LSTM(rnn_size,
-                                                        input_shape=(max_inputseq_len, word_dims),
-                                                        return_sequences=False))
-
-        encoder_rnn1 = shared_words_rnn(words_net1)
-        encoder_rnn2 = shared_words_rnn(words_net2)
-
-        dense1 = Dense(units=rnn_size*2)
-        layers1.append(encoder_rnn1)
-        layers2.append(encoder_rnn2)
-
-        repr_size += rnn_size*2
-
-        # добавляем входы со сверточными слоями
-        for kernel_size in range(2, 4):
-            conv = Conv1D(filters=nb_filters,
-                          kernel_size=kernel_size,
-                          padding='valid',
-                          activation='relu',
-                          strides=1)
-
-            #dense2 = Dense(units=nb_filters)
-
-            conv_layer1 = conv(words_net1)
-            conv_layer1 = GlobalMaxPooling1D()(conv_layer1)
-            #conv_layer1 = dense2(conv_layer1)
-            layers1.append(conv_layer1)
-
-            conv_layer2 = conv(words_net2)
-            conv_layer2 = GlobalMaxPooling1D()(conv_layer2)
-            #conv_layer2 = dense2(conv_layer2)
-            layers2.append(conv_layer2)
-
-            repr_size += nb_filters
-
-        encoder_size = repr_size
-
+        for input in inputs:
+            encoder_rnn = shared_words_rnn(input)
+            layers.append(encoder_rnn)
+            encoder_size += rnn_size*2
 
     # --------------------------------------------------------------------------
 
@@ -428,26 +307,19 @@ if run_mode == 'train':
 
             lstm = recurrent.LSTM(rnn_size, return_sequences=False)
 
-            conv_layer1 = conv(words_net1)
-            conv_layer1 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer1)
-            conv_layer1 = lstm(conv_layer1)
-            layers1.append(conv_layer1)
+            for input in inputs:
+                conv_layer1 = conv(input)
+                conv_layer1 = keras.layers.MaxPooling1D(pool_size=kernel_size,
+                                                        strides=None,
+                                                        padding='valid')(conv_layer1)
+                conv_layer1 = lstm(conv_layer1)
+                layers.append(conv_layer1)
+                encoder_size += rnn_size
 
-            conv_layer2 = conv(words_net2)
-            conv_layer2 = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer2)
-            conv_layer2 = lstm(conv_layer2)
-            layers2.append(conv_layer2)
-
-            encoder_size += rnn_size
-
-
-    encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(layers1, layers2)))
+    encoder_merged = keras.layers.concatenate(inputs=list(layers))
     encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
 
-
     # Тренируем модель, которая будет выдавать ответы yes или no.
-    # Предполагается, что модель не будет запускаться для вопросов, ответы на которые
-    # предполагают другие слова.
     output_dims = 2
 
     decoder = Dense(encoder_size//2, activation='relu')(encoder_final)
@@ -456,80 +328,92 @@ if run_mode == 'train':
     #decoder = BatchNormalization()(decoder)
     decoder = Dense(output_dims, activation='softmax', name='output')(decoder)
 
-    model = Model(inputs=[words_net1, words_net2], outputs=decoder)
+    model = Model(inputs=inputs, outputs=decoder)
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
 
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
 
-    input_data = []
-    output_data = []
-
-    for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phrases'):
-        premise = row['premise']
-        question = row['question']
-        answer = row['answer']
-
-        if padding == 'left':
-            premise_words = pad_wordseq(tokenizer.tokenize(premise), max_inputseq_len)
-            question_words = pad_wordseq(tokenizer.tokenize(question), max_inputseq_len)
-        else:
-            premise_words = rpad_wordseq(tokenizer.tokenize(premise), max_inputseq_len)
-            question_words = rpad_wordseq(tokenizer.tokenize(question), max_inputseq_len)
-
-        answer_words = tokenizer.tokenize(answer)
-        input_data.append((premise_words, question_words, premise, question))
-        output_data.append((answer_words, answer))
-
     SEED = 123456
     TEST_SHARE = 0.2
-    train_input, val_input, train_output, val_output = train_test_split(input_data,
-                                                                        output_data,
-                                                                        test_size=TEST_SHARE,
-                                                                        random_state=SEED)
+    train_samples, val_samples = train_test_split(samples, test_size=TEST_SHARE, random_state=SEED)
 
-
-    train_input1, train_output1 = select_patterns(train_input, train_output)
-    val_input1, val_output1 = select_patterns(val_input, val_output)
-
-    nb_train_patterns = len(train_input1)
-    nb_valid_patterns = len(val_input1)
+    nb_train_patterns = len(train_samples)
+    nb_valid_patterns = len(val_samples)
 
     print('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
 
-    #monitor_metric = 'val_loss'
     monitor_metric = 'val_acc'
-
     model_checkpoint = ModelCheckpoint(weights_path,
                                        monitor=monitor_metric,
                                        verbose=1,
                                        save_best_only=True,
                                        mode='auto')
     early_stopping = EarlyStopping(monitor=monitor_metric, patience=20, verbose=1, mode='auto')
-
     callbacks = [model_checkpoint, early_stopping]
 
-    viz = VisualizeCallback_YesNo(model, tokenizer, word2vec, max_inputseq_len, val_input1, val_output1 )
-    callbacks.append(viz)
-
-    hist = model.fit_generator(generator=generate_rows(train_input1, train_output1, batch_size, 1),
+    hist = model.fit_generator(generator=generate_rows(max_nb_premises, train_samples, batch_size, 1),
                                steps_per_epoch=nb_train_patterns//batch_size,
-                               epochs=200,
+                               epochs=100,
                                verbose=1,
                                callbacks=callbacks,
-                               validation_data=generate_rows(val_input1, val_output1, batch_size, 1),
-                               validation_steps=nb_valid_patterns//batch_size
-                               )
+                               validation_data=generate_rows(max_nb_premises, val_samples, batch_size, 1),
+                               validation_steps=nb_valid_patterns//batch_size)
+    print('max val_acc={}'.format(max(hist.history['val_acc'])))
+
+    # Загрузим лучшие веса и прогоним валидационные паттерны через модель,
+    # чтобы получить f1 score.
+    model.load_weights(weights_path)
+
+    for v in generate_rows(max_nb_premises, val_samples, nb_valid_patterns, 1):
+        x = v[0]
+        y_val = v[1]['output']
+        break
+
+    y_pred = model.predict(x)[:, 1]
+    y_pred = (y_pred >= 0.5).astype(np.int)
+    f1 = sklearn.metrics.f1_score(y_true=y_val[:, 1], y_pred=y_pred)
+    print('val f1={}'.format(f1))
+
+    # Сохраним в текстовом файле для визуальной проверки результаты валидации по всем сэмплам
+    for v in generate_rows(max_nb_premises, samples, len(samples), 1):
+        x = v[0]
+        break
+
+    y_pred = model.predict(x)[:, 1]
+    y_pred = (y_pred >= 0.5).astype(np.int)
+
+    with codecs.open(os.path.join(tmp_folder, 'nn_yes_no.validation.txt'), 'w', 'utf-8') as wrt:
+        for isample, sample in enumerate(samples):
+            if isample > 0:
+                wrt.write('\n\n')
+
+            for premise in sample.premises:
+                wrt.write(u'P: {}\n'.format(premise))
+            wrt.write(u'Q: {}\n'.format(sample.question))
+            wrt.write(u'A: {}\n'.format(sample.answer))
+
+            pred = u'да' if y_pred[isample] else u'нет'
+            wrt.write(u'model: {}\n'.format(pred))
+
+            #if pred == u'нет':
+            #    for ipremise in range(max_nb_premises):
+            #        wrt.write('\nX[{}]={}\n'.format(ipremise, x['premise{}'.format(ipremise)][isample]))
+            #    wrt.write('\n')
+
 
 
 if run_mode == 'query':
+    # Ручное консольное тестирование модели, натренированной ранее с помощью --run_mode train
+
+    # Грузим конфигурацию модели, веса и т.д.
     with open(config_path, 'r') as f:
-        model_config = json.load()
+        model_config = json.load(f)
         max_inputseq_len = model_config['max_inputseq_len']
-        max_outputseq_len = model_config['max_outputseq_len']
         w2v_path = model_config['w2v_path']
         wordchar2vector_path = model_config['wordchar2vector_path']
         word_dims = model_config['word_dims']
+        max_nb_premises = model_config['max_nb_premises']
 
     with open(arch_filepath, 'r') as f:
         model = model_from_json(f.read())
@@ -541,7 +425,7 @@ if run_mode == 'query':
     wc2v_dims = len(wc2v.syn0[0])
     print('wc2v_dims={0}'.format(wc2v_dims))
 
-    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=False)
+    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
     w2v_dims = len(w2v.syn0[0])
     print('w2v_dims={0}'.format(w2v_dims))
 
@@ -557,31 +441,50 @@ if run_mode == 'query':
     del w2v
     gc.collect()
 
-    X1_probe = np.zeros((1, max_inputseq_len, word_dims), dtype=np.float32)
-    X2_probe = np.zeros((1, max_inputseq_len, word_dims), dtype=np.float32)
+    tokenizer = Tokenizer()
+
+    Xn_probe = []
+    for _ in range(max_nb_premises+1):
+        x = np.zeros((1, max_inputseq_len, word_dims), dtype=np.float32)
+        Xn_probe.append(x)
+
+    inputs = dict()
+    for ipremise in range(max_nb_premises):
+        inputs['premise{}'.format(ipremise)] = Xn_probe[ipremise]
+    inputs['question'] = Xn_probe[max_nb_premises]
 
     while True:
-        print('\nEnter two phrases:')
-        phrase1 = raw_input('premise :> ').decode(sys.stdout.encoding).strip().lower()
-        if len(phrase1) == 0:
+        print('\nEnter 0 to {} premises and one question:'.format(max_nb_premises))
+        premises = []
+        question = None
+        for ipremise in range(max_nb_premises):
+            premise = raw_input('premise #{} :> '.format(ipremise)).decode(sys.stdout.encoding).strip().lower()
+            if len(premise) == 0:
+                break
+            if premise[-1] == u'?':
+                question = premise
+                break
+
+            premises.append(premise)
+
+        if question is None:
+            question = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+        if len(question) == 0:
             break
 
-        phrase2 = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(phrase2) == 0:
-            break
+        for i in range(max_nb_premises+1):
+            Xn_probe[i].fill(0)
 
-        words1 = tokenizer.tokenize(phrase1)
-        words2 = tokenizer.tokenize(phrase2)
+        for ipremise, premise in enumerate(premises):
+            words = tokenizer.tokenize(premise)
+            words = pad_wordseq(words, max_inputseq_len)
+            vectorize_words(words, Xn_probe[ipremise], 0, word2vec)
 
-        words1 = pad_wordseq(words1, max_inputseq_len)
-        words2 = pad_wordseq(words2, max_inputseq_len)
+        words = tokenizer.tokenize(question)
+        words = pad_wordseq(words, max_inputseq_len)
+        vectorize_words(words, Xn_probe[max_nb_premises], 0, word2vec)
 
-        X1_probe.fill(0)
-        X2_probe.fill(0)
-
-        vectorize_words(words1, X1_probe, 0, word2vec )
-        vectorize_words(words2, X2_probe, 0, word2vec )
-        y_probe = model.predict(x={'input_words1': X1_probe, 'input_words2': X2_probe})
+        y_probe = model.predict(x=inputs)
 
         print('p(no) ={}'.format(y_probe[0][0]))
         print('p(yes)={}'.format(y_probe[0][1]))
