@@ -53,14 +53,23 @@ CONFIG_FILENAME = 'nn_wordcopy3.config'
 
 
 
-# Слева добавляем пустые слова
-def pad_wordseq(words, n):
-    return list( itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ) )
 
-
-# Справа добавляем пустые слова
 def rpad_wordseq(words, n):
+    """Справа добавляем пустые слова, чтобы длина стала равно n токенов"""
     return list(itertools.chain(words, itertools.repeat(PAD_WORD, n-len(words))))
+
+
+def lpad_wordseq(words, n):
+    """Слева добавляем пустые слова, чтобы длина стала равно n токенов"""
+    return list(itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words))
+
+
+def pad_wordseq(words, n):
+    """Слева или справа добавляем пустые слова, чтобы длина стала равно n токенов"""
+    if padding == 'right':
+        return rpad_wordseq(words, n)
+    else:
+        return lpad_wordseq(words, n)
 
 
 def vectorize_words(words, M, irow, word2vec):
@@ -91,7 +100,7 @@ def select_patterns(sequences, targets):
 
 
 def count_words(words):
-    return len(filter(lambda z:z != PAD_WORD,words))
+    return len(filter(lambda z: z != PAD_WORD,words))
 
 
 def generate_rows_word_copy3(sequences, targets, batch_size, mode):
@@ -157,7 +166,7 @@ parser.add_argument('--batch_size', type=int, default=150, help='batch size for 
 parser.add_argument('--input', type=str, default='../data/premise_question_answer.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
-parser.add_argument('--word2vector', type=str, default='/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=8.model', help='path to word2vector model file')
+parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
 
 args = parser.parse_args()
 input_path = args.input
@@ -167,7 +176,7 @@ batch_size = args.batch_size
 net_arch = args.arch
 classifier_arch = args.classifier
 wordchar2vector_path = args.wordchar2vector
-word2vector_path = args.word2vector
+word2vector_path = os.path.expanduser(args.word2vector)
 
 
 if run_mode == '':
@@ -462,20 +471,19 @@ if run_mode == 'train':
         question = row['question']
         answer = row['answer']
 
-        if padding == 'left':
-            premise_words = pad_wordseq( tokenizer.tokenize(premise), max_inputseq_len )
-            question_words = pad_wordseq( tokenizer.tokenize(question), max_inputseq_len )
-        else:
-            premise_words = rpad_wordseq( tokenizer.tokenize(premise), max_inputseq_len )
-            question_words = rpad_wordseq( tokenizer.tokenize(question), max_inputseq_len )
+        premise_words = pad_wordseq(tokenizer.tokenize(premise), max_inputseq_len)
+        question_words = pad_wordseq(tokenizer.tokenize(question), max_inputseq_len)
 
         answer_words = tokenizer.tokenize(answer)
-        input_data.append( (premise_words, question_words, premise, question) )
-        output_data.append( (answer_words, answer) )
+        input_data.append((premise_words, question_words, premise, question))
+        output_data.append((answer_words, answer))
 
     SEED = 123456
     TEST_SHARE = 0.2
-    train_input, val_input, train_output, val_output = train_test_split( input_data, output_data, test_size=TEST_SHARE, random_state=SEED )
+    train_input, val_input, train_output, val_output = train_test_split(input_data,
+                                                                        output_data,
+                                                                        test_size=TEST_SHARE,
+                                                                        random_state=SEED)
 
     train_input1, train_output1 = select_patterns(train_input, train_output)
     val_input1, val_output1 = select_patterns(val_input, val_output)
@@ -565,12 +573,8 @@ if run_mode == 'query':
         words1 = tokenizer.tokenize(phrase1)
         words2 = tokenizer.tokenize(phrase2)
 
-        if padding == 'left':
-            words1 = pad_wordseq(words1, max_inputseq_len)
-            words2 = pad_wordseq(words2, max_inputseq_len)
-        else:
-            words1 = rpad_wordseq(words1, max_inputseq_len)
-            words2 = rpad_wordseq(words2, max_inputseq_len)
+        words1 = pad_wordseq(words1, max_inputseq_len)
+        words2 = pad_wordseq(words2, max_inputseq_len)
 
         X1_probe.fill(0)
         X2_probe.fill(0)

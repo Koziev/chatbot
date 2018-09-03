@@ -126,7 +126,7 @@ parser.add_argument('--max_nb_samples', type=int, default=1000000000, help='uppe
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
-parser.add_argument('--word2vector', type=str, default='/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.model', help='path to word2vector model file')
+parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 
 args = parser.parse_args()
@@ -135,7 +135,7 @@ input_path = args.input
 tmp_folder = args.tmp
 
 wordchar2vector_path = args.wordchar2vector
-word2vector_path = args.word2vector
+word2vector_path = os.path.expanduser(args.word2vector)
 batch_size = args.batch_size
 net_arch = args.arch
 classifier_arch = args.classifier

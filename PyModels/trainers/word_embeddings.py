@@ -81,6 +81,9 @@ class WordEmbeddings_W2V(object):
         self.w2v = w2v
         self.wc2v = wc2v
 
+    def __contains__(self, word):
+        return word != u''
+
     def __getitem__(self, word):
         v = np.zeros(self.vector_size)
         if WordEmbeddings._is_int(word):

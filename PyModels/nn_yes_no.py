@@ -52,7 +52,7 @@ class Sample:
 
 def pad_wordseq(words, n):
     """Слева добавляем пустые слова"""
-    return list(itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ))
+    return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words))
 
 def rpad_wordseq(words, n):
     """Справа добавляем пустые слова"""
@@ -124,13 +124,13 @@ def generate_rows(nb_premises, samples, batch_size, mode):
 # -------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(description='Neural model for yes/no answer classification')
-parser.add_argument('--run_mode', type=str, default='train', help='what to do: train query')
-parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: ff | lstm | lstm(lstm) | lstm(cnn) | lstm+cnn | cnn | cnn2')
+parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query')
+parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn)')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--input', type=str, default='../data/pqa_yes_no.dat', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
-parser.add_argument('--word2vector', type=str, default='/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
+parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 
 args = parser.parse_args()
@@ -140,13 +140,13 @@ input_path = args.input
 tmp_folder = args.tmp
 
 wordchar2vector_path = args.wordchar2vector
-word2vector_path = args.word2vector
+word2vector_path = os.path.expanduser(args.word2vector)
 batch_size = args.batch_size
 net_arch = args.arch
 run_mode = args.run_mode
 
 # В этих файлах будем сохранять натренированную сетку
-config_path = os.path.join(tmp_folder,'nn_yes_no.config')
+config_path = os.path.join(tmp_folder, 'nn_yes_no.config')
 arch_filepath = os.path.join(tmp_folder, 'nn_yes_no.arch')
 weights_path = os.path.join(tmp_folder, 'nn_yes_no.weights')
 

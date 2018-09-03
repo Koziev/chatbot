@@ -39,8 +39,6 @@ from utils.tokenizer import Tokenizer
 # предпосылки и вопроса (bag of shingles).
 SHINGLE_LEN = 3
 
-PHRASE_DIM = 0  #1024  # длина вектора SDR предложения; 0 если SDR не использовать
-
 NB_PREV_CHARS = 5 # кол-во пред. символов в сгенерированном ответе, учитываемых при выборе следующего символа.
 
 NB_SAMPLES = 1000000 # кол-во записей в датасете (до разбивки на тренировку и валидацию)
@@ -64,6 +62,14 @@ BEG_CHAR = u'\b'
 END_CHAR = u'\n'
 
 # -------------------------------------------------------------------
+
+
+class Sample:
+    def __init__(self, premises, question, answer):
+        self.premises = premises[:]
+        self.question = question
+        self.answer = answer
+
 
 
 def ngrams(s, n):
@@ -138,19 +144,6 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
 
     X_data[idata, icol] = char_index
     icol += 1
-
-    if premise_sdr is not None:
-        #for i, x in enumerate(premise_sdr):
-        #    if x:
-        #        X_data[idata, icol+i] = True
-        X_data[idata, icol:icol+PHRASE_DIM] = premise_sdr[0, :]
-        icol += PHRASE_DIM
-
-        #for i, x in enumerate(question_sdr):
-        #    if x:
-        #        X_data[idata, icol+i] = True
-        X_data[idata, icol:icol+PHRASE_DIM] = question_sdr[0, :]
-        icol += PHRASE_DIM
 
     # помечаем символы, которые могут быть после последнего символа в сгенерированной
     # части ответа с точки зрения строки предпосылки, вопроса и т.д.
@@ -298,7 +291,7 @@ class Word2Lemmas(object):
 
 parser = argparse.ArgumentParser(description='Answer text generator')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query')
-parser.add_argument('--input', type=str, default='../data/premise_question_answer.csv', help='training dataset path')
+parser.add_argument('--input', type=str, default='../data/pqa_all.dat', help='training dataset path')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 parser.add_argument('--word2lemmas', type=str, default='../data/ru_word2lemma.tsv.gz')
@@ -326,9 +319,6 @@ lexicon.load(word2lemmas_path)
 config_path = os.path.join(tmp_folder,'xgb_answer_generator.config')
 
 if run_mode == 'train':
-    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-    print('samples.count={}'.format(df.shape[0]))
-
     input_shingles = set()
     output_shingles = set()
     inshingle2freq = Counter()
@@ -336,20 +326,45 @@ if run_mode == 'train':
 
     phrases1 = []
 
-    for i, record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles and chars'):
-        for phrase in [record['premise'], record['question']]:
-            words = tokenizer.tokenize(phrase)
-            wx = words2str(words)
-            for s in ngrams(wx, SHINGLE_LEN):
-                input_shingles.update(s)
-                inshingle2freq[s] += 1
+    # Загружаем датасет, содержащий сэмплы ПРЕДПОСЫЛКИ-ВОПРОС-ОТВЕТ
+    print(u'Loading samples from {}'.format(input_path))
+    samples0 = []
+    max_nb_premises = 0  # макс. число предпосылок в сэмплах
+    tokenizer = Tokenizer()
 
-            phrases1.append(wx)
+    with codecs.open(input_path, 'r', 'utf-8') as rdr:
+        lines = []
+        for line in rdr:
+            line = line.strip()
+            if len(line) == 0:
+                if len(lines) > 0:
+                    premises = lines[:-2]
+                    question = lines[-2]
+                    answer = lines[-1]
+                    if len(premises) <= 1:
+                        sample = Sample(premises, question, answer)
+                        samples0.append(sample)
 
-        answer = record['answer'].lower()
-        for s in ngrams(BEG_CHAR+answer+END_CHAR, SHINGLE_LEN):
-            output_shingles.update(s)
-            outshingle2freq[s] += 1
+                        max_nb_premises = max(max_nb_premises, len(premises))
+
+                        for phrase in itertools.chain(premises, [question]):
+                            words = tokenizer.tokenize(phrase)
+                            wx = words2str(words)
+                            phrases1.append(wx)
+                            for s in ngrams(wx, SHINGLE_LEN):
+                                input_shingles.add(s)
+                                inshingle2freq[s] += 1
+
+                        for s in ngrams(BEG_CHAR + answer + END_CHAR, SHINGLE_LEN):
+                            output_shingles.add(s)
+                            outshingle2freq[s] += 1
+
+                    lines = []
+
+            else:
+                lines.append(line)
+
+    samples = samples0
 
     all_chars = set(itertools.chain(*phrases1))
     max_phrase_len = max(map(len, phrases1))
@@ -360,52 +375,16 @@ if run_mode == 'train':
 
     char2index = dict((c, i) for (i, c) in enumerate(filter(lambda z: z != u' ', all_chars)))
 
-    phrase2sdr = None
-    if PHRASE_DIM > 0:
-        # обучаем проектор
-        nb_features = nb_chars * max_phrase_len
-        X_data = lil_matrix((len(phrases1), nb_features), dtype='float')
-        phrase2index = dict()
-        for i, phrase in enumerate(phrases1):
-            phrase2index[phrase] = i
-            for j, c in enumerate(phrase):
-                if c in char2index:
-                    X_data[i, j*nb_chars + char2index[c]] = True
-
-        sdr_generator = None
-        sdr_generator = SparseRandomProjection(n_components=PHRASE_DIM, density=0.01, eps=0.01)
-        X2 = sdr_generator.fit_transform(X_data)
-
-        # контроль sparsity получившихся векторов предложений
-        n10 = X2.shape[0]*X2.shape[1]
-        n1 = X2.count_nonzero()
-
-        if False:
-            n1 = 0
-            ni = X2.shape[0]
-            for i in tqdm.tqdm(range(ni), total=ni, desc='Calculate sparsity'):
-                z = sum([int(X2[i, j] != 0.0) for j in range(PHRASE_DIM)])
-                n1 += z
-
-        print('SDR sparsity={}'.format(float(n1)/float(n10)))
-
-        # Для фраз из списка phrases1 получаем SDR векторы в X2
-        phrase2sdr = dict()
-        for i, phrase in tqdm.tqdm(enumerate(phrases1), total=len(phrases1), desc='Storing SDRs'):
-            #phrase2sdr[phrase] = [int(X2[i, j] != 0.0) for j in range(PHRASE_DIM)]
-            phrase2sdr[phrase] = X2[i]
-
-
     # оставляем только шинглы с частотой не менее порога
     input_shingles = set(s for s, f in inshingle2freq.iteritems() if f >= MIN_SHINGLE_FREQ)
     output_shingles = set(s for s, f in outshingle2freq.iteritems() if f >= MIN_SHINGLE_FREQ)
 
     nb_inshingles = len(input_shingles)
-    inshingle2id = dict([(s, i) for i, s in enumerate(input_shingles)])
+    inshingle2id = dict((s, i) for i, s in enumerate(input_shingles))
     print('nb_inshingles={}'.format(nb_inshingles))
 
     nb_outshingles = len(output_shingles)
-    outshingle2id = dict([(s, i) for i, s in enumerate(output_shingles)])
+    outshingle2id = dict((s, i) for i, s in enumerate(output_shingles))
     print('nb_outshingles={}'.format(nb_outshingles))
 
     # --------------------------------------------------------------------------
@@ -414,10 +393,10 @@ if run_mode == 'train':
     questions = []
     answers = []
 
-    for i, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Counting'):
-        premise = row['premise']
-        question = row['question']
-        answer = row['answer'].lower()
+    for sample in samples:
+        premise = sample.premises[0] if len(sample.premises) > 0 else u''
+        question = sample.question
+        answer = sample.answer
         if answer not in [u'да', u'нет']:
             premises.append(premise)
             questions.append(question)
@@ -480,7 +459,7 @@ if run_mode == 'train':
         all_outchars.update(answer.lower())
 
     nb_outchars = len(all_outchars)
-    outchar2id = dict([(c, i) for i, c in enumerate(all_outchars)])
+    outchar2id = dict((c, i) for i, c in enumerate(all_outchars))
     print('nb_outchars={}'.format(nb_outchars))
 
     print('nb_train={} nb_test={}'.format(nb_train, nb_test))
@@ -489,7 +468,6 @@ if run_mode == 'train':
     nb_features += 2  # номер генерируемого слова и номер символа в генерируемом слове
     nb_features += nb_inshingles*2  # шинглы в начальных фрагментах предпосылки и вопроса
     nb_features += nb_inshingles*2  # шинглы в конечных фрагментах предпосылки и вопроса
-    nb_features += 2*PHRASE_DIM  # SDR предпосылки и вопроса
     nb_features += nb_outchars  # какие символы в предпосылке бывают после текущего символа
     nb_features += nb_outchars  # какие символы бывают в любых формах слов предпосылки
     nb_features += nb_outchars  # какие символы в вопросе бывают после текущего символа
@@ -539,12 +517,8 @@ if run_mode == 'train':
             premise_end_shingles = ngrams(words2str(premise_words)[-END_LEN:], SHINGLE_LEN)
             question_end_shingles = ngrams(words2str(question_words)[-END_LEN:], SHINGLE_LEN)
 
-            if phrase2sdr is not None:
-                premise_sdr = phrase2sdr[words2str(premise_words)]
-                question_sdr = phrase2sdr[words2str(question_words)]
-            else:
-                premise_sdr = None
-                question_sdr = None
+            premise_sdr = None
+            question_sdr = None
 
             answer2 = answer
             for answer_len in range(1, len(answer2)):
