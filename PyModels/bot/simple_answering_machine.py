@@ -14,6 +14,7 @@ from xgb_person_classifier_model import XGB_PersonClassifierModel
 from nn_person_change import NN_PersonChange
 from answer_builder import AnswerBuilder
 from interpreted_phrase import InterpretedPhrase
+from nn_enough_premises_model import NN_EnoughPremisesModel
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -69,6 +70,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.relevancy_detector = LGB_RelevancyDetector()
         self.relevancy_detector.load(models_folder)
 
+        # Определение достаточности набора предпосылок для ответа на вопрос
+        self.enough_premises = NN_EnoughPremisesModel()
+        self.enough_premises.load(models_folder)
+
         # Комплексная модель (группа моделей) для генерации текста ответа
         self.answer_builder = AnswerBuilder()
         self.answer_builder.load_models(models_folder)
@@ -87,6 +92,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         for p in self.answer_builder.get_w2v_paths():
             p = os.path.join(w2v_folder, os.path.basename(p))
             self.word_embeddings.load_w2v_model(p)
+
+        self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
+        self.logger.debug('Exiting load_models')
 
     def set_scripting(self, scripting):
         self.scripting = scripting
@@ -165,7 +173,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         session = self.get_session(interlocutor)
 
         # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
-        # так что мы можем раскрыть анафору, подставить в явном виде эллипсис и т.д.
+        # так что мы можем раскрыть анафору, подставить в явном виде эллипсис и т.д.,
+        # определить, является ли фраза вопросом, фактом или императивным высказыванием.
         interpreted_phrase = self.interpret_phrase(session, question)
 
         # Интерпретация фраз и в общем случае реакция на них зависит и от истории
@@ -234,24 +243,41 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             self.logger.debug(u'Question to process={}'.format(interpreted_phrase.interpretation))
 
-        # определяем наиболее релевантную предпосылку
-        memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
-        best_premise, best_rel = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
-                                                                           memory_phrases,
-                                                                           self.text_utils,
-                                                                           self.word_embeddings)
-        if self.trace_enabled:
-            self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
-
-        answer = u''
-        if best_rel >= self.min_premise_relevancy:
-            # генерация ответа на основе выбранной предпосылки.
-            answer = self.answer_builder.build_answer_text([best_premise],
+        # Нужна ли предпосылка, чтобы ответить на вопрос?
+        # Используем модель, которая вернет вероятность того, что
+        # пустой список предпосылок достаточен.
+        p_enough = self.enough_premises.is_enough(premise_str_list=[],
+                                                  question_str=interpreted_phrase.interpretation,
+                                                  text_utils=self.text_utils,
+                                                  word_embeddings=self.word_embeddings)
+        if p_enough > 0.5:
+            # Ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
+            answer_rel = p_enough
+            answer = self.answer_builder.build_answer_text([],
                                                            interpreted_phrase.interpretation,
                                                            self.text_utils,
                                                            self.word_embeddings)
+            return answer, answer_rel
 
-        return answer, best_rel
+        else:
+            # определяем наиболее релевантную предпосылку
+            memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
+            best_premise, best_rel = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
+                                                                               memory_phrases,
+                                                                               self.text_utils,
+                                                                               self.word_embeddings)
+            if self.trace_enabled:
+                self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
+
+            answer = u''
+            if best_rel >= self.min_premise_relevancy:
+                # генерация ответа на основе выбранной предпосылки.
+                answer = self.answer_builder.build_answer_text([best_premise],
+                                                               interpreted_phrase.interpretation,
+                                                               self.text_utils,
+                                                               self.word_embeddings)
+
+            return answer, best_rel
 
 
     def build_answer(self, interlocutor, interpreted_phrase):

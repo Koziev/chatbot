@@ -90,9 +90,18 @@ class AnswerBuilder(object):
                                                           question,
                                                           text_utils,
                                                           word_embeddings)
-        else: # варианты 2 и 3
+        elif model_selector == 2:
             # Ответ генерируется посимвольно.
+            answer = self.answer_generator.generate_answer(premise,
+                                                           question,
+                                                           text_utils,
+                                                           word_embeddings)
+
+        else:
             # Вариант 3 - особый случай, когда выдается строка из одних цифр
+            # Тут можно использовать или посимвольную генерацию общего назначения,
+            # или специализированную модель.
+            # Сейчас используется общая модель.
             answer = self.answer_generator.generate_answer(premise,
                                                            question,
                                                            text_utils,

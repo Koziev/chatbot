@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import os
 from model_applicator import ModelApplicator
+
 
 class YesNoModel(ModelApplicator):
     def __init__(self):

@@ -44,7 +44,7 @@ while True:
     print('\n')
     phrases = []
     while True:
-        phrase = input_kbd(u':> ')
+        phrase = input_kbd(u'H:>')
         if len(phrase) > 0:
             phrases.append(phrase)
             if phrase[-1] == u'?':
@@ -54,12 +54,12 @@ while True:
         elif len(phrases) > 1:
             break
 
-    if len(phrases) < 2:
-        print_error('At least 2 phrases expected!')
+    if len(phrases) < 1:
+        print_error('At least 1 phrase expected!')
         continue
 
     premises = phrases[:-1]
     question = phrases[-1]
 
-    answer = bot.build_answer_text(premises[0], question, text_utils, word_embeddings)
-    print_answer(u'A:>', answer)
+    answer = bot.build_answer_text(premises, question, text_utils, word_embeddings)
+    print_answer(u'B:>', answer)

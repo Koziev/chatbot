@@ -4,6 +4,7 @@
 """
 
 import logging
+import os
 import argparse
 
 from bot.files3_facts_storage import Files3FactsStorage
@@ -25,10 +26,10 @@ parser.add_argument('--facts_folder', type=str, default='../data', help='path to
 parser.add_argument('--models_folder', type=str, default='../tmp', help='path to folder with pretrained models')
 
 args = parser.parse_args()
-facts_folder = args.facts_folder
-models_folder = args.models_folder
-data_folder = args.data_folder
-w2v_folder = args.w2v_folder
+facts_folder = os.path.expanduser(args.facts_folder)
+models_folder = os.path.expanduser(args.models_folder)
+data_folder = os.path.expanduser(args.data_folder)
+w2v_folder = os.path.expanduser(args.w2v_folder)
 
 text_utils = TextUtils()
 text_utils.load_dictionaries(data_folder)

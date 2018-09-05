@@ -56,7 +56,7 @@ class NN_YesNoModel(YesNoModel):
         for i in range(self.max_nb_premises+1):
             self.Xn_probe[i].fill(0)
 
-        # Заполняем входные тензоры векторами слов прелпосылок и вопроса.
+        # Заполняем входные тензоры векторами слов предпосылок и вопроса.
         for ipremise, premise in enumerate(premise_str_list):
             if self.padding == 'right':
                 words = text_utils.rpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)

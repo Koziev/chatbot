@@ -8,6 +8,7 @@ import json
 import numpy as np
 import logging
 import itertools
+import scipy
 
 import xgboost
 from scipy.sparse import lil_matrix
