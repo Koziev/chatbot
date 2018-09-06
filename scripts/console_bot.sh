@@ -1,1 +1,2 @@
-python ../PyModels/test_simple_console_answering_machine.py --facts_folder ../data --models_folder ../tmp
+python ../PyModels/console_chatbot.py --facts_folder ../data --models_folder ../tmp --w2v_folder ~/polygon/w2v
+
