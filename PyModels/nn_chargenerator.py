@@ -53,7 +53,7 @@ PAD_CHAR = u'\r'
 padding = 'left'
 
 # Максимальная длина ответа в символах.
-MAX_ANSWER_LEN = 30
+MAX_ANSWER_LEN = 10
 
 # Кол-во ядер в сверточных слоях упаковщика предложений.
 nb_filters = 128
@@ -228,7 +228,7 @@ class VisualizeCallback(keras.callbacks.Callback):
         # Счетчик напечатанных строк, сгенерированных моделью
         nb_shown = 0
 
-        nb_steps = int(nval/batch_size)
+        nb_steps = nval//batch_size
 
         print('')
         for step, batch in enumerate(generate_rows(self.max_nb_premises, self.val_samples, batch_size, 1, self.char2id)):
@@ -273,7 +273,7 @@ class VisualizeCallback(keras.callbacks.Callback):
         with open(path, 'w') as wrt:
             wrt.write('epoch\tacc\n')
             for i, acc in enumerate(self.val_acc_history):
-                wrt.write('{}\t{}\n'.format(i+1,acc))
+                wrt.write('{}\t{}\n'.format(i+1, acc))
 
 # -------------------------------------------------------------------
 
@@ -453,7 +453,7 @@ if run_mode == 'train':
 
     #opt = 'nadam'
     #opt = 'rmsprop'
-    opt = 'adam'
+    opt = 'nadam'
     #opt = keras_contrib.optimizers.FTML()
     model.compile(loss='categorical_crossentropy', optimizer=opt)
 
@@ -489,7 +489,7 @@ if run_mode == 'train':
 
     print('Training is finished.')
 
-    viz.save_learning_curve(os.path.join(tmp_folder, 'qa_chargenerator.learning_curve.tsv'))
+    viz.save_learning_curve(os.path.join(tmp_folder, 'nn_chargenerator.learning_curve.tsv'))
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
@@ -523,7 +523,6 @@ if run_mode == 'train':
         with open(arch_filepath2, 'w') as f:
             f.write(encoder_model.to_json())
         encoder_model.save_weights(weights_path2)
-
 
     nval = len(val_samples)
     print(u'Финальная валидация модели на {} сэмплах'.format(nval))
@@ -569,8 +568,6 @@ if run_mode == 'train':
             nb_err = answerlen2errors[answer_len]
             acc = 1.0 - float(nb_err)/float(support)
             wrt.write(u'{}\t{}\t{}\n'.format(answer_len, support, acc))
-
-
 
 
 if run_mode == 'query':
