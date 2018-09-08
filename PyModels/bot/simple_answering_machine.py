@@ -4,6 +4,7 @@ import json
 import os
 import logging
 import numpy as np
+import itertools
 
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -33,7 +34,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
-        self.min_premise_relevancy = 0.2
+        self.min_premise_relevancy = 0.3
 
     def get_model_filepath(self, models_folder, old_filepath):
         """
@@ -227,19 +228,20 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 self.say(session, answer)
         else:
             # обрабатываем вопрос
-            answer = self.build_answer(interlocutor, interpreted_phrase)
-            if answer is not None:
+            answers = self.build_answers(interlocutor, interpreted_phrase)
+            for answer in answers:
                 self.say(session, answer)
 
             # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
             # Например, для смены темы разговора.
-            if self.scripting is not None:
-                additional_speech = self.scripting.generate_after_answer(self, interlocutor, interpreted_phrase, answer)
-                if additional_speech is not None:
-                    self.say(session, additional_speech)
+            if len(answers) > 0:
+                if self.scripting is not None:
+                    additional_speech = self.scripting.generate_after_answer(self, interlocutor, interpreted_phrase, answers[-1])
+                    if additional_speech is not None:
+                        self.say(session, additional_speech)
 
 
-    def build_answer0(self, interlocutor, interpreted_phrase):
+    def build_answers0(self, interlocutor, interpreted_phrase):
         if self.trace_enabled:
             self.logger.debug(u'Question to process={}'.format(interpreted_phrase.interpretation))
 
@@ -251,45 +253,56 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                   text_utils=self.text_utils,
                                                   word_embeddings=self.word_embeddings)
         if p_enough > 0.5:
-            # Ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
+            # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
             answer_rel = p_enough
-            answer = self.answer_builder.build_answer_text([],
+            answers, answer_rels = self.answer_builder.build_answer_text([u''], [1.0],
                                                            interpreted_phrase.interpretation,
                                                            self.text_utils,
                                                            self.word_embeddings)
-            return answer, answer_rel
+            if len(answers) != 1:
+                self.logger.debug(u'Exactly 1 answer was expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
+
+            return answers, answer_rels
 
         else:
             # определяем наиболее релевантную предпосылку
             memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
-            best_premise, best_rel = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
-                                                                               memory_phrases,
-                                                                               self.text_utils,
-                                                                               self.word_embeddings)
+            best_premises, best_rels = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
+                                                                                 memory_phrases,
+                                                                                 self.text_utils,
+                                                                                 self.word_embeddings,
+                                                                                 nb_results=3)
             if self.trace_enabled:
-                self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premise, best_rel))
+                self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premises[0], best_rels[0]))
 
-            answer = u''
-            if best_rel >= self.min_premise_relevancy:
-                # генерация ответа на основе выбранной предпосылки.
-                answer = self.answer_builder.build_answer_text([best_premise],
-                                                               interpreted_phrase.interpretation,
-                                                               self.text_utils,
-                                                               self.word_embeddings)
+            premises2 = []
+            premise_rels2 = []
+            max_rel = max(best_rels)
+            for premise, rel in itertools.izip(best_premises, best_rels):
+                if rel >= self.min_premise_relevancy and rel >= 0.5*max_rel:
+                    premises2.append([premise])
+                    premise_rels2.append(rel)
 
-            return answer, best_rel
+            # генерация ответа на основе выбранной предпосылки.
+            answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                         interpreted_phrase.interpretation,
+                                                                         self.text_utils,
+                                                                         self.word_embeddings)
+
+            return answers, answer_rels
 
 
-    def build_answer(self, interlocutor, interpreted_phrase):
-        answer, answer_confidense = self.build_answer0(interlocutor, interpreted_phrase)
-        if answer_confidense < self.min_premise_relevancy:
+    def build_answers(self, interlocutor, interpreted_phrase):
+        answers, answer_confidenses = self.build_answers0(interlocutor, interpreted_phrase)
+        if max(answer_confidenses) < self.min_premise_relevancy:
             # тут нужен алгоритм генерации ответа в условиях, когда
             # у бота нет нужных фактов. Это может быть как ответ "не знаю",
             # так и вариант "нет" для определенных категорий вопросов.
             if self.scripting is not None:
                 answer = self.scripting.buid_answer(self, interlocutor, interpreted_phrase)
+                answers = [answer]
 
-        return answer
+        return answers
 
     def pop_phrase(self, interlocutor):
         session = self.get_session(interlocutor)

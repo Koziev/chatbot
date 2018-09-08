@@ -47,9 +47,10 @@ class BotScripting:
         language_resources = answering_machine.text_utils.language_resources
         probe_query_str = language_resources[u'как тебя зовут']
         probe_query = InterpretedPhrase(probe_query_str)
-        answer, answer_confidense = answering_machine.build_answer0(interlocutor, probe_query)
-        if answer_confidense < 0.70:
-            # имя собеседника неизвестно.
-            return language_resources[u'А как тебя зовут?']
+        answers, answer_confidenses = answering_machine.build_answers0(interlocutor, probe_query)
+        if len(answers) > 0 :
+            if answer_confidenses[0] < 0.70:
+                # имя собеседника неизвестно.
+                return language_resources[u'А как тебя зовут?']
 
         return None

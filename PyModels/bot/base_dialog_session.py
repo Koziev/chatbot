@@ -32,7 +32,7 @@ class BaseDialogSession(object):
         из буфера ответов.
         :return: ответ бота или пустая строка, если буфер ответов пуст.
         """
-        if len(self.answer_buffer)==0:
+        if len(self.answer_buffer) == 0:
             return u''
 
         return self.answer_buffer.pop(0)
