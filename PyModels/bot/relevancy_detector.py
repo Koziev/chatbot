@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import os
-
 from model_applicator import ModelApplicator
+
 
 class RelevancyDetector(ModelApplicator):
     """

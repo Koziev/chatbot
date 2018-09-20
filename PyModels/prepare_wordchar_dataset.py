@@ -33,6 +33,9 @@ pqa_path = '../data/premise_question_answer.csv'
 pqa_multy_path = '../data/qa_multy.txt'
 eval_path = '../data/evaluate_relevancy.txt'
 premises = ['../data/premises.txt', '../data/premises_1s.txt']
+interpretations = ['../data/interpretation_auto_4.txt',
+                   '../data/interpretation_auto_5.txt',
+                   '../data/interpretation.txt']
 
 # ---------------------------------------------------------------
 
@@ -93,6 +96,17 @@ for p in premises:
             words = tokenizer.tokenize(phrase)
             known_words.update(words)
             dataset_words.update(words)
+
+# Датасеты интерпретации
+for p in interpretations:
+    print('Parsing {}'.format(p))
+    with codecs.open(p, 'r', 'utf-8') as rdr:
+        for line in rdr:
+            phrase2 = line.strip()
+            for phrase in phrase2.split('|'):
+                words = tokenizer.tokenize(phrase)
+                known_words.update(words)
+                dataset_words.update(words)
 
 print('There are {} known words, {} dataset words'.format(len(known_words), len(dataset_words)))
 

@@ -48,9 +48,15 @@ class BotScripting:
         probe_query_str = language_resources[u'как тебя зовут']
         probe_query = InterpretedPhrase(probe_query_str)
         answers, answer_confidenses = answering_machine.build_answers0(interlocutor, probe_query)
-        if len(answers) > 0 :
+        ask_name = False
+        if len(answers) > 0:
             if answer_confidenses[0] < 0.70:
-                # имя собеседника неизвестно.
-                return language_resources[u'А как тебя зовут?']
+                ask_name = True
+        else:
+            ask_name = True
+
+        if ask_name:
+            # имя собеседника неизвестно.
+            return language_resources[u'А как тебя зовут?']
 
         return None

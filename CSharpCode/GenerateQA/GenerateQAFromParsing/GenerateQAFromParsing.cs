@@ -31,7 +31,8 @@ class GenerateQAFromParsing
 
     private static int sample_count = 0;
 
-    static System.IO.StreamWriter wrt_samples, wrt_skipped;
+    static System.IO.StreamWriter wrt_samples, wrt_skipped; // PQA датасет
+    static System.IO.StreamWriter wrt_interpret; // INTERPRETATIONS датасет
 
     static int nb_samples = 0;
     private static void WriteQA(string premise, string question, string answer)
@@ -46,11 +47,27 @@ class GenerateQAFromParsing
         wrt_samples.WriteLine("T: {0}", premise.Trim());
         wrt_samples.WriteLine("Q: {0}", question.Trim());
         wrt_samples.WriteLine("A: {0}", answer.Trim());
+
         nb_samples += 1;
         return;
     }
 
 
+    private static void WriteInterpretation(string question, string answer, string interpretation)
+    {
+        Contract.Requires(!string.IsNullOrEmpty(interpretation));
+        Contract.Requires(!string.IsNullOrEmpty(question));
+        Contract.Requires(!string.IsNullOrEmpty(answer));
+        Contract.Requires(question != answer);
+
+        wrt_interpret.WriteLine();
+        wrt_interpret.WriteLine("{0}", question.Trim());
+        wrt_interpret.WriteLine("{0}|{1}", answer.Trim(), interpretation.Trim());
+        return;
+    }
+
+
+    [Obsolete]
     private static void WritePermutationsQA2(string premise, string answer, params string[] constituents)
     {
         if (constituents.Count(z => string.IsNullOrEmpty(z)) > 0)
@@ -118,9 +135,152 @@ class GenerateQAFromParsing
 
 
 
+    private static void WriteQA3(string premise, string[] constituents, string answer)
+    {
+        if (constituents.Count(z => string.IsNullOrEmpty(z)) > 0)
+        {
+            throw new ArgumentNullException($"Null constituent in WriteQA3 call: premise={premise} answer={answer}");
+        }
+
+
+        int n = constituents.Length;
+        int[] idx = new int[n];
+        Array.Clear(idx, 0, n);
+
+        string[] wx = new string[n];
+        HashSet<string> generated = new HashSet<string>();
+
+        int total_n = (int)Math.Round(Math.Pow(n, n));
+        for (int p = 0; p < total_n; ++p)
+        {
+            bool good = true;
+            for (int i = 0; i < n; ++i)
+            {
+                string c = constituents[idx[i]];
+                for (int j = 0; j < i; ++j)
+                {
+                    if (wx[j] == c)
+                    {
+                        good = false;
+                        break;
+                    }
+                }
+
+                wx[i] = c;
+            }
+
+            if (good)
+            {
+                string sample = Join(wx) + "?";
+                if (!generated.Contains(sample))
+                {
+                    generated.Add(sample);
+                    WriteQA(premise, sample, answer);
+                }
+            }
+
+
+            int transfer = 1;
+            for (int i = n - 1; i >= 0; --i)
+            {
+                idx[i] += transfer;
+                if (idx[i] == n)
+                {
+                    idx[i] = 0;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        wrt_samples.Flush();
+
+        return;
+    }
+
+
+
+    private static string[] L(params string[] l) => l;
+
+    private static void WritePermutationsInterpretation2(string[] constituents, string answer, string interpretation)
+    {
+        if (constituents.Count(z => string.IsNullOrEmpty(z)) > 0)
+        {
+            throw new ArgumentNullException($"Null constituent in WritePermutationsInterpretation2 call: answer={answer} interpretation={interpretation}");
+        }
+
+
+        int n = constituents.Length;
+        int[] idx = new int[n];
+        Array.Clear(idx, 0, n);
+
+        string[] wx = new string[n];
+        HashSet<string> generated = new HashSet<string>();
+
+        int total_n = (int)Math.Round(Math.Pow(n, n));
+        for (int p = 0; p < total_n; ++p)
+        {
+            bool good = true;
+            for (int i = 0; i < n; ++i)
+            {
+                string c = constituents[idx[i]];
+                for (int j = 0; j < i; ++j)
+                {
+                    if (wx[j] == c)
+                    {
+                        good = false;
+                        break;
+                    }
+                }
+
+                wx[i] = c;
+            }
+
+            if (good)
+            {
+                string question = Join(wx) + "?";
+                if (!generated.Contains(question))
+                {
+                    generated.Add(question);
+                    WriteInterpretation(question, answer, interpretation);
+                }
+            }
+
+
+            int transfer = 1;
+            for (int i = n - 1; i >= 0; --i)
+            {
+                idx[i] += transfer;
+                if (idx[i] == n)
+                {
+                    idx[i] = 0;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        wrt_interpret.Flush();
+
+        return;
+    }
+
+
+    private static void WriteAll(string premise, string[] question_constituents, string answer)
+    {
+        WriteQA3(premise, question_constituents, answer);
+        WritePermutationsInterpretation2(question_constituents, answer, premise);
+    }
+
+
+
     private static string Join(params string[] sx)
     {
-        return string.Join(" ", sx).Replace(" ?", "?");
+        return string.Join(" ", sx).Replace(" ?", "?").Replace(" ,", ",");
     }
 
     private static bool IsGoodObject(string obj_str)
@@ -169,7 +329,6 @@ class GenerateQAFromParsing
 
         return res_word;
     }
-
 
     private static string TermsToString(SolarixGrammarEngineNET.GrammarEngine2 gren, IEnumerable<SolarixGrammarEngineNET.SyntaxTreeNode> terms)
     {
@@ -720,7 +879,7 @@ class GenerateQAFromParsing
                                 }
 
 
-                                WritePermutationsQA2(phrase, answer, "как", whom, "зовут");
+                                WriteAll(phrase, L("как", whom, "зовут"), answer);
                             }
                             #endregion Его зовут Лешка.
 
@@ -751,8 +910,12 @@ class GenerateQAFromParsing
                                         // Ты носишь подделки?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        WriteQA3(phrase, L(s2, v2, o), answer);
+
+                                        WritePermutationsInterpretation2(L(s2, v2, o), // Ты носишь подделки?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не носишь подделки
+
 
                                         // Вопрос к дополнению:
                                         // Что ты не носишь?
@@ -760,7 +923,12 @@ class GenerateQAFromParsing
                                         if (!string.IsNullOrEmpty(qword))
                                         {
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, s2, v3, qword);
+                                            var question = L(qword, s2, v3);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Что ты не носишь?
+                                                answer, // подделки
+                                                Join(s2, v3, o)); // Ты не носишь подделки
                                         }
                                     }
 
@@ -772,7 +940,12 @@ class GenerateQAFromParsing
                                     {
                                         string v3 = "не " + v2;
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                        var question = L(qword, v3, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто не носит подделки?
+                                            s, // я
+                                            Join(s2, v3, o)); // Ты не носишь подделки
                                     }
                                 }
                             }
@@ -804,8 +977,12 @@ class GenerateQAFromParsing
                                         // Ты знаешь габариты?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Ты знаешь габариты?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не знаешь габариты
 
                                         // Вопрос к дополнению:
                                         // Что ты не знаешь?
@@ -813,7 +990,12 @@ class GenerateQAFromParsing
                                         if (!string.IsNullOrEmpty(qword))
                                         {
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, s2, v3, qword);
+                                            question = L(s2, v3, qword);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Что ты не знаешь?
+                                                answer, // габариты
+                                                Join(s2, v3, o)); // Ты не знаешь габариты
                                         }
 
                                         // Вопрос к подлежащему:
@@ -824,7 +1006,13 @@ class GenerateQAFromParsing
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не знает габариты?
+                                                s, // я
+                                                Join(s2, v3, o)); // Ты не знаешь габариты
+
                                         }
                                     }
                                 }
@@ -857,8 +1045,13 @@ class GenerateQAFromParsing
                                         // Ты знаешь габариты?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Ты знаешь габариты?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не знаешь габариты
+
 
                                         // Вопрос к дополнению:
                                         // Что ты не знаешь?
@@ -866,7 +1059,12 @@ class GenerateQAFromParsing
                                         if (!string.IsNullOrEmpty(qword))
                                         {
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, s2, v3, qword);
+                                            question = L(s2, v3, qword);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Что ты не знаешь?
+                                                answer, // габариты
+                                                Join(s2, v3, o)); // Ты не знаешь габариты
                                         }
 
                                         // Вопрос к подлежащему:
@@ -877,7 +1075,12 @@ class GenerateQAFromParsing
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не знает габариты?
+                                                s, // я
+                                                Join(s2, v3, o)); // Ты не знаешь габариты
                                         }
                                     }
                                 }
@@ -910,8 +1113,13 @@ class GenerateQAFromParsing
                                         // Ты знаешь габариты?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Ты знаешь габариты?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не знаешь габариты
+
 
                                         // Вопрос к дополнению:
                                         // Что ты не знаешь?
@@ -919,7 +1127,12 @@ class GenerateQAFromParsing
                                         if (!string.IsNullOrEmpty(qword))
                                         {
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, s2, v3, qword);
+                                            question = L(qword, s2, v3);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Что ты не знаешь?
+                                                answer, // габариты
+                                                Join(s2, v3, o)); // Ты не знаешь габариты
                                         }
 
                                         // Вопрос к подлежащему:
@@ -930,7 +1143,12 @@ class GenerateQAFromParsing
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не знает габариты?
+                                                s, // я
+                                                Join(s2, v3, o)); // Ты не знаешь габариты
                                         }
                                     }
                                 }
@@ -939,7 +1157,7 @@ class GenerateQAFromParsing
 
 
                             #region Почтой я не отправляю.
-                            if (footprint.Match("n,instr pr,1|2,nom,sing neg v,vf1"))
+                            if (footprint.Match("n,instr,inanim pr,1|2,nom,sing neg v,vf1"))
                             {
                                 used = true;
 
@@ -963,19 +1181,30 @@ class GenerateQAFromParsing
                                         // Ты отправляешь почтой?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Ты отправляешь почтой?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не отправляешь почтой
+
 
 
                                         // Вопрос к подлежащему:
-                                        // Кто не знает габариты?
+                                        // Кто не отправляет почтой?
                                         qword = GetSubjectQuestion(footprint[1]);
                                         v2 = RebuildVerb2(gren, v_node, qword);
                                         if (!string.IsNullOrEmpty(v2))
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не отправляет почтой?
+                                                answer, // я
+                                                Join(s2, v3, o)); // Ты не отправляешь почтой
+
                                         }
                                     }
                                 }
@@ -984,7 +1213,7 @@ class GenerateQAFromParsing
 
 
                             #region Я почтой не отправляю.
-                            if (footprint.Match("pr,1|2,nom,sing n,instr neg v,vf1"))
+                            if (footprint.Match("pr,1|2,nom,sing n,instr,inanim neg v,vf1"))
                             {
                                 used = true;
 
@@ -1008,8 +1237,12 @@ class GenerateQAFromParsing
                                         // Ты отправляешь почтой?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Ты отправляешь почтой?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не отправляешь почтой
 
 
                                         // Вопрос к подлежащему:
@@ -1020,7 +1253,12 @@ class GenerateQAFromParsing
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не отправляет почтой?
+                                                answer, // я
+                                                Join(s2, v3, o)); // Ты не отправляешь почтой
                                         }
                                     }
                                 }
@@ -1029,7 +1267,7 @@ class GenerateQAFromParsing
 
 
                             #region я не отправляю почтой.
-                            if (footprint.Match("pr,1|2,nom,sing neg v,vf1 n,instr"))
+                            if (footprint.Match("pr,1|2,nom,sing neg v,vf1 n,instr,inanim"))
                             {
                                 used = true;
 
@@ -1053,8 +1291,13 @@ class GenerateQAFromParsing
                                         // Ты отправляешь почтой?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Ты отправляешь почтой?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не отправляешь почтой
+
 
 
                                         // Вопрос к подлежащему:
@@ -1065,7 +1308,12 @@ class GenerateQAFromParsing
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не отправляет почтой?
+                                                answer, // я
+                                                Join(s2, v3, o)); // Ты не отправляешь почтой
                                         }
                                     }
                                 }
@@ -1074,7 +1322,7 @@ class GenerateQAFromParsing
 
 
                             #region Не отправляю я почтой.
-                            if (footprint.Match("neg v,vf1 pr,1|2,nom,sing n,instr"))
+                            if (footprint.Match("neg v,vf1 pr,1|2,nom,sing n,instr,inanim"))
                             {
                                 used = true;
 
@@ -1098,9 +1346,12 @@ class GenerateQAFromParsing
                                         // Ты отправляешь почтой?
                                         // Нет.
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s2, v2, o);
-                                        //WritePermutationsQA2(phrase, answer, s2, v2+" ли", o);
+                                        var question = L(s2, v2, o);
+                                        WriteQA3(phrase, question, answer);
 
+                                        WritePermutationsInterpretation2(question, // Ты отправляешь почтой?
+                                            answer, // нет
+                                            Join(s2, v3, o)); // Ты не отправляешь почтой
 
                                         // Вопрос к подлежащему:
                                         // Кто не отправляет почтой?
@@ -1110,7 +1361,12 @@ class GenerateQAFromParsing
                                         {
                                             v3 = "не " + v2;
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v3, o);
+                                            question = L(qword, v3, o);
+                                            WriteQA3(phrase, question, answer);
+
+                                            WritePermutationsInterpretation2(question, // Кто не отправляет почтой?
+                                                answer, // я
+                                                Join(s2, v3, o)); // Ты не отправляешь почтой
                                         }
                                     }
                                 }
@@ -1140,7 +1396,13 @@ class GenerateQAFromParsing
                                     // Ты гарантируешь возврат денег?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты гарантируешь возврат денег?
+                                        answer, // да
+                                        Join(s2, v2, o)); // Ты гарантируешь возврат денег
+
 
                                     // Вопрос к дополнению:
                                     // Что ты гарантируешь?
@@ -1148,7 +1410,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(s2, v2, qword);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Что ты гарантируешь?
+                                            answer, // возврат денег
+                                            Join(s2, v2, o)); // Ты гарантируешь возврат денег
                                     }
 
                                     // Вопрос к подлежащему:
@@ -1158,7 +1425,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто гарантирует возврат денег?
+                                            s, // я
+                                            Join(s2, v2, o)); // Ты гарантируешь возврат денег
                                     }
                                 }
                             }
@@ -1187,7 +1459,12 @@ class GenerateQAFromParsing
                                     // Ты ждешь ваших предложений?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты ждешь ваших предложений?
+                                        answer, // да
+                                        Join(s2, v2, o)); // Ты ждешь ваших предложений
 
                                     // Вопрос к дополнению:
                                     // Что ты ждешь?
@@ -1195,7 +1472,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(s2, v2, qword);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Что ты ждешь?
+                                            answer, // ваших предложений
+                                            Join(s2, v2, o)); // Ты ждешь ваших предложений
                                     }
 
                                     // Вопросы "какой? etc" к прямому дополнению
@@ -1205,7 +1487,7 @@ class GenerateQAFromParsing
                                     {
                                         string o2 = qword + " " + TermsToString(gren, terms[3]); // каких предложений?
                                         answer = TermsToString(gren, terms[2]); // ваших
-                                        WritePermutationsQA2(phrase, answer, o2, v2, s2);
+                                        WriteAll(phrase, L(o2, v2, s2), answer);
                                     }
 
 
@@ -1216,7 +1498,9 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+                                        WritePermutationsInterpretation2(question, answer, Join(s2, v2, o));
                                     }
                                 }
                             }
@@ -1245,7 +1529,12 @@ class GenerateQAFromParsing
                                     // Ты помнишь чудное мгновенье?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты помнишь чудное мгновенье?
+                                        answer, // да
+                                        Join(s2, v2, o)); // Ты помнишь чудное мгновенье
 
                                     // Вопрос к дополнению:
                                     // Что ты помнишь?
@@ -1253,7 +1542,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(s2, v2, qword);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Что ты помнишь?
+                                            answer, // чудное мгновенье
+                                            Join(s2, v2, o)); // Ты помнишь чудное мгновенье
                                     }
 
                                     // Вопросы "какой? etc" к прямому дополнению
@@ -1263,7 +1557,14 @@ class GenerateQAFromParsing
                                     {
                                         string o2 = qword + " " + TermsToString(gren, terms[3]); // какое мгновенье
                                         answer = TermsToString(gren, terms[2]); // чудное
-                                        WritePermutationsQA2(phrase, answer, o2, v2, s2);
+                                        question = L(o2, v2, s2);
+
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Какое мгновенье ты помнишь?
+                                            answer, // чудное
+                                            Join(s2, v2, o)); // Ты помнишь чудное мгновенье
+
                                     }
 
                                     // Вопрос к подлежащему:
@@ -1273,7 +1574,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто помнит чудное мгновенье?
+                                            answer, // я
+                                            Join(s2, v2, o)); // Ты помнишь чудное мгновенье
                                     }
                                 }
                             }
@@ -1302,7 +1608,17 @@ class GenerateQAFromParsing
                                     // Ты находишься в Краснодаре?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, pn);
+                                    var question = L(s2, v2, pn);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(L(s2, v2, pn), // Ты находишься в Краснодаре?
+                                        Join("да", ",", pn), // да, в Краснодаре
+                                        Join(s2, v2, pn)); // Ты находишься в Краснодаре
+
+                                    WritePermutationsInterpretation2(L(s2, v2, pn), // Ты находишься в Краснодаре?
+                                        Join("да", ",", s), // да, я
+                                        Join(s2, v2, pn)); // Ты находишься в Краснодаре
+
 
                                     // Вопрос к подлежащему:
                                     // Кто находится в Краснодаре?
@@ -1311,7 +1627,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, pn);
+                                        question = L(qword, v2, pn);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто находится в Краснодаре?
+                                            s, // я
+                                            Join(s2, v2, pn)); // Ты находишься в Краснодаре
                                     }
                                 }
                             }
@@ -1339,7 +1660,16 @@ class GenerateQAFromParsing
                                     // Ты читаешь?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2);
+                                    var question = L(s2, v2);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты читаешь?
+                                        Join("да", ",", TermsToString(gren, v_node)), // Да, читаю
+                                        Join(s2, v2)); // Ты читаешь
+
+                                    WritePermutationsInterpretation2(question, // Ты читаешь?
+                                        Join("да", ",", s), // Да, я
+                                        Join(s2, v2)); // Ты читаешь
 
                                     // Вопрос к подлежащему:
                                     // Кто читает?
@@ -1348,7 +1678,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2);
+                                        question = L(qword, v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто читает?
+                                            s, // я
+                                            Join(s2, v2)); // Ты читаешь
                                     }
                                 }
                             }
@@ -1377,7 +1712,13 @@ class GenerateQAFromParsing
                                     // Ты только продаешь?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, a, v2);
+                                    var question = L(s2, a, v2);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты только продаешь?
+                                        answer, // да
+                                        Join(s2, v2)); // Ты только продаешь
+
 
                                     // Вопрос к подлежащему:
                                     // Кто продает?
@@ -1386,7 +1727,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, a, v2);
+                                        question = L(qword, a, v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто только продает?
+                                            answer, // я
+                                            Join(s2, v2)); // Ты только продаешь
                                     }
                                 }
                             }
@@ -1415,7 +1761,12 @@ class GenerateQAFromParsing
                                     // Ты недолго радовался?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, a, v2);
+                                    var question = L(s2, a, v2);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты недолго радовался?
+                                        answer, // да
+                                        Join(s2, a, v2)); // Ты недолго радовался
 
                                     // Вопрос к подлежащему:
                                     // Кто недолго радовался?
@@ -1424,7 +1775,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, a, v2);
+                                        question = L(qword, a, v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто недолго радовался?
+                                            s, // я
+                                            Join(s2, a, v2)); // Ты недолго радовался
                                     }
                                 }
                             }
@@ -1453,7 +1809,16 @@ class GenerateQAFromParsing
                                     // Теперь ты знаешь?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, a, v2);
+                                    var question = L(s2, a, v2);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Теперь ты знаешь?
+                                        Join("да", ",", v2), // да, знаю
+                                        Join(s2, a, v2)); // Ты теперь знаешь
+
+                                    WritePermutationsInterpretation2(question, // Теперь ты знаешь?
+                                        Join("да", ",", a, v2), // да, теперь знаю
+                                        Join(s2, a, v2)); // Ты теперь знаешь
 
                                     // Вопрос к подлежащему:
                                     // Кто теперь знает?
@@ -1462,7 +1827,13 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, a, v2);
+                                        question = L(qword, a, v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто теперь знает?
+                                            s, // я
+                                            Join(s2, a, v2)); // Ты теперь знаешь
+
                                     }
                                 }
                             }
@@ -1490,8 +1861,20 @@ class GenerateQAFromParsing
                                     // Ты куришь?
                                     // Нет.
                                     answer = "нет";
-                                    WritePermutationsQA2(phrase, answer, s2, v2);
-                                    //WritePermutationsQA2(phrase, answer, s2, v2+" ли");
+                                    var question = L(s2, v2);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(L(s2, v2), // Ты куришь?
+                                        answer, // нет
+                                        Join(s2, "не", v2)); // Ты не куришь
+
+                                    WritePermutationsInterpretation2(L(s2, v2), // Ты куришь?
+                                        Join("нет", ",", "не", v2), // нет, не курю
+                                        Join(s2, "не", v2)); // Ты не куришь
+
+                                    WritePermutationsInterpretation2(question, // Ты куришь?
+                                        Join("нет", ",", "не", s), // нет, не я
+                                        Join(s2, "не", v2)); // Ты не куришь
 
                                     // Вопрос к подлежащему:
                                     // Кто не курит?
@@ -1501,7 +1884,12 @@ class GenerateQAFromParsing
                                     {
                                         string v3 = "не " + v2;
                                         answer = s2;
-                                        WritePermutationsQA2(phrase, answer, qword, v3);
+                                        question = L(qword, v3);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто не курит?
+                                            answer, // я
+                                            Join(s2, v3)); // Ты не куришь
                                     }
                                 }
                             }
@@ -1514,6 +1902,7 @@ class GenerateQAFromParsing
                                 used = true;
 
                                 string s = TermsToString(gren, terms[0]); // я
+                                string v = TermsToString(gren, terms[1]); // заклеил
                                 string o = TermsToString(gren, terms[2]); // моментом
                                 var v_node = terms[1]; // заклеил
 
@@ -1530,14 +1919,36 @@ class GenerateQAFromParsing
                                     // Ты заклеил моментом?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(L(s2, v2, o), // Ты заклеил моментом?
+                                        "да",
+                                        Join(s2, v2, o)); // Ты заклеил моментом
+
+                                    WritePermutationsInterpretation2(L(s2, v2, o), // Ты заклеил моментом?
+                                        Join("да", ",", o), // да, моментом
+                                        Join(s2, v2, o)); // Ты заклеил моментом
+
+                                    WritePermutationsInterpretation2(L(s2, v2, o), // Ты заклеил моментом?
+                                        Join("да", ",", s), // да, я
+                                        Join(s2, v2, o)); // Ты заклеил моментом
+
+                                    WritePermutationsInterpretation2(L(s2, v2, o), // Ты заклеил моментом?
+                                        Join("да", ",", v), // да, заклеил
+                                        Join(s2, v2, o)); // Ты заклеил моментом
 
                                     // Вопрос к дополнению:
                                     qword = GetInstrObjectQuestion(footprint[2]);
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(s2, v2, qword);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(L(qword, s2, v2), // Чем ты заклеил?
+                                            answer, // моментом
+                                            Join(s2, v2, o)); // Ты заклеил моментом
                                     }
 
                                     // Вопрос к подлежащему:
@@ -1547,7 +1958,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто заклеил моментом?
+                                            s, // я
+                                            Join(s2, v2, o)); // Ты заклеил моментом
                                     }
                                 }
                             }
@@ -1560,6 +1976,7 @@ class GenerateQAFromParsing
                                 used = true;
 
                                 string s = TermsToString(gren, terms[0]); // я
+                                string v = TermsToString(gren, terms[1]); // ищу
                                 string o = TermsToString(gren, terms[2]); // работу
                                 var v_node = terms[1]; // ищу
 
@@ -1576,7 +1993,21 @@ class GenerateQAFromParsing
                                     // Ты ищешь работу?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты ищешь работу?
+                                        "да", // да
+                                        Join(s2, v2, o)); // Ты ищешь работу
+
+                                    WritePermutationsInterpretation2(question, // Ты ищешь работу?
+                                        Join("да", ",", v), // да, ищу
+                                        Join(s2, v2, o)); // Ты ищешь работу
+
+                                    WritePermutationsInterpretation2(question, // Ты ищешь работу?
+                                        Join("да", ",", o), // да, работу
+                                        Join(s2, v2, o)); // Ты ищешь работу
+
 
                                     // Вопрос к дополнению:
                                     // Что ты ищешь?
@@ -1584,7 +2015,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(s2, v2, qword);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Что ты ищешь?
+                                            answer, // работу
+                                            Join(s2, v2, o)); // Ты ищешь работу
                                     }
 
                                     // Вопрос к подлежащему:
@@ -1594,7 +2030,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто ищет работу?
+                                            s, // я
+                                            Join(s2, v2, o)); // Ты ищешь работу
                                     }
                                 }
                             }
@@ -1608,6 +2049,7 @@ class GenerateQAFromParsing
 
                                 string o = TermsToString(gren, terms[0]); // коробку
                                 string s = TermsToString(gren, terms[1]); // я
+                                string v = TermsToString(gren, terms[2]); // потерял
                                 var v_node = terms[2]; // потерял
 
                                 string to_person = ChangePersonTo(s);
@@ -1623,7 +2065,21 @@ class GenerateQAFromParsing
                                     // Ты потерял коробку?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты потерял коробку?
+                                        "да", // да
+                                        Join(s2, v2, o)); // Ты потерял коробку
+
+                                    WritePermutationsInterpretation2(question, // Ты потерял коробку?
+                                        Join("да", ",", v), // да, потерял
+                                        Join(s2, v2, o)); // Ты потерял коробку
+
+                                    WritePermutationsInterpretation2(question, // Ты потерял коробку?
+                                        Join("да", ",", o), // да, коробку
+                                        Join(s2, v2, o)); // Ты потерял коробку?
+
 
                                     // Вопрос к дополнению:
                                     // Что ты потерял?
@@ -1631,7 +2087,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(qword, s2, v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Что ты потерял?
+                                            answer, // коробку
+                                            Join(s2, v2, o)); // Ты потерял коробку
                                     }
 
                                     // Вопрос к подлежащему:
@@ -1641,7 +2102,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто потерял коробку?
+                                            s, // я
+                                            Join(s2, v2, o)); // Ты потерял коробку
                                     }
                                 }
                             }
@@ -1670,7 +2136,20 @@ class GenerateQAFromParsing
                                     // Ты жаловался коллегам?
                                     // Да.
                                     answer = "да";
-                                    WritePermutationsQA2(phrase, answer, s2, v2, o);
+                                    var question = L(s2, v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Ты жаловался коллегам?
+                                        "да", // да
+                                        Join(s2, v2, o)); // Ты жаловался коллегам
+
+                                    WritePermutationsInterpretation2(question, // Ты жаловался коллегам?
+                                        Join("да", ",", v2), // да, жаловался
+                                        Join(s2, v2, o)); // Ты жаловался коллегам
+
+                                    WritePermutationsInterpretation2(question, // Ты жаловался коллегам?
+                                        Join("да", ",", o), // да, коллегам
+                                        Join(s2, v2, o)); // Ты жаловался коллегам
 
                                     // Вопрос к дополнению:
                                     // Кому ты жаловался?
@@ -1678,7 +2157,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s2, v2, qword);
+                                        question = L(qword, s2, v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кому ты жаловался?
+                                            answer, // коллегам
+                                            Join(s2, v2, o)); // Ты жаловался коллегам
                                     }
 
                                     // Вопрос к подлежащему:
@@ -1688,7 +2172,12 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        question = L(qword, v2, o);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Кто жаловался коллегам?
+                                            s, // я
+                                            Join(s2, v2, o)); // Ты жаловался коллегам
                                     }
                                 }
                             }
@@ -1701,22 +2190,41 @@ class GenerateQAFromParsing
                                 used = true;
 
                                 string s = TermsToString(gren, terms[0]); // Петя
-                                var v_node = terms[3]; // смутился
-                                string v = TermsToString(gren, terms[3]); // смутился
+                                string a = TermsToString(gren, terms[1]); // ничуть
 
-                                string answer = "нет";
-                                WritePermutationsQA2(phrase, answer, s, v);
-                                //WritePermutationsQA2(phrase, answer, s, v+" ли");
-
-
-                                string qword = GetSubjectQuestion(footprint[0]);
-                                string v2 = RebuildVerb2(gren, v_node, qword);
-                                if (!string.IsNullOrEmpty(v2))
+                                if (AdverbCategory.IsAppropriateForNeg(a))
                                 {
-                                    answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, "не " + v2);
-                                }
+                                    var v_node = terms[3]; // смутился
+                                    string v = TermsToString(gren, terms[3]); // смутился
 
+                                    string answer = "нет";
+                                    var question = L(s, v);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Петя смутился?
+                                        answer, // нет
+                                        Join(s, "не", v)); // Петя не смутился
+
+                                    WritePermutationsInterpretation2(question, // Петя смутился?
+                                        Join("нет", ",", "не", v), // нет, не смутился
+                                        Join(s, "не", v)); // Петя не смутился
+
+                                    WritePermutationsInterpretation2(question, // Петя смутился?
+                                        Join("нет", ",", "не", s), // нет, не Петя
+                                        Join(s, "не", v)); // Петя не смутился
+
+                                    string qword = GetSubjectQuestion(footprint[0]);
+                                    string v2 = RebuildVerb2(gren, v_node, qword);
+                                    if (!string.IsNullOrEmpty(v2))
+                                    {
+                                        answer = s;
+                                        question = L(qword, Join("не", v2));
+                                        WriteQA3(phrase, question, answer);
+                                        WritePermutationsInterpretation2(question, // Кто не смутился?
+                                            answer, // Петя
+                                            Join(s, "не", v)); // Петя не смутился
+                                    }
+                                }
                             }
                             #endregion Петя ничуть не смутился.
 
@@ -1729,17 +2237,28 @@ class GenerateQAFromParsing
                                 string s = TermsToString(gren, terms[0]); // Юбка
                                 var v_node = terms[2]; // мнется
                                 string v = TermsToString(gren, terms[2]); // мнется
+                                string adv = TermsToString(gren, terms[3]); // совершенно
 
                                 string answer = "нет";
-                                WritePermutationsQA2(phrase, answer, s, v);
-                                //WritePermutationsQA2(phrase, answer, s, v+" ли");
+                                var question = L(s, v);
+                                WriteQA3(phrase, question, answer);
+
+                                WritePermutationsInterpretation2(question, // Юбка мнется?
+                                    answer, // нет
+                                    Join(s, "не", v)); // Юбка не мнется
+
+                                WritePermutationsInterpretation2(question, // Юбка мнется?
+                                    Join("нет", ",", "не", v), // нет, не мнется
+                                    Join(s, "не", v)); // Юбка не мнется
 
                                 string qword = GetSubjectQuestion(footprint[0]);
                                 string v2 = RebuildVerb2(gren, v_node, qword);
                                 if (!string.IsNullOrEmpty(v2))
                                 {
+                                    // Q: Что не мнется совершенно?
+                                    // A: Юбка
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, "не " + v2);
+                                    WriteAll(phrase, L(qword, "не " + v2, adv), answer);
                                 }
                             }
                             #endregion Юбка не мнется совершенно!
@@ -1756,15 +2275,36 @@ class GenerateQAFromParsing
                                 string o = TermsToString(gren, terms[3]); // моряками
 
                                 string answer = "нет";
-                                WritePermutationsQA2(phrase, answer, s, v, o);
-                                //WritePermutationsQA2(phrase, answer, s, v+" ли", o);
+                                var question = L(s, v, o);
+                                WriteQA3(phrase, question, answer);
+
+                                WritePermutationsInterpretation2(question, // Китайцы были моряками?
+                                    answer, // нет
+                                    Join(s, "не", v, o)); // Китайцы не были моряками.
+
+                                WritePermutationsInterpretation2(question, // Китайцы были моряками?
+                                    Join("нет", ",", "не", v), // нет, не были
+                                    Join(s, "не", v, o)); // Китайцы не были моряками.
+
+                                WritePermutationsInterpretation2(question, // Китайцы были моряками?
+                                    Join("нет", ",", "не", s), // нет, не китайцы
+                                    Join(s, "не", v, o)); // Китайцы не были моряками.
+
+                                WritePermutationsInterpretation2(question, // Китайцы были моряками?
+                                    Join("нет", ",", "не", o), // нет, не моряками
+                                    Join(s, "не", v, o)); // Китайцы не были моряками.
 
                                 string qword = GetSubjectQuestion(footprint[0]);
                                 string v2 = RebuildVerb2(gren, v_node, qword);
                                 if (!string.IsNullOrEmpty(v2))
                                 {
+                                    question = L(qword, "не " + v2, o); // Кто не был моряками?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, "не " + v2, o);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Кто не был моряками?
+                                        answer, // китайцы
+                                        Join(s, "не", v, o)); // Китайцы не были моряками.
                                 }
                             }
                             #endregion Китайцы не были моряками.
@@ -1780,15 +2320,29 @@ class GenerateQAFromParsing
                                 string v = TermsToString(gren, terms[1]); // мнется
 
                                 string answer = "нет";
-                                WritePermutationsQA2(phrase, answer, s, v);
-                                //WritePermutationsQA2(phrase, answer, s, v+" ли");
+                                var question = L(s, v);
+                                WriteQA3(phrase, question, answer);
+
+                                WritePermutationsInterpretation2(question, // Юбка мнется?
+                                    answer, // нет
+                                    Join(s, "не", v)); // Юбка не мнется
+
+                                WritePermutationsInterpretation2(question, // Юбка мнется?
+                                    Join("нет", ",", "не", v), // нет, не мнется
+                                    Join(s, "не", v)); // Юбка не мнется
+
 
                                 string qword = GetSubjectQuestion(footprint[2]);
                                 string v2 = RebuildVerb2(gren, v_node, qword);
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, "не " + v2);
+                                    question = L(qword, "не " + v2);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Что не мнется?
+                                        s, // юбка
+                                        Join(s, "не", v)); // Юбка не мнется
                                 }
 
                             }
@@ -1800,22 +2354,38 @@ class GenerateQAFromParsing
                             {
                                 used = true;
 
-                                string s = TermsToString(gren, terms[1]); // автомобиль
-                                var v_node = terms[3]; // эксплуатировался
-                                string v = TermsToString(gren, terms[3]); // мнется
-
-                                string answer = "нет";
-                                WritePermutationsQA2(phrase, answer, s, v);
-                                //WritePermutationsQA2(phrase, answer, s, v+" ли");
-
-                                string qword = GetSubjectQuestion(footprint[1]);
-                                string v2 = RebuildVerb2(gren, v_node, qword);
-                                if (!string.IsNullOrEmpty(v2))
+                                string a = TermsToString(gren, terms[0]); // ранее
+                                if (!AdverbCategory.IsQuestionAdverb(a))
                                 {
-                                    answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, "не " + v2);
-                                }
+                                    string s = TermsToString(gren, terms[1]); // автомобиль
+                                    var v_node = terms[3]; // эксплуатировался
+                                    string v = TermsToString(gren, terms[3]);
 
+                                    string answer = "нет";
+                                    var question = L(s, v);
+                                    WriteQA3(phrase, question, answer);
+
+                                    WritePermutationsInterpretation2(question, // Автомобиль эксплуатировался?
+                                        answer, // нет
+                                        Join(s, "не", v)); // Автомобиль не эксплуатировался
+
+                                    WritePermutationsInterpretation2(question, // Автомобиль эксплуатировался?
+                                        Join("нет", ",", "не", v), // нет, не эксплуатировался
+                                        Join(s, "не", v)); // Автомобиль не эксплуатировался
+
+                                    string qword = GetSubjectQuestion(footprint[1]);
+                                    string v2 = RebuildVerb2(gren, v_node, qword);
+                                    if (!string.IsNullOrEmpty(v2))
+                                    {
+                                        answer = s;
+                                        question = L(qword, a, "не " + v2);
+                                        WriteQA3(phrase, question, answer);
+
+                                        WritePermutationsInterpretation2(question, // Что ранее не эксплуатировалось?
+                                            s, // автомобиль
+                                            Join(s, a, "не", v)); // Автомобиль ранее не эксплуатировался
+                                    }
+                                }
                             }
                             #endregion Ранее автомобиль не эксплуатировался.
 
@@ -1839,7 +2409,7 @@ class GenerateQAFromParsing
                                     // Что упрощает электронное зажигание?
                                     qword = GetAccusObjectQuestion(footprint[3]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что упрощает запуск инструмента?
@@ -1848,9 +2418,8 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
-
 
                                     // Вопрос к атрибуту подлежащего:
                                     // Какое зажигание упрощает запуск инструмента?
@@ -1860,10 +2429,8 @@ class GenerateQAFromParsing
                                     {
                                         string s2 = qword + " " + TermsToString(gren, terms[1]); // какое зажигание
                                         answer = TermsToString(gren, terms[0]); // электронное
-
-                                        WritePermutationsQA2(phrase, answer, s2, v, o);
+                                        WriteAll(phrase, L(s2, v, o), answer);
                                     }
-
                                 }
                             }
                             #endregion Электронное зажигание упрощает запуск инструмента
@@ -1888,7 +2455,7 @@ class GenerateQAFromParsing
                                     // Что имеет процессор платы?
                                     qword = GetAccusObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что имеет пятифазное питание?
@@ -1897,10 +2464,8 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
-
-
 
                                     // Вопросы "какой? etc" к прямому дополнению
                                     // Какое питание имеет процессор платы?
@@ -1909,9 +2474,8 @@ class GenerateQAFromParsing
                                     {
                                         string o2 = qword + " " + TermsToString(gren, terms[4]); // какое питание
                                         answer = TermsToString(gren, terms[3]); // пятифазное
-                                        WritePermutationsQA2(phrase, answer, o2, v, s);
+                                        WriteAll(phrase, L(o2, v, s), answer);
                                     }
-
                                 }
                             }
                             #endregion Процессор платы имеет пятифазное питание
@@ -1937,7 +2501,7 @@ class GenerateQAFromParsing
                                     // Кого принимала радушно ностальгирующая публика?
                                     qword = GetAccusObjectQuestion(footprint[3]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, a, qword);
+                                    WriteAll(phrase, L(s, v, a, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Кто принимал певца равнодушно?
@@ -1947,7 +2511,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a, o);
+                                        WriteAll(phrase, L(qword, v2, a, o), answer);
                                     }
 
 
@@ -1959,7 +2523,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = a;
-                                        WritePermutationsQA2(phrase, answer, qword, v, s, o);
+                                        WriteAll(phrase, L(qword, v, s, o), answer);
                                     }
 
                                 }
@@ -1988,7 +2552,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, a, v2);
+                                    WriteAll(phrase, L(qword, a, v2), answer);
                                 }
 
                                 // Вопрос к наречному обстоятельству:
@@ -1999,7 +2563,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
                                 }
                             }
                             #endregion Загадочная славянская душа выворачивается наизнанку.
@@ -2024,7 +2588,7 @@ class GenerateQAFromParsing
                                     // Чему представляются красивые номера?
                                     qword = GetDativeObjectQuestion(footprint[1]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что представляется вашему вниманию?
@@ -2034,7 +2598,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2060,7 +2624,7 @@ class GenerateQAFromParsing
                                     // Что рассказывает мама или папа?
                                     qword = GetAccusObjectQuestion(footprint[1]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Кто рассказывает сказки?
@@ -2070,7 +2634,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2096,7 +2660,7 @@ class GenerateQAFromParsing
                                     // Чем зарастают пруды и каналы?
                                     qword = GetInstrObjectQuestion(footprint[0]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что зарастает водорослями?
@@ -2106,7 +2670,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2132,7 +2696,7 @@ class GenerateQAFromParsing
                                     // Чему соответствуют фотографии и цена?
                                     qword = GetDativeObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что соответствует действительности?
@@ -2142,7 +2706,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2170,7 +2734,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                    WriteAll(phrase, L(qword, v2, a), answer);
                                 }
 
 
@@ -2182,7 +2746,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteQA3(phrase, L(qword, v, s), answer);
                                 }
                             }
                             #endregion Мотор и коробка идеально работают
@@ -2207,7 +2771,7 @@ class GenerateQAFromParsing
                                     // Чему угрожает Басаев?
                                     qword = GetDativeObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Кто угрожает церквям и детям?
@@ -2217,7 +2781,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2243,7 +2807,7 @@ class GenerateQAFromParsing
                                     // Что снимет девушка?
                                     qword = GetAccusObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Кто снимет комнату или квартиру?
@@ -2253,7 +2817,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2280,8 +2844,8 @@ class GenerateQAFromParsing
                                     // Что активно набирает возродившийся конкурс?
                                     qword = GetAccusObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, a, v, qword);
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, a, v, qword), answer);
+                                    WriteQA3(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что активно набирает обороты?
@@ -2291,8 +2855,8 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, a, v2, o);
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, a, v2, o), answer);
+                                        WriteQA3(phrase, L(qword, v2, o), answer);
                                     }
 
                                     // Вопрос к наречному обстоятельству:
@@ -2303,7 +2867,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = a;
-                                        WritePermutationsQA2(phrase, answer, qword, v, s, o);
+                                        WriteAll(phrase, L(qword, v, s, o), answer);
                                     }
 
                                 }
@@ -2330,7 +2894,7 @@ class GenerateQAFromParsing
                                     // Что перехватила внезапная острая боль?
                                     qword = GetAccusObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что перехватило дыхание?
@@ -2340,7 +2904,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2368,7 +2932,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, a, v2);
+                                    WriteAll(phrase, L(qword, a, v2), answer);
                                 }
 
                                 // Вопрос к наречному обстоятельству:
@@ -2379,7 +2943,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
                                 }
                             }
                             #endregion Здесь вызревает янтарный игристый напиток.
@@ -2404,7 +2968,7 @@ class GenerateQAFromParsing
                                     // Налоговый кодекс подвергается чему?
                                     qword = GetDativeObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что подвергается правкам?
@@ -2414,7 +2978,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2440,7 +3004,7 @@ class GenerateQAFromParsing
                                     // Кого ждет ласковый игривый малыш?
                                     qword = GetAccusObjectQuestion(footprint[5]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Кто ждет своего хозяина?
@@ -2450,7 +3014,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2477,7 +3041,7 @@ class GenerateQAFromParsing
                                     // Кому смелость секретаря очень понравилась?
                                     qword = GetDativeObjectQuestion(footprint[0]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, a, v, qword);
+                                    WriteAll(phrase, L(s, a, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что очень понравилось зрителям?
@@ -2487,7 +3051,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, a, v2, o);
+                                        WriteAll(phrase, L(qword, a, v2, o), answer);
                                     }
 
 
@@ -2497,7 +3061,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = a;
-                                        WritePermutationsQA2(phrase, answer, qword, v, s);
+                                        WriteAll(phrase, L(qword, v, s), answer);
                                     }
                                 }
                             }
@@ -2525,7 +3089,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, a, v2);
+                                    WriteAll(phrase, L(qword, a, v2), answer);
                                 }
 
                                 // Вопрос к наречному обстоятельству:
@@ -2536,7 +3100,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
                                 }
                             }
                             #endregion Выглядит такой термостакан очень достойно
@@ -2564,7 +3128,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, a, v2, o);
+                                    WriteAll(phrase, L(qword, a, v2, o), answer);
                                 }
 
                                 // Вопрос к наречному обстоятельству:
@@ -2575,7 +3139,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s, o);
+                                    WriteAll(phrase, L(qword, v, s, o), answer);
                                 }
 
                                 // Вопросы к прямому дополнению:
@@ -2584,8 +3148,8 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
-                                    WritePermutationsQA2(phrase, answer, s, a, v, qword);
+                                    WriteQA3(phrase, L(s, v, qword), answer);
+                                    WriteAll(phrase, L(s, a, v, qword), answer);
                                 }
 
                             }
@@ -2611,7 +3175,7 @@ class GenerateQAFromParsing
                                     // Что создают регулируемые линзы?
                                     qword = GetAccusObjectQuestion(footprint[1]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что создает трехмерное изображение?
@@ -2621,7 +3185,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2648,7 +3212,7 @@ class GenerateQAFromParsing
                                     // ^^^
                                     qword = GetAccusObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что имеет глубокий черный цвет?
@@ -2658,7 +3222,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2685,7 +3249,7 @@ class GenerateQAFromParsing
                                     // ^^^
                                     qword = GetInstrObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что обладает большой пропускной способностью?
@@ -2695,7 +3259,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2722,7 +3286,7 @@ class GenerateQAFromParsing
                                     // ^^^
                                     qword = GetInstrObjectQuestion(footprint[4]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     // Что отличается высокой прочностью?
@@ -2732,7 +3296,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -2761,7 +3325,7 @@ class GenerateQAFromParsing
                                     answer = TermsToString(gren, terms.Skip(1).Take(2)); // очень мощный
 
                                     // Какой компьютер продается?
-                                    WritePermutationsQA2(phrase, answer, s2, v);
+                                    WriteAll(phrase, L(s2, v), answer);
                                 }
 
 
@@ -2773,7 +3337,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2);
+                                    WriteAll(phrase, L(qword, v2), answer);
                                 }
                             }
 
@@ -2802,7 +3366,7 @@ class GenerateQAFromParsing
                                     answer = TermsToString(gren, terms.Take(2)); // очень мощный
 
                                     // Какой компьютер продается?
-                                    WritePermutationsQA2(phrase, answer, s2, v);
+                                    WriteAll(phrase, L(s2, v), answer);
                                 }
 
 
@@ -2814,7 +3378,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(v2))
                                 {
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2);
+                                    WriteAll(phrase, L(qword, v2), answer);
                                 }
                             }
                             #endregion Продается очень мощный компьютер.
@@ -2840,7 +3404,7 @@ class GenerateQAFromParsing
                                 if (!string.IsNullOrEmpty(qword))
                                 {
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопрос к подлежащему:
@@ -2851,7 +3415,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -2874,10 +3438,10 @@ class GenerateQAFromParsing
                                 string answer = pn;
 
                                 // На кого посмотрел брат?
-                                WritePermutationsQA2(phrase, answer, qword, v, s);
+                                WriteQA3(phrase, L(qword, v, s), answer);
 
                                 // На кого пристально посмотрел брат?
-                                WritePermutationsQA2(phrase, answer, qword, a, v, s);
+                                WriteAll(phrase, L(qword, a, v, s), answer);
 
                                 // Вопросы к подлежащему
                                 qword = GetSubjectQuestion(footprint[0]);
@@ -2887,19 +3451,19 @@ class GenerateQAFromParsing
                                 {
                                     // Кто пристально посмотрел на доктора?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, a, v2, pn);
+                                    WriteAll(phrase, L(qword, a, v2, pn), answer);
 
                                     // Кто посмотрел на доктора?
-                                    WritePermutationsQA2(phrase, answer, qword, v2, pn);
+                                    WriteQA3(phrase, L(qword, v2, pn), answer);
                                 }
 
                                 // Вопросы к объекту в предложном обстоятельстве:
                                 // На кого посмотрел брат?
                                 qword = TermsToString(gren, terms[3]) + " кого";
                                 answer = TermsToString(gren, terms.Skip(3).Take(2));
-                                WritePermutationsQA2(phrase, answer, qword, v, s);
+                                WriteAll(phrase, L(qword, a, v, s), answer);
                             }
-                            #endregion Ткань хорошо держит форму
+                            #endregion Брат пристально посмотрел на доктора.
 
 
                             #region Дверца открывается влево.
@@ -2919,7 +3483,7 @@ class GenerateQAFromParsing
                                 {
                                     // Куда открывается дверца?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
                                 }
 
 
@@ -2931,7 +3495,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что открывается влево?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                    WriteAll(phrase, L(qword, v2, a), answer);
                                 }
                             }
                             #endregion Дверца открывается влево.
@@ -2954,7 +3518,7 @@ class GenerateQAFromParsing
                                 {
                                     // Где находится карман?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[2]);
@@ -2964,7 +3528,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что находится внутри?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -2988,7 +3552,7 @@ class GenerateQAFromParsing
                                 {
                                     // Как застраивается улица?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[0]);
@@ -2998,7 +3562,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что застраивается активно?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -3025,7 +3589,7 @@ class GenerateQAFromParsing
 
                                     // Мыло убивает что?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[0]);
@@ -3035,7 +3599,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что убивает запахи?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3062,7 +3626,7 @@ class GenerateQAFromParsing
 
                                     // Бойцы заняли что?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[1]);
@@ -3072,7 +3636,7 @@ class GenerateQAFromParsing
                                     {
                                         // Кто занял оборону?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3089,7 +3653,7 @@ class GenerateQAFromParsing
                                 string o = TermsToString(gren, terms.Take(1)); // оборону
                                 var v_node = terms[1];
 
-                                if (IsGoodObject(o))
+                                if (IsGoodObject(o) && v != "зовут")
                                 {
                                     string qword = null;
                                     string answer = null;
@@ -3099,7 +3663,7 @@ class GenerateQAFromParsing
 
                                     // Бойцы заняли что?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопросы к подлежащему
@@ -3110,7 +3674,7 @@ class GenerateQAFromParsing
                                     {
                                         // Кто занял оборону?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3137,7 +3701,7 @@ class GenerateQAFromParsing
 
                                     // Мама удивилась чему?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[0]);
@@ -3147,7 +3711,7 @@ class GenerateQAFromParsing
                                     {
                                         // Кто удивился вопросу?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3172,14 +3736,14 @@ class GenerateQAFromParsing
                                     // Дорога зимой чистится.
                                     qword = "когда";
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s); // Когда чистится дорога?
+                                    WriteAll(phrase, L(qword, v, s), answer); // Когда чистится дорога?
                                 }
                                 else if (IsGoodObject(o))
                                 {
                                     // Вопросы к прямому дополнению
                                     qword = GetInstrObjectQuestion(footprint[1]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
                                 }
 
                                 // Вопросы к подлежащему
@@ -3190,7 +3754,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что чистится зимой?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteAll(phrase, L(qword, v2, o), answer);
                                 }
                             }
                             #endregion Дорога зимой чистится.
@@ -3214,7 +3778,7 @@ class GenerateQAFromParsing
                                     // Ночью ударит мороз.
                                     qword = "когда";
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s); // Когда ударит мороз?
+                                    WriteAll(phrase, L(qword, v, s), answer); // Когда ударит мороз?
                                 }
                                 else if (IsGoodObject(o))
                                 {
@@ -3223,7 +3787,7 @@ class GenerateQAFromParsing
                                     answer = o;
 
                                     // Ручка регулируется чем?
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
                                 }
 
                                 // Вопросы к подлежащему
@@ -3234,7 +3798,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что регулируется кнопкой?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteAll(phrase, L(qword, v2, o), answer);
                                 }
                             }
                             #endregion Ручка регулируется кнопкой.
@@ -3258,7 +3822,7 @@ class GenerateQAFromParsing
                                     // Ночью ударит мороз.
                                     qword = "когда";
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, qword, v, s);
+                                    WriteAll(phrase, L(qword, v, s), answer);
                                 }
                                 else if (IsGoodObject(o))
                                 {
@@ -3269,7 +3833,7 @@ class GenerateQAFromParsing
 
                                     // Усилия пошли чем?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
                                 }
 
                                 // Вопросы к подлежащему
@@ -3281,7 +3845,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что пошло прахом?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteAll(phrase, L(qword, v2, o), answer);
                                 }
                             }
                             #endregion Прахом пошли усилия.
@@ -3306,7 +3870,7 @@ class GenerateQAFromParsing
                                     // Бригада плотников ищет что?
                                     qword = GetAccusObjectQuestion(footprint[3]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[0]);
@@ -3316,7 +3880,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что ищет работу?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3343,7 +3907,7 @@ class GenerateQAFromParsing
                                     // Занятия проводятся кем?
                                     qword = GetInstrObjectQuestion(footprint[3]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[0]);
@@ -3352,7 +3916,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(v2))
                                     {
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, o, v2, qword);
+                                        WriteAll(phrase, L(o, v2, qword), answer);
                                     }
 
                                     // Вопросы "какой? etc" к прямому дополнению
@@ -3362,7 +3926,7 @@ class GenerateQAFromParsing
                                     {
                                         string o2 = qword + " " + TermsToString(gren, terms.Skip(3).Take(1)); // какими тренерами
                                         answer = TermsToString(gren, terms.Skip(2).Take(1)); // опытными
-                                        WritePermutationsQA2(phrase, answer, o2, v, s);
+                                        WriteAll(phrase, L(o2, v, s), answer);
                                     }
                                 }
                             }
@@ -3390,7 +3954,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s, v, qword);
+                                        WriteAll(phrase, L(s, v, qword), answer);
                                     }
 
 
@@ -3404,7 +3968,7 @@ class GenerateQAFromParsing
                                         {
                                             // Что хорошо держит форму?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                            WriteAll(phrase, L(qword, v2, o), answer);
                                         }
                                     }
                                 }
@@ -3431,7 +3995,7 @@ class GenerateQAFromParsing
                                     // Машина быстро красит что?
                                     qword = GetAccusObjectQuestion(footprint[3]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[2]);
@@ -3441,7 +4005,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что быстро красит ткань?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3467,7 +4031,7 @@ class GenerateQAFromParsing
                                     // Анастасия быстро обрела что?
                                     qword = GetAccusObjectQuestion(footprint[2]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопросы к подлежащему
@@ -3478,7 +4042,7 @@ class GenerateQAFromParsing
                                     {
                                         // Кто быстро обрел самообладание?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -3499,8 +4063,7 @@ class GenerateQAFromParsing
 
                                 // Стекло зарастает водорослями?
                                 answer = "нет";
-                                WritePermutationsQA2(phrase, answer, s, v, o);
-                                //WritePermutationsQA2(phrase, answer, s, v+" ли", o);
+                                WriteQA3(phrase, L(s, v, o), answer);
 
                                 // Вопросы к подлежащему
                                 string qword = GetSubjectQuestion(footprint[0]);
@@ -3511,7 +4074,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что не зарастает водорослями?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteQA3(phrase, L(qword, v2, o), answer);
                                 }
 
                                 // Вопросы к обстоятельственному дополнению
@@ -3521,7 +4084,7 @@ class GenerateQAFromParsing
 
                                 // Стекло не зарастает чем?
                                 answer = o;
-                                WritePermutationsQA2(phrase, answer, s, v2, qword);
+                                WriteAll(phrase, L(s, v2, qword), answer);
                             }
                             #endregion Стекло не зарастает водорослями
 
@@ -3541,8 +4104,7 @@ class GenerateQAFromParsing
                                 {
                                     // Предложение является публичной офертой?
                                     answer = "нет";
-                                    WritePermutationsQA2(phrase, answer, s, v, o);
-                                    //WritePermutationsQA2(phrase, answer, s, v+" ли", o);
+                                    WriteQA3(phrase, L(s, v, o), answer);
 
                                     // Вопросы к подлежащему
                                     string qword = GetSubjectQuestion(footprint[0]);
@@ -3555,7 +4117,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что не является публичной офертой?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteQA3(phrase, L(qword, v2, o), answer);
                                     }
 
                                     // Вопросы к обстоятельственному дополнению
@@ -3564,7 +4126,7 @@ class GenerateQAFromParsing
 
                                     // Предложение не является чем?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v2, qword);
+                                    WriteQA3(phrase, L(s, v2, qword), answer);
                                 }
                             }
                             #endregion Предложение не является публичной офертой.
@@ -3590,7 +4152,7 @@ class GenerateQAFromParsing
                                 {
                                     // Скорость подачи регулируется чем?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
                                 }
 
 
@@ -3604,7 +4166,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что регулируется инвертером?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteAll(phrase, L(qword, v2, o), answer);
                                 }
                             }
                             #endregion Скорость подачи регулируется инвертером
@@ -3705,7 +4267,7 @@ class GenerateQAFromParsing
 
                                         // Машинка нагревает воду?
                                         answer = "нет";
-                                        WritePermutationsQA2(phrase, answer, s, v, o);
+                                        WriteQA3(phrase, L(s, v, o), answer);
                                         //WritePermutationsQA2(phrase, answer, s, v+" ли", o);
                                     }
                                 }
@@ -3734,7 +4296,7 @@ class GenerateQAFromParsing
                                     // Часы имеют кого?
                                     qword = GetAccusObjectQuestion(footprint[3]);
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопросы к подлежащему
                                     qword = GetSubjectQuestion(footprint[0]);
@@ -3744,7 +4306,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что имеет оригинальное происхождение?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
 
                                     // Вопросы "какой? etc" к прямому дополнению
@@ -3756,7 +4318,7 @@ class GenerateQAFromParsing
                                         answer = TermsToString(gren, terms.Skip(2).Take(1)); // оригинальное
 
                                         // Какое происхождение имеют часы?
-                                        WritePermutationsQA2(phrase, answer, o2, v, s);
+                                        WriteAll(phrase, L(o2, v, s), answer);
                                     }
                                 }
                             }
@@ -3784,7 +4346,7 @@ class GenerateQAFromParsing
                                 {
                                     // Пластиковые окна закрываются чем?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
                                 }
 
 
@@ -3812,7 +4374,7 @@ class GenerateQAFromParsing
                                 {
                                     // Какие окна закрываются ставнями?
                                     answer = TermsToString(gren, terms.Take(1)); // пластиковые
-                                    WritePermutationsQA2(phrase, answer, s2, v, o);
+                                    WriteAll(phrase, L(s2, v, o), answer);
                                 }
 
 
@@ -3826,7 +4388,7 @@ class GenerateQAFromParsing
                                 {
                                     // Что закрывается ставнями?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteAll(phrase, L(qword, v2, o), answer);
                                 }
                             }
                             #endregion Пластиковые окна закрываются ролставнями
@@ -3850,7 +4412,7 @@ class GenerateQAFromParsing
                                 {
                                     // Задняя дверь открывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопрос к атрибуту подлежащего:
                                     // Какая дверь открывается вверх?
@@ -3862,7 +4424,7 @@ class GenerateQAFromParsing
                                         answer = TermsToString(gren, terms.Take(1)); // задняя
 
                                         // Какая дверь открывается вверх?
-                                        WritePermutationsQA2(phrase, answer, s2, v, a);
+                                        WriteAll(phrase, L(s2, v, a), answer);
                                     }
 
 
@@ -3875,7 +4437,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что открывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -3900,7 +4462,7 @@ class GenerateQAFromParsing
                                 {
                                     // Задняя дверь открывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопрос к атрибуту подлежащего:
@@ -3913,7 +4475,7 @@ class GenerateQAFromParsing
                                         answer = TermsToString(gren, terms.Take(1)); // задняя
 
                                         // Какая дверь открывается вверх?
-                                        WritePermutationsQA2(phrase, answer, s2, v, a);
+                                        WriteAll(phrase, L(s2, v, a), answer);
                                     }
 
 
@@ -3927,7 +4489,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что открывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -3952,7 +4514,7 @@ class GenerateQAFromParsing
                                 {
                                     // Задняя дверь открывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопрос к атрибуту подлежащего:
@@ -3965,7 +4527,7 @@ class GenerateQAFromParsing
                                         answer = TermsToString(gren, terms.Skip(2).Take(1)); // задняя
 
                                         // Какая дверь открывается вверх?
-                                        WritePermutationsQA2(phrase, answer, s2, v, a);
+                                        WriteAll(phrase, L(s2, v, a), answer);
                                     }
 
 
@@ -3979,7 +4541,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что открывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -4004,7 +4566,7 @@ class GenerateQAFromParsing
                                 {
                                     // Задняя дверь открывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопрос к атрибуту подлежащего:
                                     // Какая дверь открывается вверх?
@@ -4016,7 +4578,7 @@ class GenerateQAFromParsing
                                         answer = TermsToString(gren, terms.Skip(2).Take(1)); // задняя
 
                                         // Какая дверь открывается вверх?
-                                        WritePermutationsQA2(phrase, answer, s2, v, a);
+                                        WriteAll(phrase, L(s2, v, a), answer);
                                     }
 
 
@@ -4030,7 +4592,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что открывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -4055,7 +4617,7 @@ class GenerateQAFromParsing
                                 {
                                     // Панель управления откидывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
                                     // Вопрос к подлежащему:
                                     // Что откидывается вверх?
@@ -4067,7 +4629,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что откидывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -4092,7 +4654,7 @@ class GenerateQAFromParsing
                                 {
                                     // Панель управления откидывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопрос к подлежащему:
@@ -4106,7 +4668,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что откидывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -4131,7 +4693,7 @@ class GenerateQAFromParsing
                                 {
                                     // Панель управления откидывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопрос к подлежащему:
@@ -4144,7 +4706,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что откидывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -4169,7 +4731,7 @@ class GenerateQAFromParsing
                                 {
                                     // Панель управления откидывается куда?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
 
 
                                     // Вопрос к подлежащему:
@@ -4182,7 +4744,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что откидывается вверх?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, a);
+                                        WriteAll(phrase, L(qword, v2, a), answer);
                                     }
                                 }
                             }
@@ -4210,7 +4772,7 @@ class GenerateQAFromParsing
                                 {
                                     // Собственник заключает что?
                                     answer = o;
-                                    WritePermutationsQA2(phrase, answer, s, v, qword);
+                                    WriteAll(phrase, L(s, v, qword), answer);
                                 }
 
                                 // Вопросы к подлежащему
@@ -4221,7 +4783,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кто заключает договор аренды?
                                     answer = s;
-                                    WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                    WriteAll(phrase, L(qword, v2, o), answer);
                                 }
                             }
                             #endregion Собственник заключает договор аренды
@@ -4256,7 +4818,7 @@ class GenerateQAFromParsing
                                         answer = terms[0].GetWord();
 
                                         // Какой кот ищет подружку?
-                                        WritePermutationsQA2(phrase, answer, s2, v, o);
+                                        WriteAll(phrase, L(s2, v, o), answer);
                                     }
 
 
@@ -4267,7 +4829,7 @@ class GenerateQAFromParsing
                                     {
                                         // Что снимет семейная пара?
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, qword, v, s);
+                                        WriteAll(phrase, L(qword, v, s), answer);
                                     }
 
 
@@ -4282,7 +4844,7 @@ class GenerateQAFromParsing
                                     {
                                         // Кто ищет подружку?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -4316,7 +4878,7 @@ class GenerateQAFromParsing
                                         s = qword + " " + TermsToString(gren, terms.Skip(3).Take(1)); // человек
 
                                         // Какой человек обслуживает сетку?
-                                        WritePermutationsQA2(phrase, answer, s, v, o);
+                                        WriteAll(phrase, L(s, v, o), answer);
                                     }
 
 
@@ -4329,7 +4891,7 @@ class GenerateQAFromParsing
 
                                         // Опытный человек обслуживает что?
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s, v, qword);
+                                        WriteAll(phrase, L(s, v, qword), answer);
                                     }
 
 
@@ -4341,7 +4903,7 @@ class GenerateQAFromParsing
                                     {
                                         // Кто обслуживает сетку?
                                         answer = s;
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
                                 }
                             }
@@ -4413,7 +4975,7 @@ class GenerateQAFromParsing
                                         string o2 = qword + " " + on;
 
                                         answer = TermsToString(gren, terms.Skip(3).Take(1)); // встроенный
-                                        WritePermutationsQA2(phrase, answer, s, v, o2);
+                                        WriteAll(phrase, L(s, v, o2), answer);
                                     }
 
 
@@ -4428,7 +4990,7 @@ class GenerateQAFromParsing
                                         string s2 = qword + " " + sn;
 
                                         answer = TermsToString(gren, terms.Take(1)); // массажные
-                                        WritePermutationsQA2(phrase, answer, s2, v, o);
+                                        WriteAll(phrase, L(s2, v, o), answer);
                                     }
 
 
@@ -4438,7 +5000,7 @@ class GenerateQAFromParsing
                                     if (!string.IsNullOrEmpty(qword))
                                     {
                                         answer = o;
-                                        WritePermutationsQA2(phrase, answer, s, v, qword);
+                                        WriteAll(phrase, L(s, v, qword), answer);
                                     }
 
 
@@ -4455,7 +5017,7 @@ class GenerateQAFromParsing
                                         answer = s;
 
                                         // Что имеет встроенный нагрев?
-                                        WritePermutationsQA2(phrase, answer, qword, v2, o);
+                                        WriteAll(phrase, L(qword, v2, o), answer);
                                     }
 
                                 }
@@ -4484,7 +5046,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кот куда повел ребят?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, qword, v, o);
+                                    WriteAll(phrase, L(s, qword, v, o), answer);
 
                                     if (IsGoodObject(o))
                                     {
@@ -4494,7 +5056,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кого повел вверх кот?
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, qword, v, a, s);
+                                            WriteAll(phrase, L(qword, v, a, s), answer);
                                         }
 
 
@@ -4509,7 +5071,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кто повел ребят вверх?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o, a);
+                                            WriteAll(phrase, L(qword, v2, o, a), answer);
                                         }
                                     }
                                 }
@@ -4537,7 +5099,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кот куда повел ребят?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, qword, v, o);
+                                    WriteAll(phrase, L(s, qword, v, o), answer);
 
                                     if (IsGoodObject(o))
                                     {
@@ -4547,7 +5109,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кого повел вверх кот?
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, qword, v, a, s);
+                                            WriteAll(phrase, L(qword, v, a, s), answer);
                                         }
 
 
@@ -4562,7 +5124,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кто повел ребят вверх?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o, a);
+                                            WriteAll(phrase, L(qword, v2, o, a), answer);
                                         }
                                     }
                                 }
@@ -4591,7 +5153,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кот куда повел ребят?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, qword, v, o);
+                                    WriteAll(phrase, L(s, qword, v, o), answer);
 
                                     if (IsGoodObject(o))
                                     {
@@ -4601,7 +5163,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кого повел вверх кот?
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, qword, v, a, s);
+                                            WriteAll(phrase, L(qword, v, a, s), answer);
                                         }
 
 
@@ -4616,7 +5178,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кто повел ребят вверх?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o, a);
+                                            WriteAll(phrase, L(qword, v2, o, a), answer);
                                         }
                                     }
                                 }
@@ -4645,7 +5207,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кот куда повел ребят?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, qword, v, o);
+                                    WriteAll(phrase, L(s, qword, v, o), answer);
 
                                     if (IsGoodObject(o))
                                     {
@@ -4655,7 +5217,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кого повел вверх кот?
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, qword, v, a, s);
+                                            WriteAll(phrase, L(qword, v, a, s), answer);
                                         }
 
 
@@ -4670,7 +5232,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кто повел ребят вверх?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o, a);
+                                            WriteAll(phrase, L(qword, v2, o, a), answer);
                                         }
                                     }
                                 }
@@ -4699,7 +5261,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кот куда повел ребят?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, qword, v, o);
+                                    WriteAll(phrase, L(s, qword, v, o), answer);
 
                                     if (IsGoodObject(o))
                                     {
@@ -4710,7 +5272,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кого повел вверх кот?
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, qword, v, a, s);
+                                            WriteAll(phrase, L(qword, v, a, s), answer);
                                         }
 
 
@@ -4725,7 +5287,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кто повел ребят вверх?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o, a);
+                                            WriteAll(phrase, L(qword, v2, o, a), answer);
                                         }
                                     }
                                 }
@@ -4754,7 +5316,7 @@ class GenerateQAFromParsing
                                 {
                                     // Кот куда повел ребят?
                                     answer = a;
-                                    WritePermutationsQA2(phrase, answer, s, qword, v, o);
+                                    WriteAll(phrase, L(s, qword, v, o), answer);
 
                                     if (IsGoodObject(o))
                                     {
@@ -4764,7 +5326,7 @@ class GenerateQAFromParsing
                                         {
                                             // Кого повел вверх кот?
                                             answer = o;
-                                            WritePermutationsQA2(phrase, answer, qword, v, a, s);
+                                            WriteAll(phrase, L(qword, v, a, s), answer);
                                         }
 
 
@@ -4779,13 +5341,12 @@ class GenerateQAFromParsing
                                         {
                                             // Кто повел ребят вверх?
                                             answer = s;
-                                            WritePermutationsQA2(phrase, answer, qword, v2, o, a);
+                                            WriteAll(phrase, L(qword, v2, o, a), answer);
                                         }
                                     }
                                 }
                             }
                             #endregion Ребят вверх кот повел.
-
                         }
                     }
                 }
@@ -4833,10 +5394,10 @@ class GenerateQAFromParsing
     }
 
 
-    static bool IsGoodSent( string phrase )
+    static bool IsGoodSent(string phrase)
     {
         string stops = "как ни в чем не бывало|тем  не менее";
-        foreach( string s in stops.Split('|'))
+        foreach (string s in stops.Split('|'))
         {
             if (phrase.Contains(s))
                 return false;
@@ -4902,7 +5463,7 @@ class GenerateQAFromParsing
 
         wrt_samples = new System.IO.StreamWriter(System.IO.Path.Combine(result_folder, "premise_question_answer.txt"));
         wrt_skipped = new System.IO.StreamWriter(System.IO.Path.Combine(result_folder, "skipped.txt"));
-
+        wrt_interpret = new System.IO.StreamWriter(System.IO.Path.Combine(result_folder, "interpretation.txt"));
 
         // Загружаем грамматический словарь
         Console.WriteLine("Loading dictionary {0}", dictionary_xml);
@@ -4993,6 +5554,7 @@ class GenerateQAFromParsing
 
         wrt_samples.Close();
         wrt_skipped.Close();
+        wrt_interpret.Close();
 
         return;
     }

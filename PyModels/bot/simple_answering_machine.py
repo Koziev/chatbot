@@ -16,6 +16,8 @@ from nn_person_change import NN_PersonChange
 from answer_builder import AnswerBuilder
 from interpreted_phrase import InterpretedPhrase
 from nn_enough_premises_model import NN_EnoughPremisesModel
+from nn_synonymy_detector import NN_SynonymyDetector
+from nn_interpreter import NN_Interpreter
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -71,6 +73,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.relevancy_detector = LGB_RelevancyDetector()
         self.relevancy_detector.load(models_folder)
 
+        # Модель определения синонимичности двух фраз
+        self.synonymy_detector = NN_SynonymyDetector()
+        self.synonymy_detector.load(models_folder)
+
+        self.interpreter = NN_Interpreter()
+        self.interpreter.load(models_folder)
+
         # Определение достаточности набора предпосылок для ответа на вопрос
         self.enough_premises = NN_EnoughPremisesModel()
         self.enough_premises.load(models_folder)
@@ -95,7 +104,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.word_embeddings.load_w2v_model(p)
 
         self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
-        self.logger.debug('Exiting load_models')
+        self.logger.debug('All models loaded')
 
     def set_scripting(self, scripting):
         self.scripting = scripting
@@ -129,32 +138,55 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def interpret_phrase(self, session, raw_phrase):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
+        phrase_is_question = self.is_question(raw_phrase)
 
         # история фраз доступна в session как conversation_history
-        # ...
 
-        # TODO: в будущем смена грамматического лица должна уйти в более общую
-        # модель интерпретации реплик.
-        # ---------------------------------------------------------------------
-        # Может потребоваться смена грамматического лица.
-        # Сначала определим грамматическое лицо введенного предложения.
-        person = self.person_classifier.detect_person(raw_phrase, self.text_utils, self.word_embeddings)
-        if self.trace_enabled:
-            self.logger.debug('detected person={}'.format(person))
+        if len(session.conversation_history) > 0\
+            and session.conversation_history[-1].is_bot_phrase\
+            and session.conversation_history[-1].is_question\
+            and not phrase_is_question\
+            and self.interpreter is not None:
+            # В отдельной ветке обрабатываем ситуацию, когда бот
+            # задал вопрос, на который собеседник дал краткий ответ.
+            # с помощью специальной модели мы попробуем восстановить полный
+            # текст ответа ообеседника.
+            context_phrases = []
+            context_phrases.append(session.conversation_history[-1].interpretation)
+            context_phrases.append(raw_phrase)
+            phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
 
-        if person == '1s':
-            phrase = self.change_person(raw_phrase, '2s')
-        elif person == '2s':
-            phrase = self.change_person(raw_phrase, '1s')
+            # определим грамматическое лицо получившейся интерпретации
+            person = self.person_classifier.detect_person(phrase, self.text_utils, self.word_embeddings)
+
+            if person == '2s':  # интерпретация "Тебя зовут Илья" получена из "Меня зовут илья"
+                person = '1s'
+            elif person == '1s':
+                person = '2s'
+
+            if self.trace_enabled:
+                self.logger.debug('detected person={}'.format(person))
+        else:
+            # определим грамматическое лицо введенного предложения.
+            person = self.person_classifier.detect_person(raw_phrase, self.text_utils, self.word_embeddings)
+            if self.trace_enabled:
+                self.logger.debug('detected person={}'.format(person))
+
+            # Может потребоваться смена грамматического лица.
+            if person == '1s':
+                phrase = self.change_person(raw_phrase, '2s')
+            elif person == '2s':
+                phrase = self.change_person(raw_phrase, '1s')
 
         interpreted.interpretation = phrase
-        interpreted.is_question = self.is_question(raw_phrase)
+        interpreted.is_question = phrase_is_question
         interpreted.phrase_person = person
         return interpreted
 
     def say(self, session, answer):
         answer_interpretation = InterpretedPhrase(answer)
         answer_interpretation.is_bot_phrase = True
+        answer_interpretation.is_question = self.is_question(answer)
         session.add_to_buffer(answer)
         session.add_phrase_to_history(answer_interpretation)
 
@@ -174,7 +206,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         session = self.get_session(interlocutor)
 
         # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
-        # так что мы можем раскрыть анафору, подставить в явном виде эллипсис и т.д.,
+        # так что мы можем раскрыть анафору, подставить в явном виде опущенные составляющие и т.д.,
         # определить, является ли фраза вопросом, фактом или императивным высказыванием.
         interpreted_phrase = self.interpret_phrase(session, question)
 
@@ -205,12 +237,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     answer_generated = True
 
             if not answer_generated:
-                # подбираем подходящую реплику в ответ на не-вопрос собеседника.
+                # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
+                # ответ на наш вопрос, заданный ранее).
                 smalltalk_phrases = self.facts_storage.enumerate_smalltalk_replicas()
-                best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
-                                                                                   [(item.query, -1, -1) for item in smalltalk_phrases],
-                                                                                   self.text_utils,
-                                                                                   self.word_embeddings)
+                best_premise, best_rel = self.synonymy_detector.get_most_similar(interpreted_phrase.interpretation,
+                                                                                 [(item.query, -1, -1) for item in smalltalk_phrases],
+                                                                                 self.text_utils,
+                                                                                 self.word_embeddings)
 
                 # если релевантность найденной реплики слишком мала, то нужен другой алгоритм...
                 for item in smalltalk_phrases:
