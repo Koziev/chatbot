@@ -98,6 +98,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Загрузка векторных словарей
         self.word_embeddings = WordEmbeddings()
+        self.word_embeddings.load_models(models_folder)
         self.word_embeddings.load_wc2v_model(self.wordchar2vector_path)
         for p in self.answer_builder.get_w2v_paths():
             p = os.path.join(w2v_folder, os.path.basename(p))

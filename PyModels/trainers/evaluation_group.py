@@ -9,7 +9,7 @@ import os
 import sys
 
 from utils.tokenizer import Tokenizer
-from utils.padding_utils import pad_wordseq
+from utils.padding_utils import lpad_wordseq, rpad_wordseq
 
 
 class EvaluationGroup(object):
@@ -47,12 +47,12 @@ class EvaluationGroup(object):
                     self.invalid_format()
 
                 premise = line.replace(u'T:', u'').replace(u'ё', u'е').lower().strip()
-                premise_words = pad_wordseq(self.tokenizer.tokenize(premise), self.max_wordseq_len)
+                premise_words = lpad_wordseq(self.tokenizer.tokenize(premise), self.max_wordseq_len)
                 self.premises_str.append(u' '.join(premise_words))
                 self.premises.append(premise_words)
             elif line.startswith(u'Q:'):
                 question = line.replace(u'Q:', u'').replace(u'ё', u'е').strip()
-                question = pad_wordseq(self.tokenizer.tokenize(question), self.max_wordseq_len)
+                question = lpad_wordseq(self.tokenizer.tokenize(question), self.max_wordseq_len)
                 self.questions.append(question)
             else:
                 self.invalid_format()
@@ -62,4 +62,3 @@ class EvaluationGroup(object):
 
     def is_relevant_premise(self, premise_str):
         return premise_str in self.premises_str
-

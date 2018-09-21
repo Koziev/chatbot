@@ -107,7 +107,7 @@ def build_test(wordset, max_word_len, char2index):
 
 
 def build_input(wordset, max_word_len, char2index):
-    X,y_unused = build_test(wordset, max_word_len, char2index )
+    X, y_unused = build_test(wordset, max_word_len, char2index )
     return X
 
 # -----------------------------------------------------------------

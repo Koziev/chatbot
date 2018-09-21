@@ -1,29 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from base_answering_machine import BaseAnsweringMachine
-from simple_dialog_session_factory import SimpleDialogSessionFactory
-
-from keras.layers import Embedding
-from keras.models import model_from_json
-from keras.layers.merge import concatenate, add, multiply
-from keras.layers import Lambda
-from keras import backend as K
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, MaxPooling1D, AveragePooling1D
-from keras.models import Model
-from keras.layers.core import Activation, RepeatVector, Dense, Masking
-from keras.layers.wrappers import Bidirectional
-from keras.layers import Input
-import keras.callbacks
-from keras.layers import recurrent
-from keras.callbacks import ModelCheckpoint, EarlyStopping
-import xgboost
-from scipy.sparse import lil_matrix
-import json
 import os
-import pickle
 import gensim
-import numpy as np
 import logging
+
+from wordchar2vector_model import Wordchar2VectorModel
 
 
 class WordEmbeddings(object):
@@ -36,6 +17,17 @@ class WordEmbeddings(object):
         self.wc2v_dims = None
         self.w2v = dict()
         self.w2v_dims = dict()
+        self.wordchar2vector_model = None
+
+    def load_models(self, models_folder):
+        """
+        Загружаются нейросетевые модели, позволяющие сгенерировать
+        вектор нового слова. Для самых частотных слов готовые вектора
+        рассчитаны заранее и сохранены в файле, поэтому они будут
+        обработаны объектом self.wc2v.
+        """
+        self.wordchar2vector_model = Wordchar2VectorModel()
+        self.wordchar2vector_model.load(models_folder)
 
     def load_wc2v_model(self, wc2v_path):
         logging.info(u'Loading wordchar2vector from {}'.format(wc2v_path))
@@ -61,3 +53,5 @@ class WordEmbeddings(object):
                 X_batch[irow, iword, :w2v_dims] = w2v[word]
             if word in self.wc2v:
                 X_batch[irow, iword, w2v_dims:] = self.wc2v[word]
+            else:
+                X_batch[irow, iword, w2v_dims:] = self.wordchar2vector_model.build_vector(word)

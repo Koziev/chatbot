@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 
 from evaluation_group import EvaluationGroup
-from utils.padding_utils import pad_wordseq
+from utils.padding_utils import lpad_wordseq
 
 
 class EvaluationDataset(object):
@@ -43,7 +43,7 @@ class EvaluationDataset(object):
             for premise in df['premise'].unique():
                 premise_words = self.tokenizer.tokenize(premise)
                 if u'кого' not in premise_words:
-                    premise = pad_wordseq(premise_words, self.max_wordseq_len)
+                    premise = lpad_wordseq(premise_words, self.max_wordseq_len)
                     self.all_premises.append(premise)
         else:
             # Берем нерелевантные предпосылки из базы фактов чат-бота
@@ -51,7 +51,7 @@ class EvaluationDataset(object):
                 for line in rdr:
                     line = line.strip()
                     if len(line) > 0:
-                        premise = pad_wordseq(self.tokenizer.tokenize(line), self.max_wordseq_len)
+                        premise = lpad_wordseq(self.tokenizer.tokenize(line), self.max_wordseq_len)
                         self.all_premises.append(premise)
 
     def get_all_phrases(self):
