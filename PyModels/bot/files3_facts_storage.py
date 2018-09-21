@@ -38,7 +38,7 @@ class Files3FactsStorage(BaseFactsStorage):
         with codecs.open(smalltalk_path, 'r', 'utf-8') as rdr:
             q_list = []
             a_list = []
-            for line in rdr:
+            for iline, line in enumerate(rdr):
                 line = line.strip()
                 if len(line) == 0:
                     for q in q_list:
@@ -47,6 +47,9 @@ class Files3FactsStorage(BaseFactsStorage):
                         for a in a_list:
                             a = a.strip()
                             item.add_answer(a)
+                        assert(len(item.query) > 0)
+                        if len(item.answers) == 0:
+                            raise RuntimeError(u'Empty list of answers for smalltalk phrase \"{}\"'.format(item.query))
                         smalltalk_replicas.append(item)
 
                     q_list = []

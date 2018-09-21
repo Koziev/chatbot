@@ -5,6 +5,7 @@ import gensim
 import logging
 
 from wordchar2vector_model import Wordchar2VectorModel
+from text_utils import PAD_WORD
 
 
 class WordEmbeddings(object):
@@ -49,9 +50,10 @@ class WordEmbeddings(object):
         w2v = self.w2v[w2v_filename]
         w2v_dims = self.w2v_dims[w2v_filename]
         for iword, word in enumerate(words):
-            if word in w2v:
-                X_batch[irow, iword, :w2v_dims] = w2v[word]
-            if word in self.wc2v:
-                X_batch[irow, iword, w2v_dims:] = self.wc2v[word]
-            else:
-                X_batch[irow, iword, w2v_dims:] = self.wordchar2vector_model.build_vector(word)
+            if word != PAD_WORD:
+                if word in w2v:
+                    X_batch[irow, iword, :w2v_dims] = w2v[word]
+                if word in self.wc2v:
+                    X_batch[irow, iword, w2v_dims:] = self.wc2v[word]
+                else:
+                    X_batch[irow, iword, w2v_dims:] = self.wordchar2vector_model.build_vector(word)
