@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Вопросно-ответная система</title>
+</head>
+<body>
+<div>
+    <div>
+        <form action="" method="post">
+        {{ form.hidden_tag() }}
+        <div>
+        {% for phrase in hphrases %}
+
+        <p>
+        {% if phrase.is_bot %}
+        <img src="static/img/bot.png">
+        {% else %}
+        <img src="static/img/human.png">
+        {% endif %}
+        {{ phrase.phrase_text }}
+        </p>
+
+        {% endfor %}
+        </div>
+        
+        <p>
+            {{ form.utterance(size=40) }}
+        </p>
+        
+        <p>{{ form.submit() }}</p>
+        </form>
+    </div>
+
+</div>
+
+</body>
+</html>
