@@ -186,7 +186,7 @@ class ResultantDataset(object):
         self.weights   = [] # вес сэмпла
         self.added_pairs_set = set() # для предотвращения повторов
 
-    def add_pair( self, x1, x2, rel, weight ):
+    def add_pair(self, x1, x2, rel, weight):
         s1 = x1.replace(u'\t', u'').strip()
         s2 = x2.replace(u'\t', u'').strip()
         s12 = s1+'|'+s2
@@ -220,6 +220,28 @@ class ResultantDataset(object):
 
         print('premise  max len={}'.format(max(map(lambda z: len(z[0]), self.str_pairs))))
         print('question max len={}'.format(max(map(lambda z: len(z[1]), self.str_pairs))))
+
+    def remove_redundant_negatives(self, nb_negative):
+        pos_sample_indexes = [i for i in range(len(self.relevancy)) if self.relevancy[i] == 1]
+        neg_sample_indexes = [i for i in range(len(self.relevancy)) if self.relevancy[i] != 1]
+        neg_sample_indexes = np.random.permutation(neg_sample_indexes)
+        neg_sample_indexes = neg_sample_indexes[:nb_negative]
+
+        # берем все позитивные примеры
+        str_pairs1 = [self.str_pairs[i] for i in pos_sample_indexes]
+        relevancy1 = [self.relevancy[i] for i in pos_sample_indexes]
+        weights1 = [self.weights[i] for i in pos_sample_indexes]
+
+        # оставшиеся после усечения негативные примеры
+        str_pairs0 = [self.str_pairs[i] for i in neg_sample_indexes]
+        relevancy0 = [self.relevancy[i] for i in neg_sample_indexes]
+        weights0 = [self.weights[i] for i in neg_sample_indexes]
+
+        self.str_pairs = list(itertools.chain(str_pairs1, str_pairs0))
+        self.relevancy = list(itertools.chain(relevancy1, relevancy0))
+        self.weights = list(itertools.chain(weights1, weights0))
+
+
 
 # ------------------------------------------------------------------------
 
@@ -366,7 +388,7 @@ if INCLUDE_PREMISE_QUESTION:
         for i, (premise, questions) in enumerate(premise_questions):
             if (i%100) == 0:
                 print('{}/{} original samples processed'.format(i, len(premise_questions)), end='\r')
-            rnd_pool = [j for j in range(len(premise_questions)) if j!=i]
+            rnd_pool = [j for j in range(len(premise_questions)) if j != i]
 
             n_added_random = 0
             while n_added_random < n_negative_per_positive:
@@ -482,6 +504,11 @@ if True:
 
 # ---------------------------------------------------------------------------
 
+# Теперь сокращаем кол-во негативных сэмплов
+nb_negative = res_dataset.positive_count() * n_negative_per_positive
+res_dataset.remove_redundant_negatives(nb_negative)
+
+# Выведем итоговую статистику
 res_dataset.print_stat()
 
 # сохраним получившийся датасет в CSV

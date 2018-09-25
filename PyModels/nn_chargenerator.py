@@ -21,6 +21,8 @@ import sys
 import six
 import codecs
 from collections import Counter
+import logging
+import logging.handlers
 
 import gensim
 import keras.callbacks
@@ -183,6 +185,15 @@ net_arch = args.arch
 generator_arch = args.generator
 run_mode = args.run_mode
 
+# настраиваем логирование в файл
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
+lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_chargenerator.log'), mode='w')
+
+lf.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(message)s')
+lf.setFormatter(formatter)
+logging.getLogger('').addHandler(lf)
+
 # В этих файлах будем сохранять натренированную сетку
 config_path = os.path.join(tmp_folder, 'nn_chargenerator.config')
 arch_filepath = os.path.join(tmp_folder, 'nn_chargenerator.arch')
@@ -280,11 +291,13 @@ class VisualizeCallback(keras.callbacks.Callback):
 tokenizer = Tokenizer()
 
 if run_mode == 'train':
+    logging.info('Start run_mode==train')
+
     wordchar2vector_path = os.path.join(data_folder, 'wordchar2vector.dat')
-    print('Loading the wordchar2vector model {}'.format(wordchar2vector_path))
+    logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path))
     wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
     wc2v_dims = len(wc2v.syn0[0])
-    print('wc2v_dims={0}'.format(wc2v_dims))
+    logging.info('wc2v_dims={0}'.format(wc2v_dims))
 
     # --------------------------------------------------------------------------
     # Загружаем датасет, анализируем использование символов и слов.
@@ -293,7 +306,7 @@ if run_mode == 'train':
     all_words = set([PAD_WORD])
     all_chars = set([PAD_CHAR])
 
-    print(u'Loading samples from {}'.format(input_path))
+    logging.info(u'Loading samples from {}'.format(input_path))
     samples = []
     nb_yes = 0 # кол-во ответов "да"
     nb_no = 0 # кол-во ответов "нет"
@@ -340,23 +353,23 @@ if run_mode == 'train':
     for word in wc2v.vocab:
         all_words.add(word)
 
-    print('max_inputseq_len={}'.format(max_inputseq_len))
-    print('max_outputseq_len={}'.format(max_outputseq_len))
+    logging.info('max_inputseq_len={}'.format(max_inputseq_len))
+    logging.info('max_outputseq_len={}'.format(max_outputseq_len))
 
     char2id = dict(
         (c, i) for i, c in enumerate(itertools.chain([PAD_CHAR], filter(lambda z: z != PAD_CHAR, all_chars))))
 
     nb_chars = len(all_chars)
     nb_words = len(all_words)
-    print('nb_chars={}'.format(nb_chars))
-    print('nb_words={}'.format(nb_words))
+    logging.info('nb_chars={}'.format(nb_chars))
+    logging.info('nb_words={}'.format(nb_words))
 
     # --------------------------------------------------------------------------
 
-    print('Loading the w2v model {}'.format(word2vector_path))
+    logging.info(u'Loading the w2v model {}'.format(word2vector_path))
     w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
     w2v_dims = len(w2v.syn0[0])
-    print('w2v_dims={0}'.format(w2v_dims))
+    logging.info('w2v_dims={0}'.format(w2v_dims))
 
     word_dims = w2v_dims + wc2v_dims
 
@@ -386,6 +399,8 @@ if run_mode == 'train':
 
     layers = []
     encoder_size = 0
+
+    logging.info('Building neural net net_arch={}'.format(net_arch))
 
     if net_arch == 'lstm':
         # Энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
@@ -467,7 +482,7 @@ if run_mode == 'train':
     nb_train_patterns = len(train_samples)
     nb_valid_patterns = len(val_samples)
 
-    print('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
+    logging.info('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
 
     #monitor_metric = 'val_loss'
     #model_checkpoint = ModelCheckpoint(weights_path, monitor=monitor_metric, verbose=1, save_best_only=True, mode='auto')
@@ -487,7 +502,8 @@ if run_mode == 'train':
                                validation_steps=nb_valid_patterns//batch_size
                                )
 
-    print('Training is finished.')
+    logging.info('Training is finished.')
+    logging.info('Best instance accuracy={}'.format(viz.best_acc))
 
     viz.save_learning_curve(os.path.join(tmp_folder, 'nn_chargenerator.learning_curve.tsv'))
 
@@ -525,7 +541,7 @@ if run_mode == 'train':
         encoder_model.save_weights(weights_path2)
 
     nval = len(val_samples)
-    print(u'Финальная валидация модели на {} сэмплах'.format(nval))
+    logging.info(u'Финальная валидация модели на {} сэмплах'.format(nval))
     id2char = dict((i, c) for c, i in char2id.items())
 
     # Накопим кол-во ошибок и сэмплов для ответов разной длины.

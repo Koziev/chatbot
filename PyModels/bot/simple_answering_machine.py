@@ -53,10 +53,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Загружаем общие параметры для сеточных моделей
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
             model_config = json.load(f)
-
             self.max_inputseq_len = model_config['max_inputseq_len']
-            #self.max_outputseq_len = model_config['max_outputseq_len']
-            #self.w2v_path = model_config['w2v_path']
             self.wordchar2vector_path = self.get_model_filepath( models_folder, model_config['wordchar2vector_path'] )
             self.PAD_WORD = model_config['PAD_WORD']
             self.word_dims = model_config['word_dims']
@@ -301,6 +298,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         else:
             # определяем наиболее релевантную предпосылку
             memory_phrases = list(self.facts_storage.enumerate_facts(interlocutor))
+
             best_premises, best_rels = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
                                                                                  memory_phrases,
                                                                                  self.text_utils,
@@ -328,7 +326,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def build_answers(self, interlocutor, interpreted_phrase):
         answers, answer_confidenses = self.build_answers0(interlocutor, interpreted_phrase)
-        if max(answer_confidenses) < self.min_premise_relevancy:
+        if len(answer_confidenses) == 0 or max(answer_confidenses) < self.min_premise_relevancy:
             # тут нужен алгоритм генерации ответа в условиях, когда
             # у бота нет нужных фактов. Это может быть как ответ "не знаю",
             # так и вариант "нет" для определенных категорий вопросов.

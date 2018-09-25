@@ -22,6 +22,9 @@ import keras.callbacks
 import numpy as np
 import tqdm
 import argparse
+import logging
+import logging.handlers
+
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
@@ -145,12 +148,24 @@ batch_size = args.batch_size
 net_arch = args.arch
 run_mode = args.run_mode
 
+# настраиваем логирование в файл
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
+lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_yes_no.log'), mode='w')
+
+lf.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(message)s')
+lf.setFormatter(formatter)
+logging.getLogger('').addHandler(lf)
+
+
 # В этих файлах будем сохранять натренированную сетку
 config_path = os.path.join(tmp_folder, 'nn_yes_no.config')
 arch_filepath = os.path.join(tmp_folder, 'nn_yes_no.arch')
 weights_path = os.path.join(tmp_folder, 'nn_yes_no.weights')
 
 if run_mode == 'train':
+    logging.info('Start run_mode==train')
+
     max_inputseq_len = 0
     max_outputseq_len = 0 # максимальная длина ответа
     all_words = set()
@@ -159,15 +174,15 @@ if run_mode == 'train':
     # --------------------------------------------------------------------------
 
     wordchar2vector_path = os.path.join(tmp_folder,'wordchar2vector.dat')
-    print( 'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
+    logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
     wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
     wc2v_dims = len(wc2v.syn0[0])
-    print('wc2v_dims={0}'.format(wc2v_dims))
+    logging.info('wc2v_dims={0}'.format(wc2v_dims))
 
     # --------------------------------------------------------------------------
 
     # Загружаем датасет, содержащий сэмплы ПРЕДПОСЫЛКИ-ВОПРОС-ОТВЕТ
-    print(u'Loading samples from {}'.format(input_path))
+    logging.info(u'Loading samples from {}'.format(input_path))
     samples = []
     nb_yes = 0 # кол-во ответов "да"
     nb_no = 0 # кол-во ответов "нет"
@@ -204,9 +219,9 @@ if run_mode == 'train':
             else:
                 lines.append(line)
 
-    print('samples.count={}'.format(len(samples)))
-    print('max_inputseq_len={}'.format(max_inputseq_len))
-    print('max_nb_premises={}'.format(max_nb_premises))
+    logging.info('samples.count={}'.format(len(samples)))
+    logging.info('max_inputseq_len={}'.format(max_inputseq_len))
+    logging.info('max_nb_premises={}'.format(max_nb_premises))
 
     for word in wc2v.vocab:
         all_words.add(word)
@@ -216,18 +231,18 @@ if run_mode == 'train':
 
     nb_chars = len(all_chars)
     nb_words = len(all_words)
-    print('nb_chars={}'.format(nb_chars))
-    print('nb_words={}'.format(nb_words))
+    logging.info('nb_chars={}'.format(nb_chars))
+    logging.info('nb_words={}'.format(nb_words))
 
-    print('nb_yes={}'.format(nb_yes))
-    print('nb_no={}'.format(nb_no))
+    logging.info('nb_yes={}'.format(nb_yes))
+    logging.info('nb_no={}'.format(nb_no))
 
     # --------------------------------------------------------------------------
 
-    print('Loading the w2v model {}'.format(word2vector_path))
+    logging.info(u'Loading the w2v model {}'.format(word2vector_path))
     w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
     w2v_dims = len(w2v.syn0[0])
-    print('w2v_dims={0}'.format(w2v_dims))
+    logging.info('w2v_dims={0}'.format(w2v_dims))
 
     word_dims = w2v_dims+wc2v_dims
 
@@ -264,7 +279,7 @@ if run_mode == 'train':
         json.dump(model_config, f)
     # -------------------------------------------------------------------
 
-    print('Constructing neural net: {}...'.format(net_arch))
+    logging.info('Constructing neural net: {}...'.format(net_arch))
 
     nb_filters = 128
     rnn_size = word_dims
@@ -330,6 +345,7 @@ if run_mode == 'train':
 
     model = Model(inputs=inputs, outputs=decoder)
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
+    model.summary()
 
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
@@ -341,7 +357,7 @@ if run_mode == 'train':
     nb_train_patterns = len(train_samples)
     nb_valid_patterns = len(val_samples)
 
-    print('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
+    logging.info('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
 
     monitor_metric = 'val_acc'
     model_checkpoint = ModelCheckpoint(weights_path,
@@ -359,7 +375,7 @@ if run_mode == 'train':
                                callbacks=callbacks,
                                validation_data=generate_rows(max_nb_premises, val_samples, batch_size, 1),
                                validation_steps=nb_valid_patterns//batch_size)
-    print('max val_acc={}'.format(max(hist.history['val_acc'])))
+    logging.info('max val_acc={}'.format(max(hist.history['val_acc'])))
 
     # Загрузим лучшие веса и прогоним валидационные паттерны через модель,
     # чтобы получить f1 score.
@@ -400,7 +416,6 @@ if run_mode == 'train':
             #    for ipremise in range(max_nb_premises):
             #        wrt.write('\nX[{}]={}\n'.format(ipremise, x['premise{}'.format(ipremise)][isample]))
             #    wrt.write('\n')
-
 
 
 if run_mode == 'query':

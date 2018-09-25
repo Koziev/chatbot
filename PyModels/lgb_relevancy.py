@@ -22,6 +22,7 @@ import sys
 import argparse
 import codecs
 import logging
+import logging.handlers
 
 import numpy as np
 import pandas as pd
@@ -89,6 +90,16 @@ if eta<0.01 or eta>=1.0:
     print('Invalid --eta option value')
     exit(1)
 
+
+# настраиваем логирование в файл
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
+lf = logging.FileHandler(os.path.join(tmp_folder, 'lgb_relevancy.log'), mode='w')
+
+lf.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(message)s')
+lf.setFormatter(formatter)
+logging.getLogger('').addHandler(lf)
+
 # -------------------------------------------------------------------
 
 BEG_WORD = '\b'
@@ -139,7 +150,7 @@ def train_model(lgb_params, D_train, D_val, y_val):
     """
     lgb_params['bagging_freq'] = 1
 
-    print('Train LightGBM model with learning_rate={} num_leaves={} min_data_in_leaf={} bagging_fraction={}...'.format(lgb_params['learning_rate'],
+    logging.info('Train LightGBM model with learning_rate={} num_leaves={} min_data_in_leaf={} bagging_fraction={}...'.format(lgb_params['learning_rate'],
                                                                                                                        lgb_params['num_leaves'],
                                                                                                                        lgb_params['min_data_in_leaf'],
                                                                                                                        lgb_params['bagging_fraction']))
@@ -296,16 +307,16 @@ def objective(space):
 
     obj_call_count += 1
 
-    print('\nLightGBM objective call #{} cur_best_acc={:7.5f}'.format(obj_call_count, cur_best_acc) )
+    logging.info('\nLightGBM objective call #{} cur_best_acc={:7.5f}'.format(obj_call_count, cur_best_acc) )
 
     lgb_params = get_params(space)
 
     sorted_params = sorted(space.iteritems(), key=lambda z: z[0])
-    print('Params:', str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params]))
+    logging.info('Params:', str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params]))
 
     cl, val_acc, val_f1 = train_model(lgb_params, D_train, D_val, y_val)
     eval_acc = evaluate_model(cl, ho_model_config, ho_eval_data, 0)
-    print('eval_acc={}'.format(eval_acc))
+    logging.info('eval_acc={}'.format(eval_acc))
 
     do_store = False
     if eval_acc > cur_best_acc:
@@ -325,15 +336,16 @@ def objective(space):
                                                                        str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
     hyperopt_log_writer.flush()
 
-    return{'loss':-cur_best_acc, 'status': STATUS_OK}
+    return{'loss': -cur_best_acc, 'status': STATUS_OK}
 
 
 # -------------------------------------------------------------------
 
 if run_mode == 'train':
+
     # Режим тренировки модели.
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-    print('samples.count={}'.format(df.shape[0]))
+    logging.info('samples.count={}'.format(df.shape[0]))
 
     tokenizer = PhraseSplitter.create_splitter(lemmatize)
 
@@ -346,7 +358,7 @@ if run_mode == 'train':
             all_shingles.update(ngrams(wx, shingle_len))
 
     nb_shingles = len(all_shingles)
-    print('nb_shingles={}'.format(nb_shingles))
+    logging.info('nb_shingles={}'.format(nb_shingles))
 
     shingle2id = dict([(s,i) for i,s in enumerate(all_shingles)])
 
@@ -388,8 +400,8 @@ if run_mode == 'train':
     nb_0 = len(filter(lambda y: y == 0, y_data))
     nb_1 = len(filter(lambda y: y == 1, y_data))
 
-    print('nb_0={}'.format(nb_0))
-    print('nb_1={}'.format(nb_1))
+    logging.info('nb_0={}'.format(nb_0))
+    logging.info('nb_1={}'.format(nb_1))
 
     SEED = 123456
     TEST_SHARE = 0.2
@@ -467,13 +479,47 @@ if run_mode == 'train':
 
         cl, acc, f1 = train_model(lgb_params, D_train, D_val, y_val)
 
-        print('Training has finished')
-        print('val acc={}'.format(acc))
-        print('val f1={}'.format(f1))
+        logging.info('Training has finished')
+        logging.info('val acc={}'.format(acc))
+        logging.info('val f1={}'.format(f1))
 
         # сохраняем саму модель
         cl.save_model( model_filename )
 
+if run_mode == 'query':
+    # Ручная проверка модели на вводимых в консоли предпосылках и вопросах.
+
+    # Загружаем данные обученной модели.
+    with open(os.path.join(tmp_folder, config_filename), 'r') as f:
+        model_config = json.load(f)
+
+    tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
+
+    lgb_relevancy = lightgbm.Booster(model_file=model_config['model_filename'])
+
+    xgb_relevancy_shingle2id = model_config['shingle2id']
+    xgb_relevancy_shingle_len = model_config['shingle_len']
+    xgb_relevancy_nb_features = model_config['nb_features']
+    xgb_relevancy_lemmalize = model_config['lemmatize']
+
+    while True:
+        X_data = lil_matrix((1, xgb_relevancy_nb_features), dtype='float32')
+
+        premise = raw_input('premise:> ').decode(sys.stdout.encoding).strip().lower()
+        if len(premise) == 0:
+            break
+        question = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+
+        premise_wx = words2str(tokenizer.tokenize(premise))
+        question_wx = words2str(tokenizer.tokenize(question))
+
+        premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
+        question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
+
+        vectorize_sample_x(X_data, 0, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
+
+        y_pred = lgb_relevancy.predict(X_data)
+        print('{}\n\n'.format(y_pred[0]))
 
 if run_mode == 'evaluate':
     # Оценка качества натренированной модели на специальном наборе вопросов и
@@ -584,4 +630,3 @@ if run_mode == 'clusterize':
                     wrt.write(u'{}\n'.format(phrases[iphrase][1]))
 
             wrt.write('\n\n')
-

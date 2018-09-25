@@ -28,6 +28,9 @@ import numpy as np
 import pandas as pd
 import tqdm
 import argparse
+import logging
+import logging.handlers
+
 
 import keras.callbacks
 from keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -178,25 +181,14 @@ classifier_arch = args.classifier
 wordchar2vector_path = args.wordchar2vector
 word2vector_path = os.path.expanduser(args.word2vector)
 
+# настраиваем логирование в файл
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
+lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_wordcopy3.log'), mode='w')
 
-if run_mode == '':
-    while True:
-        print('t - train word copy model #3')
-        print('q - run queries')
-        a1 = raw_input(':> ')
-
-        if a1 == 't':
-            run_mode = 'train'
-            train_word_copy3 = True
-            break
-        elif a1 == 'q':
-            run_mode = 'query'
-            print('Query')
-            break
-        else:
-            print('Unrecognized choice "{}"'.format(a1))
-
-
+lf.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(message)s')
+lf.setFormatter(formatter)
+logging.getLogger('').addHandler(lf)
 
 # В этих файлах будем сохранять натренированную сетку
 arch_filepath = os.path.join(tmp_folder, 'nn_wordcopy3.arch')
@@ -204,19 +196,21 @@ weights_path = os.path.join(tmp_folder, 'nn_wordcopy3.weights')
 
 
 if run_mode == 'train':
+    logging.info('Start run_mode==train')
+
     max_inputseq_len = 0
     max_outputseq_len = 0  # максимальная длина ответа
     all_words = set()
     all_chars = set()
 
-    print('Loading the wordchar2vector model {}'.format(wordchar2vector_path))
+    logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path))
     wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
     wc2v_dims = len(wc2v.syn0[0])
-    print('wc2v_dims={0}'.format(wc2v_dims))
+    logging.info('wc2v_dims={0}'.format(wc2v_dims))
 
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
 
-    print('samples.count={}'.format(df.shape[0]))
+    logging.info('samples.count={}'.format(df.shape[0]))
 
     tokenizer = Tokenizer()
     for i, record in df.iterrows():
@@ -236,24 +230,24 @@ if run_mode == 'train':
         all_words.add(word)
         all_chars.update(word)
 
-    print('max_inputseq_len={}'.format(max_inputseq_len))
-    print('max_outputseq_len={}'.format(max_outputseq_len))
+    logging.info('max_inputseq_len={}'.format(max_inputseq_len))
+    logging.info('max_outputseq_len={}'.format(max_outputseq_len))
 
     word2id = dict(
         (c, i) for i, c in enumerate(itertools.chain([PAD_WORD], filter(lambda z: z != PAD_WORD, all_words))))
 
     nb_chars = len(all_chars)
     nb_words = len(all_words)
-    print('nb_chars={}'.format(nb_chars))
-    print('nb_words={}'.format(nb_words))
+    logging.info('nb_chars={}'.format(nb_chars))
+    logging.info('nb_words={}'.format(nb_words))
 
     # --------------------------------------------------------------------------
 
-    print('Loading the w2v model {}'.format(word2vector_path))
+    logging.info(u'Loading the w2v model {}'.format(word2vector_path))
     w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path,
                                                           binary=not word2vector_path.endswith('.txt'))
     w2v_dims = len(w2v.syn0[0])
-    print('w2v_dims={0}'.format(w2v_dims))
+    logging.info('w2v_dims={0}'.format(w2v_dims))
 
     word_dims = w2v_dims + wc2v_dims
 
@@ -270,7 +264,7 @@ if run_mode == 'train':
     del wc2v
     gc.collect()
 
-    print('Constructing the NN model {} {}...'.format(net_arch, classifier_arch))
+    logging.info('Constructing the NN model {} {}...'.format(net_arch, classifier_arch))
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
@@ -441,7 +435,7 @@ if run_mode == 'train':
         encoder_final = keras.layers.concatenate(inputs=[mul, addition])
 
     else:
-        print('Unknown classifier arch: {}'.format(classifier_arch))
+        logging.error('Unknown classifier arch: {}'.format(classifier_arch))
 
     decoder = Dense(rnn_size, activation='relu')(encoder_final)
     decoder = Dense(rnn_size//2, activation='relu')(decoder)
@@ -457,6 +451,7 @@ if run_mode == 'train':
 
     model = Model(inputs=[words_net1, words_net2], outputs=[output_beg, output_end])
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
+    model.summary()
 
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
@@ -491,7 +486,7 @@ if run_mode == 'train':
     nb_train_patterns = len(train_input1)
     nb_valid_patterns = len(val_input1)
 
-    print('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
+    logging.info('Start training using {} patterns for training, {} for validation...'.format(nb_train_patterns, nb_valid_patterns))
 
     monitor_metric = 'val_output_beg_acc'
 
@@ -510,6 +505,8 @@ if run_mode == 'train':
                                validation_data=generate_rows_word_copy3(val_input1, val_output1, batch_size, 1),
                                validation_steps=nb_valid_patterns // batch_size
                                )
+
+
 
 
 if run_mode == 'query':
