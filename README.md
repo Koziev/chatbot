@@ -2,7 +2,7 @@
 
 ## Краткое описание
 
-Мы разрабатываем набор инструментов, позволяющих организовывать диалоговые сессии
+Чатбот это набор инструментов, позволяющих организовывать диалоговые сессии
 пользователя примерно такого вида:
 
 ```
@@ -41,6 +41,9 @@ B:> 17 часов 47 минут
 обучаемыми моделями. В необходимых случаях используются нейросетевые deep learning модели,
 а также классические NLP алгоритмы.
 
+5) Архитектура движка чатбота полностью отделена от каналов доставки сообщений. Например, есть
+варианты чатботов для [консоли](console_chatbot.py) и в виде [веб-сервиса](flask_service_bot.py).
+
 Благодаря использованию [посимвольных встраиваний для слов](./PyModels/trainers/README.wordchar2vector.md)
 чатбот можно обучить отвечать даже на вопросы, относящиеся к символьному представлению слов:
 
@@ -73,7 +76,7 @@ B:> илья
 на последних двух репликах диалога, где собеседник спрашивает у бота свое имя и получает его.
 
 Способ генерации ответа выбирается в зависимости от контекста. В частности,
-чатбот может даже выполнять простые арифметические операции:
+чатбот может выполнять простые арифметические операции:
 
 ```
 B:> Привет, буду рад поговорить
@@ -105,6 +108,22 @@ B:> 5
 Для запуска отладочной консоли есть скрипт scripts/console_answer_builder.sh
 
 ## Технические подробности реализации
+
+Список моделей:
+
+Посимвольное встраивание слово в вектор фиксированной длины [wordchar2vector_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/wordchar2vector_model.py)
+Определение способа генерации ответа [nn_model_selector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_model_selector.py)
+Определение слов, копируемых из предпосылки в ответ [nn_wordcopy3.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_wordcopy3.py)
+Определение достаточности набора предпосылок для генерации ответа [nn_enough_premises_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_enough_premises_model.py)
+Генерация ответов yes/no [nn_yes_no_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_yes_no_model.py)
+Посимвольная генерация ответа [xgb_answer_generator_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_answer_generator_model.py)
+Определение грамматического лица фразы [xgb_person_classifier_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_person_classifier_model.py)
+Определение релевантности предпосылки и вопроса [lgb_relevancy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/lgb_relevancy_detector.py)
+Интерпретация реплики собеседника (раскрытие анафоры, дополнение ответа etc) [nn_interpreter.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_interpreter.py)
+Определение синонимии фраз [nn_synonymy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_synonymy_detector.py)
+
+Набор моделей и конкретная реализация могут сильно меняться по мере развития проекта,
+поэтому список является не окончательным.
 
 Описание тренировки и использования модели посимвольного встраивания слов
 смотрите на [отдельной странице](./PyModels/trainers/README.wordchar2vector.md).
