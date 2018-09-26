@@ -168,11 +168,14 @@ class NN_Interpreter(BaseUtteranceInterpreter):
                         cell = InterpreterTrellisNode(lemma, form)
                         if form not in input_1grams:
                             cell.best_p *= 0.5
-                            #self.logger.debug(u'cell[{}].best_p={}'.format(form, cell.best_p))
                         column.add_cell(cell)
                 else:
-                    self.logger.error(u'ERROR: lemma "{}" not in lemma2forms'.format(lemma))
-                    exit(1)
+                    self.logger.warn(u'lemma "{}" not in lemma2forms'.format(lemma))
+                    form = lemma
+                    cell = InterpreterTrellisNode(lemma, form)
+                    if form not in input_1grams:
+                        cell.best_p *= 0.5
+                    column.add_cell(cell)
 
                 trellis.append(column)
 

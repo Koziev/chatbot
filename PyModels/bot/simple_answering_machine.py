@@ -33,6 +33,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.text_utils = text_utils
         self.logger = logging.getLogger('SimpleAnsweringMachine')
         self.scripting = None
+        self.enable_smalltalk = False
+        self.enable_scripting = False
 
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
@@ -119,7 +121,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         :return: строка реплики, которую скажет бот.
         """
         session = self.get_session(interlocutor)
-        if self.scripting is not None:
+        if self.scripting is not None and self.enable_scripting:
             phrase = self.scripting.start_conversation(self, session)
             if phrase is not None:
                 self.say(session, phrase)
@@ -229,31 +231,32 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 print(u'Adding [{}] to knowledge base'.format(fact))
             self.facts_storage.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
 
-            if self.scripting is not None:
+            if self.scripting is not None and self.enable_scripting:
                 answer = self.scripting.generate_response4nonquestion(self, interlocutor, interpreted_phrase)
                 if answer is not None:
                     answer_generated = True
 
             if not answer_generated:
-                # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
-                # ответ на наш вопрос, заданный ранее).
-                smalltalk_phrases = self.facts_storage.enumerate_smalltalk_replicas()
-                best_premise, best_rel = self.synonymy_detector.get_most_similar(interpreted_phrase.interpretation,
-                                                                                 [(item.query, -1, -1) for item in smalltalk_phrases],
-                                                                                 self.text_utils,
-                                                                                 self.word_embeddings)
+                if self.enable_smalltalk:
+                    # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
+                    # ответ на наш вопрос, заданный ранее).
+                    smalltalk_phrases = self.facts_storage.enumerate_smalltalk_replicas()
+                    best_premise, best_rel = self.synonymy_detector.get_most_similar(interpreted_phrase.interpretation,
+                                                                                     [(item.query, -1, -1) for item in smalltalk_phrases],
+                                                                                     self.text_utils,
+                                                                                     self.word_embeddings)
 
-                # если релевантность найденной реплики слишком мала, то нужен другой алгоритм...
-                for item in smalltalk_phrases:
-                    if item.query == best_premise:
-                        # выбираем случайный вариант ответа
-                        # TODO: уточнить выбор, подбирая наиболее релевантный вариант, так что выдаваемая
-                        # реплика будет учитывать либо текущий дискурс, либо ???...
-                        # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-                        # поэтому их следует сначала нормализовать.
-                        answer = np.random.choice(item.answers)
-                        answer_generated = True
-                        break
+                    # если релевантность найденной реплики слишком мала, то нужен другой алгоритм...
+                    for item in smalltalk_phrases:
+                        if item.query == best_premise:
+                            # выбираем случайный вариант ответа
+                            # TODO: уточнить выбор, подбирая наиболее релевантный вариант, так что выдаваемая
+                            # реплика будет учитывать либо текущий дискурс, либо ???...
+                            # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+                            # поэтому их следует сначала нормализовать.
+                            answer = np.random.choice(item.answers)
+                            answer_generated = True
+                            break
 
             if answer_generated:
                 self.say(session, answer)
@@ -266,7 +269,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
             # Например, для смены темы разговора.
             if len(answers) > 0:
-                if self.scripting is not None:
+                if self.scripting is not None and self.enable_scripting:
                     additional_speech = self.scripting.generate_after_answer(self, interlocutor, interpreted_phrase, answers[-1])
                     if additional_speech is not None:
                         self.say(session, additional_speech)

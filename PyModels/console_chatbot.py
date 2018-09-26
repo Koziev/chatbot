@@ -48,13 +48,16 @@ file_handler.setLevel(logging.DEBUG)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
-
+# Создаем необходимое окружение для бота
+# Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
 text_utils = TextUtils()
 text_utils.load_dictionaries(data_folder)
 
+# Конкретная реализация хранилища фактов.
 facts_storage = Files3FactsStorage(text_utils=text_utils,
                                    facts_folder=facts_folder)
 bot = SimpleAnsweringMachine(facts_storage=facts_storage, text_utils=text_utils)
+bot.enable_smalltalk = False
 bot.load_models(models_folder, w2v_folder)
 
 scripting = BotScripting(data_folder)
