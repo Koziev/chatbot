@@ -1,0 +1,8 @@
+2018-09-29 10:21:50,783 samples.count=671635
+2018-09-29 10:30:15,779 nb_shingles=10829
+2018-09-29 10:41:25,515 nb_0=537308
+2018-09-29 10:41:25,516 nb_1=134327
+2018-09-29 10:41:31,496 Train LightGBM model with learning_rate=0.2 num_leaves=40 min_data_in_leaf=15 bagging_fraction=1.0...
+2018-09-29 10:52:32,652 Training has finished
+2018-09-29 10:52:32,652 val acc=0.988148324611
+2018-09-29 10:52:32,653 val f1=0.970240765665

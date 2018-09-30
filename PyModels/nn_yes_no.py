@@ -23,8 +23,6 @@ import numpy as np
 import tqdm
 import argparse
 import logging
-import logging.handlers
-
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
@@ -39,6 +37,8 @@ from sklearn.model_selection import train_test_split
 import sklearn.metrics
 
 from utils.tokenizer import Tokenizer
+import utils.console_helpers
+import utils.logging_helpers
 
 
 PAD_WORD = u''
@@ -149,13 +149,7 @@ net_arch = args.arch
 run_mode = args.run_mode
 
 # настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_yes_no.log'), mode='w')
-
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_yes_no.log'))
 
 
 # В этих файлах будем сохранять натренированную сетку

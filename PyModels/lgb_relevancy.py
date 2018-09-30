@@ -43,64 +43,14 @@ from utils.segmenter import Segmenter
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
 from utils.phrase_splitter import PhraseSplitter
+import utils.console_helpers
+import utils.logging_helpers
+
 
 config_filename = 'lgb_relevancy.config'
 
 # алгоритм сэмплирования гиперпараметров
 HYPEROPT_ALGO = tpe.suggest  #  tpe.suggest OR hyperopt.rand.suggest
-
-
-parser = argparse.ArgumentParser(description='LightGBM classifier for text relevance estimation')
-parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | evaluate | query | query2')
-parser.add_argument('--hyperopt', type=int, default=0, help='use hyperopt when training')
-parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
-parser.add_argument('--eta', type=float, default=0.20, help='"eta" (learning rate) parameter for LightGBM')
-parser.add_argument('--subsample', type=float, default=1.00, help='"subsample" parameter for LightGBM')
-parser.add_argument('--num_leaves', type=int, default=31, help='"num_leaves" parameter for LightGBM')
-parser.add_argument('--min_data_in_leaf', type=int, default=10, help='"min_data_in_leaf" parameter for LightGBM')
-parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
-parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
-parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
-parser.add_argument('--lemmatize', type=int, default=0, help='canonize phrases before extracting the shingles: 0 - none, 1 - lemmas, 2 - stems')
-
-args = parser.parse_args()
-
-input_path = args.input
-tmp_folder = args.tmp
-data_folder = args.data_dir
-run_mode = args.run_mode
-lemmatize = args.lemmatize
-subsample = args.subsample
-num_leaves = args.num_leaves
-min_data_in_leaf = args.min_data_in_leaf
-
-# количество случайных наборов параметров, проверяемых в hyperopt
-# если указать 0, то hyperopt не применяется, а выполняется обучение
-# с заданными параметрами (--num_leaves, --min_data_in_leaf, --eta, --subsample)
-use_hyperopt = args.hyperopt
-
-# основной настроечный параметр модели - длина символьных N-грамм (шинглов)
-shingle_len = args.shingle_len
-if shingle_len<2 or shingle_len>6:
-    print('Invalid --shingle_len option value')
-    exit(1)
-
-eta = args.eta
-if eta<0.01 or eta>=1.0:
-    print('Invalid --eta option value')
-    exit(1)
-
-
-# настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'lgb_relevancy.log'), mode='w')
-
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
-
-# -------------------------------------------------------------------
 
 BEG_WORD = '\b'
 END_WORD = '\n'
@@ -341,6 +291,52 @@ def objective(space):
 
 # -------------------------------------------------------------------
 
+
+parser = argparse.ArgumentParser(description='LightGBM classifier for text relevance estimation')
+parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | evaluate | query | query2')
+parser.add_argument('--hyperopt', type=int, default=0, help='use hyperopt when training')
+parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
+parser.add_argument('--eta', type=float, default=0.20, help='"eta" (learning rate) parameter for LightGBM')
+parser.add_argument('--subsample', type=float, default=1.00, help='"subsample" parameter for LightGBM')
+parser.add_argument('--num_leaves', type=int, default=31, help='"num_leaves" parameter for LightGBM')
+parser.add_argument('--min_data_in_leaf', type=int, default=10, help='"min_data_in_leaf" parameter for LightGBM')
+parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
+parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
+parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
+parser.add_argument('--lemmatize', type=int, default=0, help='canonize phrases before extracting the shingles: 0 - none, 1 - lemmas, 2 - stems')
+
+args = parser.parse_args()
+
+input_path = args.input
+tmp_folder = args.tmp
+data_folder = args.data_dir
+run_mode = args.run_mode
+lemmatize = args.lemmatize
+subsample = args.subsample
+num_leaves = args.num_leaves
+min_data_in_leaf = args.min_data_in_leaf
+
+# количество случайных наборов параметров, проверяемых в hyperopt
+# если указать 0, то hyperopt не применяется, а выполняется обучение
+# с заданными параметрами (--num_leaves, --min_data_in_leaf, --eta, --subsample)
+use_hyperopt = args.hyperopt
+
+# основной настроечный параметр модели - длина символьных N-грамм (шинглов)
+shingle_len = args.shingle_len
+if shingle_len < 2 or shingle_len > 6:
+    print('Invalid --shingle_len option value')
+    exit(1)
+
+eta = args.eta
+if eta < 0.01 or eta >= 1.0:
+    print('Invalid --eta option value')
+    exit(1)
+
+
+# настраиваем логирование в файл
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'lgb_relevancy.log'))
+
+
 if run_mode == 'train':
 
     # Режим тренировки модели.
@@ -520,6 +516,56 @@ if run_mode == 'query':
 
         y_pred = lgb_relevancy.predict(X_data)
         print('{}\n\n'.format(y_pred[0]))
+
+if run_mode == 'query2':
+    # Ручная проверка модели на вводимых в консоли вопросах.
+    # Список предпосылок читается из заданного файла.
+
+    # Загружаем данные обученной модели.
+    with open(os.path.join(tmp_folder, config_filename), 'r') as f:
+        model_config = json.load(f)
+
+    tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
+
+    lgb_relevancy = lightgbm.Booster(model_file=model_config['model_filename'])
+
+    xgb_relevancy_shingle2id = model_config['shingle2id']
+    xgb_relevancy_shingle_len = model_config['shingle_len']
+    xgb_relevancy_nb_features = model_config['nb_features']
+    xgb_relevancy_lemmalize = model_config['lemmatize']
+
+    premises = []
+
+    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+        for line in rdr:
+            phrase = line.strip()
+            if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                premises.append(phrase)
+
+    nb_premises = len(premises)
+    print('nb_premises={}'.format(nb_premises))
+
+    while True:
+        X_data = lil_matrix((nb_premises, xgb_relevancy_nb_features), dtype='float32')
+
+        question = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+        if len(question) == 0:
+            break
+
+        question_wx = words2str(tokenizer.tokenize(question))
+        question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
+
+        for ipremise, premise in enumerate(premises):
+            premise_wx = words2str(tokenizer.tokenize(premise))
+            premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
+            vectorize_sample_x(X_data, ipremise, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
+
+        y_pred = lgb_relevancy.predict(X_data)
+        phrase_rels = [(premises[i], y_pred[i]) for i in range(nb_premises)]
+        phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
+        for phrase, sim in phrase_rels[:10]:
+            print(u'{:6.4f} {}'.format(sim, phrase))
 
 if run_mode == 'evaluate':
     # Оценка качества натренированной модели на специальном наборе вопросов и

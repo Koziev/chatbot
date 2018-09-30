@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-'''
-Тренировка модели интерпретации реплик в чатботе
+"""
+Тренировка модели интерпретации реплик в чатботе.
+
 Для вопросно-ответной системы https://github.com/Koziev/chatbot.
-'''
+
+Используется специализированный датасет с примерами интерпретаций, а
+также автоматически сгенерированные датасеты.
+"""
 
 from __future__ import division  # for python2 compatibility
 from __future__ import print_function
@@ -20,7 +24,6 @@ import tqdm
 import argparse
 import random
 import logging
-import logging.handlers
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
@@ -38,13 +41,14 @@ import sklearn.metrics
 
 from utils.tokenizer import Tokenizer
 from utils.lemmatizer import Lemmatizer
-
+import utils.console_helpers
+import utils.logging_helpers
 
 
 PAD_WORD = u''
 padding = 'left'
-nb_filters = 128  # 128
-max_kernel_size = 2  # 3
+nb_filters = 128
+max_kernel_size = 2
 
 
 
@@ -57,6 +61,13 @@ class Sample:
         self.result_lemmas = result_lemmas
 
 
+def get_first_part(s):
+    if u'|' in s:
+        return s.split(u'|')[0]
+    else:
+        return s
+
+
 def load_samples(input_path, tokenizer, lemmatizer):
     logging.info(u'Loading samples from {}'.format(input_path))
     samples = []
@@ -67,7 +78,7 @@ def load_samples(input_path, tokenizer, lemmatizer):
             line = line.strip()
             if len(line) == 0:
                 if len(lines) > 0:
-                    phrases = lines[:-1]
+                    phrases = [get_first_part(s) for s in lines[:-1]]
                     last_line = lines[-1]
                     if '|' in last_line:
                         fx = last_line.split('|')
@@ -104,7 +115,11 @@ def rpad_wordseq(words, n):
 def vectorize_words(words, M, irow, word2vec):
     for iword, word in enumerate(words):
         if word != PAD_WORD:
-            M[irow, iword, :] = word2vec[word]
+            if word in word2vec:
+                M[irow, iword, :] = word2vec[word]
+            else:
+                logging.error(u'Word \"{}\" is missing in word2vec; phrase={}'.format(word, u' '.join(words).strip()))
+                raise RuntimeError()
 
 
 def generate_rows(nb_inputs, output_dims, max_outseq_len, samples, lemma2id, batch_size, mode):
@@ -159,11 +174,6 @@ def generate_rows(nb_inputs, output_dims, max_outseq_len, samples, lemma2id, bat
                 y_batch.fill(0)
                 batch_index = 0
 
-
-
-
-
-# ------------------------------------------------------------------
 
 
 class colors:
@@ -239,7 +249,7 @@ class VisualizeCallback(keras.callbacks.Callback):
         acc = acc / acc_denom
         self.val_acc_history.append(acc)
         if acc > self.best_acc:
-            print(colors.ok+'New best instance accuracy={}'.format(acc)+colors.close)
+            utils.console_helpers.print_green_line('New best instance accuracy={}'.format(acc))
             self.wait_epoch = 0
             print(u'Saving model to {}'.format(self.weights_path))
             self.model.save_weights(self.weights_path)
@@ -283,15 +293,7 @@ batch_size = args.batch_size
 net_arch = args.arch
 run_mode = args.run_mode
 
-
-# настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_interpreter.log'), mode='w')
-
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_interpreter.log'))
 
 
 # В этих файлах будем сохранять натренированную сетку
@@ -300,13 +302,13 @@ arch_filepath = os.path.join(tmp_folder, 'nn_interpreter.arch')
 weights_path = os.path.join(tmp_folder, 'nn_interpreter.weights')
 
 if run_mode == 'train':
-    logging.info('Start run_mode==train')
+    logging.info('Start with run_mode==train')
 
     wordchar2vector_path = os.path.join(tmp_folder,'wordchar2vector.dat')
     logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path))
     wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
     wc2v_dims = len(wc2v.syn0[0])
-    print('wc2v_dims={0}'.format(wc2v_dims))
+    logging.info('wc2v_dims={0}'.format(wc2v_dims))
 
     # --------------------------------------------------------------------------
 
@@ -653,11 +655,11 @@ if run_mode == 'query':
 
     while True:
         print('\nEnter two phrases:')
-        phrase1 = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = utils.console_helpers.input_kbd('question:>').lower()
         if len(phrase1) == 0:
             break
 
-        phrase2 = raw_input('answer:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase2 = utils.console_helpers.input_kbd('answer:>').lower()
         if len(phrase2) == 0:
             break
 
@@ -676,7 +678,7 @@ if run_mode == 'query':
 
         sample = Sample(phrases, phrase_words, phrase_lemmas, u'', [])
 
-        probe_samples = []
+        probe_samples = list()
         probe_samples.append(sample)
 
         for x in generate_rows(max_nb_inputs, nb_lemmas, max_outseq_len, probe_samples, lemma2id, batch_size, 2):

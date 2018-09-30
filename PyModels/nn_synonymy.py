@@ -2,7 +2,9 @@
 """
 Модель для определения СИНОНИМИИ - семантической эквивалентности двух фраз,
 включая позиционные и синтаксические перефразировки, лексические и фразовые
-синонимы.
+синонимы. В отличие от модели для РЕЛЕВАНТНОСТИ предпосылки и вопроса, в этой
+модели предполагается, что объем информации в обеих фразах примерно одинаков,
+то есть "кошка спит" и "черная кошка сладко спит" не считаются полными синонимами.
 
 Для проекта чатбота https://github.com/Koziev/chatbot
 """
@@ -19,8 +21,6 @@ import argparse
 import random
 import collections
 import logging
-import logging.handlers
-
 
 import numpy as np
 import pandas as pd
@@ -50,11 +50,15 @@ from utils.tokenizer import Tokenizer
 from utils.padding_utils import lpad_wordseq, rpad_wordseq
 from utils.padding_utils import PAD_WORD
 from trainers.word_embeddings import WordEmbeddings
+import utils.console_helpers
+import utils.logging_helpers
 
 
 use_shingle_matching = False
 
 padding = 'left'
+
+nb_neg_per_posit = 1
 
 # размер изображения, которое получится после сжатия матрицы соответствия
 # шинглов во входных предложениях.
@@ -125,6 +129,10 @@ def vectorize_words(words, X_batch, irow, word2vec):
 
 
 def generate_rows(samples, batch_size, w2v, mode):
+    if mode == 1:
+        # При обучении сетки каждую эпоху тасуем сэмплы.
+        random.shuffle(samples)
+
     batch_index = 0
     batch_count = 0
 
@@ -193,13 +201,12 @@ def generate_rows(samples, batch_size, w2v, mode):
 NB_EPOCHS = 1000
 
 # Разбор параметров тренировки в командной строке
-parser = argparse.ArgumentParser(description='Neural model for text synonymy')
+parser = argparse.ArgumentParser(description='Neural model for short text synonymy')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query | query2')
 parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn) | cnn | cnn2')
 parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture: merge | muladd | merge2')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
-parser.add_argument('--max_nb_samples', type=int, default=1000000000, help='upper limit for number of samples')
-parser.add_argument('--input', type=str, default='../data/paraphrases.txt', help='path to input dataset')
+parser.add_argument('--input', type=str, default='../data/synonymy_dataset.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
 parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
@@ -217,24 +224,12 @@ net_arch = args.arch
 classifier_arch = args.classifier
 
 # настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_synonymy.log'), mode='w')
-
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
-
-
-# Для быстрого проведения исследований влияния гиперпараметров удобно брать для
-# обучения не полный датасет, а небольшую часть - указываем кол-во паттернов.
-max_nb_samples = args.max_nb_samples
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_synonymy.log'))
 
 run_mode = args.run_mode
 # Варианты значения для параметра run_mode:
 # run_mode='train'
 # Тренировка модели по заранее приготовленному датасету с парами предложений
-
 # run_mode = 'query'
 # В консоли вводятся два предложения, модель оценивает их релевантность.
 
@@ -271,110 +266,18 @@ else:
 tokenizer = Tokenizer()
 
 if run_mode == 'train':
-    logging.info('Start run_mode==train')
+    logging.info('Start with run_mode==train')
 
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
-    # Для генерации негативных сэмплов нам надо исключать
-    # вероятность попадания перефразировок в качестве негативных
-    # примеров для групп, содержащих более 2 вариантов. Поэтому
-    # каждую фразу пометим номеров ее исходной группы.
-    phrase2group = dict()
+    # Грузим ранее подготовленный датасет для тренировки модели (см. prepare_synonymy_dataset.py)
+    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
 
-    # Грузим датасеты с перефразировками
     samples = []  # список из экземпляров Sample
-    igroup = 0
-    group = []
-    with codecs.open(input_path, 'r', 'utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if len(phrase) == 0:
-                if len(group) > 0:
-                    igroup += 1
-                    n = len(group)
-                    for i1 in range(n):
-                        phrase1 = group[i1]
-                        if phrase1.startswith(u'(-)'):
-                            continue
 
-                        if phrase1.startswith(u'(+)'):
-                            phrase1 = phrase1.replace(u'(+)', u'').strip()
-
-                        phrase2group[phrase1] = igroup
-                        for i2 in range(i1 + 1, n):
-                            y = 1
-                            phrase2 = group[i2]
-
-                            if phrase2.startswith(u'(+)'):
-                                phrase2 = phrase2.replace(u'(+)', u'').strip()
-                            elif phrase2.startswith(u'(-)'):
-                                phrase2 = phrase2.replace(u'(-)', u'').strip()
-                                y = 0
-
-                            phrase2group[phrase2] = igroup
-                            samples.append(Sample(phrase1, phrase2, y))
-                            if phrase1 != phrase2:
-                                # меняем местами сравниваемые фразы
-                                samples.append(Sample(phrase2, phrase1, y))
-
-                    group = []
-            else:
-                group.append(phrase)
-
-    # дубликаты
-    duplicates = []
-    for p in ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']:
-        group = []
-        with codecs.open(os.path.join(data_folder, p), 'r', 'utf-8') as rdr:
-            for line in rdr:
-                phrase = line.strip()
-                if len(phrase) == 0:
-                    if len(group) > 0:
-                        igroup += 1
-                        n = len(group)
-                        for i1 in range(n):
-                            phrase2group[group[i1]] = igroup
-                            for i2 in range(i1+1, n):
-                                phrase2group[group[i2]] = igroup
-                                duplicates.append(Sample(group[i1], group[i2], 1))
-                        group = []
-                else:
-                    group.append(phrase)
-
-    # оставим кол-во дубликатов, сопоставимое с другими перефразировками
-    duplicates = np.random.permutation(duplicates)[:len(samples)//2]
-    samples.extend(duplicates)
-
-    all_phrases = set()
-    for sample in samples:
-        if sample.y == 1:
-            all_phrases.add(sample.phrase1)
-            all_phrases.add(sample.phrase2)
-
-    all_phrases = list(all_phrases)
-
-    # Добавляем негативные сэмплы
-    neg_samples = []
-    for sample in samples:
-        igroup1 = phrase2group[sample.phrase1]
-        n_neg = 0
-        while n_neg < 16:
-            neg_phrase = random.choice(all_phrases)
-            if neg_phrase not in phrase2group:
-                pass
-
-            if phrase2group[neg_phrase] != igroup1:
-                neg_samples.append(Sample(sample.phrase1, neg_phrase, 0))
-                neg_samples.append(Sample(sample.phrase2, neg_phrase, 0))
-                neg_samples.append(Sample(neg_phrase, sample.phrase1, 0))
-                neg_samples.append(Sample(neg_phrase, sample.phrase2, 0))
-                n_neg += 4
-
-    # ограничим кол-во негативных сэмплов
-    neg_samples = np.random.permutation(neg_samples)[:len(samples)*8]
-
-    samples.extend(neg_samples)
+    for phrase1, phrase2, y in itertools.izip(df['premise'].values, df['question'].values, df['relevance'].values):
+        samples.append(Sample(phrase1, phrase2, y))
 
     nb_0 = sum(sample.y == 0 for sample in samples)
     nb_1 = sum(sample.y == 1 for sample in samples)
@@ -435,7 +338,7 @@ if run_mode == 'train':
     with open(config_path, 'w') as f:
         json.dump(model_config, f)
 
-    logging.info('Constructing the NN model {} {}...'.format(net_arch, classifier_arch))
+    logging.info('Constructing the NN model arch={} classifier={}...'.format(net_arch, classifier_arch))
 
     nb_filters = 128  # 128
     rnn_size = word_dims*2
@@ -1062,80 +965,44 @@ if run_mode == 'query2':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
-    # Грузим датасет pqa, подготовленный prepare_pqa_dataset.py
-    pqa_path = os.path.join(data_folder, 'premise_question_answer.csv')
-    print(u'Loading pqa dataset from {}'.format(pqa_path))
-    df = pd.read_csv(pqa_path, encoding='utf-8', delimiter='\t', quoting=3)
+    phrases2 = []
+    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+        for line in rdr:
+            phrase = line.strip()
+            if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                phrases2.append(phrase)
 
     while True:
-        print('\nEnter two phrases:')
-        phrase1 = raw_input('phrase #1:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = raw_input('phrase:> ').decode(sys.stdout.encoding).strip().lower()
         if len(phrase1) == 0:
             break
 
-        phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(phrase2) == 0:
-            break
-
-        # todo - потом переделать так, чтобы фразы из pqa датасета не векторизовать заново
-        # после каждого ввода.
         samples = []
         premise_samples = []
         question_samples = []
         Sample2 = collections.namedtuple('Sample2', ['words1', 'words2'])
-        for irow, row in df.iterrows():
-            if row['answer'] not in [u'да', u'нет']:
-                if padding == 'left':
-                    words1 = lpad_wordseq(tokenizer.tokenize(row['premise']), max_wordseq_len)
-                    words2 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-                else:
-                    words1 = rpad_wordseq(tokenizer.tokenize(row['premise']), max_wordseq_len)
-                    words2 = rpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+        for phrase2 in phrases2:
+            if padding == 'left':
+                words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+                words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+            else:
+                words1 = rpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+                words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
 
-                premise_samples.append(Sample2(words1, words2))
-
-                if padding == 'left':
-                    words1 = lpad_wordseq(tokenizer.tokenize(row['question']), max_wordseq_len)
-                    words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-                else:
-                    words1 = rpad_wordseq(tokenizer.tokenize(row['question']), max_wordseq_len)
-                    words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-
-                question_samples.append(Sample2(words1, words2))
-
-                samples.append((row['premise'], row['question'], row['answer']))
-
-                # НАЧАЛО ОТЛАДКИ
-                if len(samples) >= 10000:
-                    break
-                # КОНЕЦ ОТЛАДКИ
+            samples.append(Sample2(words1, words2))
 
         nb_samples = len(samples)
 
-        y_premise = None
-        y_question = None
-        print('Vectorization of {} premises pairs'.format(nb_samples))
-        for data in generate_rows(premise_samples, nb_samples, embeddings, 2):
+        print('Vectorization of {} samples'.format(nb_samples))
+        for data in generate_rows(samples, nb_samples, embeddings, 2):
             print('Running model to compute similarity of premises')
-            y_premise = model.predict(x=data, batch_size=batch_size)[:, 1]
-            print('y_premise.count={}'.format(len(y_premise)))
+            sims = model.predict(x=data, batch_size=batch_size)[:, 1]
             break
 
-        print('Vectorization of {} question pairs'.format(nb_samples))
-        for data in generate_rows(question_samples, nb_samples, embeddings, 2):
-            print('Running model to compute similarity of questions')
-            y_question = model.predict(x=data, batch_size=batch_size)[:, 1]
-            print('y_question.count={}'.format(len(y_question)))
-            break
-
-        # теперь суперпозиция из близости для предпосылок и для вопросов
-        sims = np.multiply(y_premise, y_question)
-        best_index = np.argmax(sims)
-        print('sims.count={} best_index={}'.format(len(sims), best_index))
-        print('y_premise[{}]={}'.format(best_index, y_premise[best_index]))
-        print('y_question[{}]={}'.format(best_index, y_question[best_index]))
-        print('sim[{}]={}'.format(best_index, sims[best_index]))
-        best_sample = samples[best_index]
-        print(u'Nearest sample is:\npremise={}\nquestion={}\nanswer={}\n\n'.format(best_sample[0], best_sample[1], best_sample[2]))
+        phrase_sims = [(phrases2[i], sims[i]) for i in range(len(sims))]
+        phrase_sims = sorted(phrase_sims, key=lambda z: -z[1])
+        for phrase, sim in phrase_sims[:10]:
+            print(u'{:6.4f} {}'.format(sim, phrase))
 
 # </editor-fold>

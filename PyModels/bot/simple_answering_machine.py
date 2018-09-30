@@ -17,6 +17,7 @@ from answer_builder import AnswerBuilder
 from interpreted_phrase import InterpretedPhrase
 from nn_enough_premises_model import NN_EnoughPremisesModel
 from nn_synonymy_detector import NN_SynonymyDetector
+from jaccard_synonymy_detector import Jaccard_SynonymyDetector
 from nn_interpreter import NN_Interpreter
 
 
@@ -73,8 +74,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.relevancy_detector.load(models_folder)
 
         # Модель определения синонимичности двух фраз
-        self.synonymy_detector = NN_SynonymyDetector()
-        self.synonymy_detector.load(models_folder)
+        #self.synonymy_detector = NN_SynonymyDetector()
+        #self.synonymy_detector.load(models_folder)
+        self.synonymy_detector = Jaccard_SynonymyDetector()
 
         self.interpreter = NN_Interpreter()
         self.interpreter.load(models_folder)

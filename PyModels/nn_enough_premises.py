@@ -19,7 +19,6 @@ import six
 import codecs
 from collections import Counter
 import logging
-import logging.handlers
 
 import gensim
 import keras.callbacks
@@ -42,6 +41,8 @@ import keras_contrib.optimizers.ftml
 
 from utils.tokenizer import Tokenizer
 from trainers.word_embeddings import WordEmbeddings
+import utils.console_helpers
+import utils.logging_helpers
 
 #from layers.word_match_layer import match
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Нейросетевая модель для выбора слов, которые надо скопировать из предпосылки
+Нейросетевая модель для выбора цепочки слов, которые надо скопировать из предпосылки
 для формирования ответа на вопрос.
 
 Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
@@ -8,7 +8,7 @@
 Датасет должен быть предварительно сгенерирован скриптом prepare_qa_dataset.py
 
 Кроме того, необходимо подготовить датасет с символьными встраиваниями слов, например
-с помощью скрипта train_wordchar2vector.sh
+с помощью скрипта scripts/train_wordchar2vector.sh
 
 Параметры обучения модели, в том числе детали архитектуры, задаются опциями
 командной строки. Пример запуска обучения можно посмотреть в скрипте train_nn_wordcopy3.sh
@@ -29,8 +29,6 @@ import pandas as pd
 import tqdm
 import argparse
 import logging
-import logging.handlers
-
 
 import keras.callbacks
 from keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -47,14 +45,14 @@ from keras.models import model_from_json
 from sklearn.model_selection import train_test_split
 
 from utils.tokenizer import Tokenizer
+import utils.console_helpers
+import utils.logging_helpers
 
 
 #padding = 'left'
 padding = 'right'
 PAD_WORD = u''
 CONFIG_FILENAME = 'nn_wordcopy3.config'
-
-
 
 
 def rpad_wordseq(words, n):
@@ -99,16 +97,26 @@ def select_patterns(sequences, targets):
             sequences1.append(seq)
             targets1.append(target)
 
-    return (sequences1, targets1)
+    return sequences1, targets1
 
 
 def count_words(words):
-    return len(filter(lambda z: z != PAD_WORD,words))
+    return len(filter(lambda z: z != PAD_WORD, words))
 
 
-def generate_rows_word_copy3(sequences, targets, batch_size, mode):
+def generate_rows_word_copy3(sequences0, targets0, batch_size, mode):
+    '''Генератор данных в батчах для тренировки и валидации сетки'''
+    assert(len(sequences0) == len(targets0))
+    assert(0 < batch_size < 10000)
+    assert(mode in[1, 2])
+
     batch_index = 0
     batch_count = 0
+
+    n = len(sequences0)
+    shuffled_indeces = list(np.random.permutation(range(n)))
+    sequences = [sequences0[i] for i in shuffled_indeces]
+    targets = [targets0[i] for i in shuffled_indeces]
 
     X1_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
     X2_batch = np.zeros((batch_size, max_inputseq_len, word_dims), dtype=np.float32)
@@ -117,7 +125,7 @@ def generate_rows_word_copy3(sequences, targets, batch_size, mode):
     y2_batch = np.zeros((batch_size, output_dims), dtype=np.bool)
 
     while True:
-        for irow, (seq, target) in enumerate(itertools.izip(sequences,targets)):
+        for irow, (seq, target) in enumerate(itertools.izip(sequences, targets)):
             vectorize_words(seq[0], X1_batch, batch_index, word2vec)
             vectorize_words(seq[1], X2_batch, batch_index, word2vec)
 
@@ -130,14 +138,14 @@ def generate_rows_word_copy3(sequences, targets, batch_size, mode):
             for word in answer:
                 if word in premise:
                     pos = premise.index(word)
-                    if beg_found==False:
+                    if beg_found == False:
                         beg_found = True
                         beg_pos = pos
-                    end_pos = max( end_pos, pos)
+                    end_pos = max(end_pos, pos)
                 else:
                     break
 
-            assert( end_pos>=beg_pos )
+            assert(end_pos >= beg_pos)
 
             y1_batch[batch_index, beg_pos] = True
             y2_batch[batch_index, end_pos] = True
@@ -146,11 +154,11 @@ def generate_rows_word_copy3(sequences, targets, batch_size, mode):
 
             if batch_index == batch_size:
                 batch_count += 1
-
+                x = {'input_words1': X1_batch, 'input_words2': X2_batch}
                 if mode == 1:
-                    yield ({'input_words1': X1_batch, 'input_words2': X2_batch}, {'output_beg': y1_batch, 'output_end': y2_batch})
+                    yield (x, {'output_beg': y1_batch, 'output_end': y2_batch})
                 else:
-                    yield {'input_words1': X1_batch, 'input_words2': X2_batch}
+                    yield x
 
                 # очищаем матрицы порции для новой порции
                 X1_batch.fill(0)
@@ -161,9 +169,9 @@ def generate_rows_word_copy3(sequences, targets, batch_size, mode):
 
 # --------------------------------------------------------------------------------------
 
-parser = argparse.ArgumentParser(description='Neural model for answer generation model selector')
+parser = argparse.ArgumentParser(description='Neural model for word copy model for answer generation')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query')
-parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn) | lstm+cnn')
+parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn) | lstm+cnn | cnn')
 parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture: merge | muladd')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--input', type=str, default='../data/premise_question_answer.csv', help='path to input dataset')
@@ -182,13 +190,7 @@ wordchar2vector_path = args.wordchar2vector
 word2vector_path = os.path.expanduser(args.word2vector)
 
 # настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_wordcopy3.log'), mode='w')
-
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_wordcopy3.log'))
 
 # В этих файлах будем сохранять натренированную сетку
 arch_filepath = os.path.join(tmp_folder, 'nn_wordcopy3.arch')
@@ -306,8 +308,6 @@ if run_mode == 'train':
         conv1.append(encoder_rnn1)
         conv2.append(encoder_rnn2)
 
-    # --------------------------------------------------------------------------
-
     if net_arch == 'lstm+cnn':
         # энкодер на базе LSTM, на выходе которого получаем вектор с упаковкой слов
         # предложения.
@@ -346,8 +346,6 @@ if run_mode == 'train':
             conv2.append(conv_layer2)
 
             repr_size += nb_filters
-
-    # --------------------------------------------------------------------------
 
     if net_arch == 'lstm(cnn)':
         for kernel_size in range(1, 4):
@@ -490,12 +488,14 @@ if run_mode == 'train':
 
     monitor_metric = 'val_output_beg_acc'
 
-    model_checkpoint = ModelCheckpoint(weights_path, monitor=monitor_metric,
-                                       verbose=1, save_best_only=True, mode='auto')
+    model_checkpoint = ModelCheckpoint(weights_path,
+                                       monitor=monitor_metric,
+                                       verbose=1,
+                                       save_best_only=True,
+                                       mode='auto')
     early_stopping = EarlyStopping(monitor=monitor_metric, patience=20, verbose=1, mode='auto')
 
     callbacks = [model_checkpoint, early_stopping]
-
 
     hist = model.fit_generator(generator=generate_rows_word_copy3(train_input1, train_output1, batch_size, 1),
                                steps_per_epoch=nb_train_patterns // batch_size,
@@ -505,11 +505,14 @@ if run_mode == 'train':
                                validation_data=generate_rows_word_copy3(val_input1, val_output1, batch_size, 1),
                                validation_steps=nb_valid_patterns // batch_size
                                )
-
-
+    val_output_beg_acc = hist.history['val_output_beg_acc']
+    val_output_end_acc = hist.history['val_output_end_acc']
+    logging.info('max(val_output_beg_acc)={}'.format(max(val_output_beg_acc)))
+    logging.info('max(val_output_end_acc)={}'.format(max(val_output_end_acc)))
 
 
 if run_mode == 'query':
+    # Ручная проверка работы натренированной модели.
 
     with open(os.path.join(tmp_folder, CONFIG_FILENAME), 'r') as f:
         model_config = json.load(f)

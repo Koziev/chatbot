@@ -29,6 +29,7 @@ else:
     corpus_path = os.path.expanduser('~/Corpus/word2vector/ru/SENTx.corpus.w2v.txt')
 
 paraphrases_path = '../data/premise_question_relevancy.csv'
+synonymy_path = '../data/synonymy_dataset.csv'
 pqa_path = '../data/premise_question_answer.csv'
 pqa_multy_path = '../data/qa_multy.txt'
 eval_path = '../data/evaluate_relevancy.txt'
@@ -36,11 +37,21 @@ premises = ['../data/premises.txt', '../data/premises_1s.txt']
 interpretations = ['../data/interpretation_auto_4.txt',
                    '../data/interpretation_auto_5.txt',
                    '../data/interpretation.txt']
-
+smalltalk_path = '../data/smalltalk.txt'
 # ---------------------------------------------------------------
+
+tokenizer = Tokenizer()
 
 known_words = set()
 dataset_words = set()
+
+print('Parsing {}'.format(smalltalk_path))
+with codecs.open(smalltalk_path, 'r', 'utf-8') as rdr:
+    for line in rdr:
+        phrase = line.replace(u'T:', u'').replace(u'Q:', u'').strip()
+        words = tokenizer.tokenize(phrase)
+        known_words.update(words)
+        dataset_words.update(words)
 
 # Берем слова из большого текстового файла, на котором тренируется w2v модели.
 print('Parsing {}'.format(corpus_path))
@@ -57,7 +68,13 @@ with codecs.open(corpus_path, 'r', 'utf-8') as rdr:
 # Добавим слова из основного тренировочного датасета
 print('Parsing {}'.format(paraphrases_path))
 df = pd.read_csv(paraphrases_path, encoding='utf-8', delimiter='\t', quoting=3)
-tokenizer = Tokenizer()
+for phrase in itertools.chain(df['premise'].values, df['question'].values):
+    words = tokenizer.tokenize(phrase.lower())
+    known_words.update(words)
+    dataset_words.update(words)
+
+print('Parsing {}'.format(synonymy_path))
+df = pd.read_csv(synonymy_path, encoding='utf-8', delimiter='\t', quoting=3)
 for phrase in itertools.chain(df['premise'].values, df['question'].values):
     words = tokenizer.tokenize(phrase.lower())
     known_words.update(words)

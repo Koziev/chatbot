@@ -23,7 +23,6 @@ import tqdm
 import argparse
 import codecs
 import logging
-import logging.handlers
 
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -40,6 +39,8 @@ from keras.layers import Lambda
 from keras.layers.merge import add, multiply
 
 from utils.tokenizer import Tokenizer
+import utils.console_helpers
+import utils.logging_helpers
 
 
 PAD_WORD = u''
@@ -146,13 +147,7 @@ wordchar2vector_path = args.wordchar2vector
 word2vector_path = os.path.expanduser(args.word2vector)
 
 # настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_model_selector.log'), mode='w')
-
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_model_selector.log'))
 
 # В этих файлах будем сохранять натренированную сетку
 arch_filepath = os.path.join(tmp_folder, 'qa_model_selector.arch')

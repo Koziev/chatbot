@@ -33,6 +33,8 @@ from keras.models import model_from_json
 from sklearn.model_selection import train_test_split
 
 from utils.tokenizer import Tokenizer
+import utils.console_helpers
+import utils.logging_helpers
 
 # Размер минибатчей при обучении сетки.
 # Сильно влияет на достигаемую точность!

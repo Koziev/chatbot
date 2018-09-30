@@ -219,6 +219,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
             words = [cell.word for cell in selected_cells]
 
             new_phrase = u' '.join(words)
+            self.logger.debug(u'NN_Interpreter result={}'.format(new_phrase))
             return new_phrase
 
         raise NotImplemented()

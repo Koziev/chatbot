@@ -17,6 +17,7 @@ import os
 import codecs
 import random
 import json
+import logging
 
 import keras.callbacks
 from keras.layers.core import Activation, RepeatVector, Dense, Masking
@@ -29,6 +30,9 @@ from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
 from keras.models import model_from_json
+
+import utils.logging_helpers
+import utils.console_helpers
 
 # ---------------------------------------------------------------
 
@@ -65,24 +69,23 @@ def generate_rows(wordset, batch_size, char2index, seq_len, mode):
     batch_index = 0
     batch_count = 0
 
-    nb_batches = int(len(wordset)/batch_size)
     nb_chars = len(char2index)
 
     X_batch = np.zeros((batch_size, seq_len), dtype=np.int32)
     y_batch = np.zeros((batch_size, seq_len, nb_chars), dtype=np.float32)
 
+    # Перед началом новой эпохи обучения перетасуем сэмплы.
     shuffled_wordset = list(wordset)
     random.shuffle(shuffled_wordset)
 
     while True:
         for iword, (word, corrupt_word) in enumerate(shuffled_wordset):
-            vectorize_word(word, corrupt_word, X_batch, y_batch, batch_index, char2index )
+            vectorize_word(word, corrupt_word, X_batch, y_batch, batch_index, char2index)
 
             batch_index += 1
 
             if batch_index == batch_size:
                 batch_count += 1
-                # print('mode={} batch_count={}'.format(mode, batch_count))
                 if mode == 1:
                     yield ({'input': X_batch}, {'output': y_batch})
                 else:
@@ -141,11 +144,10 @@ class VisualizeCallback(keras.callbacks.Callback):
             os.remove(self.learning_curve_filename)
 
     def decode_char_indeces(self, char_indeces):
-        return u''.join([ self.index2char[c] for c in char_indeces ]).strip()
+        return u''.join([self.index2char[c] for c in char_indeces]).strip()
 
     def on_epoch_end(self, batch, logs={}):
-        self.epoch = self.epoch+1
-
+        self.epoch += 1
         nb_samples = 0
         nb_errors = 0
 
@@ -154,8 +156,8 @@ class VisualizeCallback(keras.callbacks.Callback):
             rowX, rowy = self.X_test[np.array([ind])], self.y_test[np.array([ind])]
             preds = self.model.predict(rowX, verbose=0)
 
-            correct = self.decode_char_indeces(rowy[0,:,:].argmax(axis=-1))
-            predicted_char_indeces = preds[0,:,:].argmax(axis=-1)
+            correct = self.decode_char_indeces(rowy[0, :, :].argmax(axis=-1))
+            predicted_char_indeces = preds[0, :, :].argmax(axis=-1)
             guess = self.decode_char_indeces(predicted_char_indeces)
 
             if ind<10:
@@ -172,7 +174,7 @@ class VisualizeCallback(keras.callbacks.Callback):
             wrt.write('{}\t{}\n'.format(self.epoch, val_acc))
 
         if val_acc > self.best_val_acc:
-            print(colors.ok + '\nInstance accuracy improved from {} to {}, saving model to {}\n'.format(self.best_val_acc, val_acc, self.weights_path) + colors.close)
+            utils.console_helpers.print_green_line('\nInstance accuracy improved from {} to {}, saving model to {}\n'.format(self.best_val_acc, val_acc, self.weights_path))
             self.best_val_acc = val_acc
             self.model.save_weights(self.weights_path)
             self.wait = 0
@@ -230,11 +232,11 @@ class Wordchar2Vector_Trainer(object):
 
         # составляем список слов для тренировки и валидации
         known_words = self.load_words(words_filepath)
-        print('There are {} known words'.format(len(known_words)))
+        logging.info('There are {} known words'.format(len(known_words)))
 
         max_word_len = max(map(len, known_words))
         seq_len = max_word_len + 2  # 2 символа добавляются к каждому слову для маркировки начала и конца последовательности
-        print('max_word_len={}'.format(max_word_len))
+        logging.info('max_word_len={}'.format(max_word_len))
 
         # ограничиваем число слов для обучения и валидации
         if len(known_words) > nb_samples:
@@ -252,8 +254,8 @@ class Wordchar2Vector_Trainer(object):
         train_words = raw_wordset(train_words, max_word_len)
         val_words = raw_wordset(val_words, max_word_len)
 
-        print('train set contains {} words'.format(len(train_words)))
-        print('val set contains {} words'.format(len(val_words)))
+        logging.info('train set contains {} words'.format(len(train_words)))
+        logging.info('val set contains {} words'.format(len(val_words)))
 
         all_chars = {FILLER_CHAR, BEG_CHAR, END_CHAR}
         for word in known_words:
@@ -267,7 +269,7 @@ class Wordchar2Vector_Trainer(object):
         index2char = dict([(i, c) for c, i in six.iteritems(char2index)])
 
         nb_chars = len(all_chars)
-        print('nb_chars={}'.format(nb_chars))
+        logging.info('nb_chars={}'.format(nb_chars))
 
         mask_zero = self.arch_type == 'rnn'
 
@@ -300,7 +302,7 @@ class Wordchar2Vector_Trainer(object):
         input_chars = Input(shape=(seq_len,), dtype='int32', name='input')
         encoder = embedding(input_chars)
 
-        print('Building "{}" neural network'.format(self.arch_type))
+        logging.info('Building "{}" neural network'.format(self.arch_type))
         if self.arch_type == 'cnn':
             conv_list = []
             merged_size = 0
@@ -462,7 +464,7 @@ class Wordchar2Vector_Trainer(object):
         workout_count = 0
         batch_size = self.batch_size
         while batch_size >= self.min_batch_size and remaining_epochs > 0:
-            print('Workout #{}: start training with batch_size={}, remaining epochs={}'.format(workout_count, batch_size, remaining_epochs))
+            logging.info('Workout #{}: start training with batch_size={}, remaining epochs={}'.format(workout_count, batch_size, remaining_epochs))
             if workout_count > 0:
                 model.load_weights(weigths_path)
             workout_count += 1
@@ -478,7 +480,7 @@ class Wordchar2Vector_Trainer(object):
             remaining_epochs -= len(hist.history)
             batch_size = batch_size // 2
 
-        print('Training complete, best_accuracy={}'.format(visualizer.get_best_accuracy()))
+        logging.info('Training complete, best_accuracy={}'.format(visualizer.get_best_accuracy()))
 
         # Загружаем наилучшее состояние модели
         model.load_weights(weigths_path)

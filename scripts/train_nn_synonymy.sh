@@ -1,0 +1,1 @@
+KERAS_BACKEND=theano python ../PyModels/nn_synonymy.py --run_mode train --batch_size 350 --arch 'lstm(cnn)' --classifier 'merge' --input ../data/synonymy_dataset.csv --tmp ../tmp --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin

@@ -34,6 +34,8 @@ from sklearn.metrics import confusion_matrix
 
 
 from utils.tokenizer import Tokenizer
+import utils.console_helpers
+import utils.logging_helpers
 
 # основной настроечный метапараметр - длина символьных шинглов для представления
 # предпосылки и вопроса (bag of shingles).
@@ -572,11 +574,12 @@ if run_mode == 'train':
 
 
     # DEBUG BEGIN
-    with codecs.open('../tmp/cy.txt', 'w', 'utf-8') as wrt:
-        cy = Counter()
-        cy.update(y_test)
-        for y, n in cy.most_common():
-            wrt.write(u'{:3d} {:2s} {}\n'.format(y, encode_char(id2outchar[y]), n))
+    if False:
+        with codecs.open('../tmp/cy.txt', 'w', 'utf-8') as wrt:
+            cy = Counter()
+            cy.update(y_test)
+            for y, n in cy.most_common():
+                wrt.write(u'{:3d} {:2s} {}\n'.format(y, encode_char(id2outchar[y]), n))
     # DEBUG END
 
     D_train = xgboost.DMatrix(X_train, y_train, silent=0)
@@ -603,7 +606,7 @@ if run_mode == 'train':
     cl = xgboost.train(xgb_params,
                        D_train,
                        evals=[(D_val, 'val')],
-                       num_boost_round=NB_TREES,
+                       num_boost_round=5000,  #NB_TREES,
                        verbose_eval=10,
                        early_stopping_rounds=20)
 
@@ -648,7 +651,7 @@ if run_mode == 'train':
                                                desc='Calculating instance accuracy'):
         answer2 = generate_answer(cl, tokenizer,
                                   outshingle2id, inshingle2id, outchar2id,
-                                  SHINGLE_LEN, NB_PREV_CHARS, nb_features, id2outchar, phrase2sdr,
+                                  SHINGLE_LEN, NB_PREV_CHARS, nb_features, id2outchar, None,
                                   premise, question)
         answer_len = len(answer)
         answerlen2samples[answer_len] += 1
@@ -710,13 +713,18 @@ if run_mode == 'query':
     id2outchar = dict((i, c) for c, i in outchar2id.items())
 
     while True:
-        premise = raw_input('Premise:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(premise) == 0:
-            break
+        premise = u''
+        question = None
 
-        question = raw_input('Question:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(question) == 0:
-            break
+        premise = raw_input('Premise:> ').decode(sys.stdout.encoding).strip().lower()
+        if len(premise) > 0 and premise[-1] == u'?':
+            question = premise
+            premise = u''
+
+        if question is None:
+            question = raw_input('Question:> ').decode(sys.stdout.encoding).strip().lower()
+            if len(question) == 0:
+                break
 
         answer = generate_answer(generator, tokenizer,
                                  outshingle2id, inshingle2id, outchar2id,

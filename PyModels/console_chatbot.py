@@ -57,7 +57,8 @@ text_utils.load_dictionaries(data_folder)
 facts_storage = Files3FactsStorage(text_utils=text_utils,
                                    facts_folder=facts_folder)
 bot = SimpleAnsweringMachine(facts_storage=facts_storage, text_utils=text_utils)
-bot.enable_smalltalk = False
+bot.enable_smalltalk = True
+bot.enable_scripting = True
 bot.load_models(models_folder, w2v_folder)
 
 scripting = BotScripting(data_folder)

@@ -29,7 +29,6 @@ import numpy as np
 import pandas as pd
 import tqdm
 import logging
-import logging.handlers
 
 import skimage.transform
 
@@ -59,6 +58,8 @@ from utils.padding_utils import PAD_WORD
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
 from trainers.word_embeddings import WordEmbeddings
+import utils.console_helpers
+import utils.logging_helpers
 
 
 config_file_name = 'nn_relevancy_model.config'
@@ -144,13 +145,8 @@ classifier_arch = args.classifier
 
 
 # настраиваем логирование в файл
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')
-lf = logging.FileHandler(os.path.join(tmp_folder, 'nn_relevancy.log'), mode='w')
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_relevancy.log'))
 
-lf.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(message)s')
-lf.setFormatter(formatter)
-logging.getLogger('').addHandler(lf)
 
 # Для быстрого проведения исследований влияния гиперпараметров удобно брать для
 # обучения не полный датасет, а небольшую часть - указываем кол-во паттернов.
@@ -214,7 +210,7 @@ if run_mode == 'train':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
-    # Грузим ранее подготовленный датасет для тренировки модели
+    # Грузим ранее подготовленный датасет для тренировки модели (см. prepare_relevancy_dataset.py)
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
 
     # Анализ и векторизация датасета
@@ -1207,13 +1203,7 @@ if run_mode == 'query':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
-    X1_probe = np.zeros((1, max_wordseq_len, word_dims), dtype=np.float32)
-    X2_probe = np.zeros((1, max_wordseq_len, word_dims), dtype=np.float32)
-
     while True:
-        X1_probe.fill(0)
-        X2_probe.fill(0)
-
         print('\nEnter two phrases:')
         phrase1 = raw_input('phrase #1 (premise):> ').decode(sys.stdout.encoding).strip().lower()
         if len(phrase1) == 0:
@@ -1228,37 +1218,76 @@ if run_mode == 'query':
 
         all_words_known = True
         for word in itertools.chain(words1, words2):
-            if word not in word2vec:
+            if word not in embeddings:
                 print(u'Unknown word {}'.format(word))
                 all_words_known = False
 
         if all_words_known:
-            vectorize_words(lpad_wordseq(words1, max_wordseq_len), X1_probe, 0, word2vec)
-            vectorize_words(lpad_wordseq(words2, max_wordseq_len), X2_probe, 0, word2vec)
-            y_probe = model.predict(x={'input_words1': X1_probe, 'input_words2': X2_probe})
-            sim = y_probe[0][0]
-            print('sim={}'.format(sim))
+            samples = [(words1, words2)]
+            dummy_targets = [-1]
 
-            if False:
-                # содержимое X*_probe для отладки
-                print('X1_probe.shape]{}'.format(X1_probe.shape))
-                with open('../tmp/x1_query.txt', 'w') as wrt:
-                    for istep in range(X1_probe.shape[1]):
-                        for idim in range(X1_probe.shape[2]):
-                            wrt.write('{:15e} '.format(X1_probe[0, istep, idim]))
-                        wrt.write('\n')
-
-                print('X2_probe.shape]{}'.format(X2_probe.shape))
-                with open('../tmp/x2_query.txt', 'w') as wrt:
-                    for istep in range(X2_probe.shape[1]):
-                        for idim in range(X2_probe.shape[2]):
-                            wrt.write('{:15e} '.format(X2_probe[0, istep, idim]))
-                        wrt.write('\n')
+            for x in generate_rows(samples, dummy_targets, len(samples), embeddings, 2):
+                y_probe = model.predict(x=x)
+                print('sim={}\n\n'.format(y_probe[0][0]))
+                break
 
 # </editor-fold>
 
 # <editor-fold desc="query2">
 if run_mode == 'query2':
+    # Для введенного в консоли предложения ищутся top ближайших фраз среди
+    # реплик в файле data/smalltalk.txt
+
+    embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+    word_dims = embeddings.vector_size
+
+    phrases1 = []
+    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+        for line in rdr:
+            phrase = line.strip()
+            if phrase.startswith(u'Q:'):
+                phrase = phrase.replace(u'Q:', u'').strip()
+                words = tokenizer.tokenize(phrase)
+                if len(words) > 0:
+                    phrases1.append(words)
+
+    nb_phrases = len(phrases1)
+    print(u'{0} phrases loaded.'.format(nb_phrases))
+
+    while True:
+        phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
+        if len(phrase2) == 0:
+            break
+
+        words2 = tokenizer.tokenize(phrase2)
+
+        all_words_known = True
+        for word in words2:
+            if word not in embeddings:
+                print(u'Unknown word {}'.format(word))
+                all_words_known = False
+
+        if all_words_known:
+            samples = [(phrase1, words2) for phrase1 in phrases1]
+            dummy_targets = list(itertools.repeat(-1, len(phrases1)))
+
+            for x in generate_rows(samples, dummy_targets, len(samples), embeddings, 2):
+                y_probe = model.predict(x=x)
+
+                sent_rels = [(phrases1[i], y_probe[i][0]) for i in range(nb_phrases)]
+                sent_rels = sorted(sent_rels, key=lambda z: -z[1])
+
+                # Выведем top N фраз из файла
+                for phrase1, rel in sent_rels[0:10]:
+                    print(u'{:4f}\t{}'.format(rel, u' '.join(phrase1)))
+
+                print('\n\n')
+                break
+
+# </editor-fold>
+
+# <editor-fold desc="query3">
+if run_mode == 'query3':
     # С клавиатуры задается путь к файлу с предложениями, и второе предложение.
     # Модель делает оценку релевантности для каждого предложения в файле и введенного предложения,
     # и сохраняет список оценок с сортировкой.
