@@ -111,16 +111,16 @@ B:> 5
 
 Список моделей:
 
-Посимвольное встраивание слово в вектор фиксированной длины [wordchar2vector_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/wordchar2vector_model.py)
-Определение способа генерации ответа [nn_model_selector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_model_selector.py)
-Определение слов, копируемых из предпосылки в ответ [nn_wordcopy3.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_wordcopy3.py)
-Определение достаточности набора предпосылок для генерации ответа [nn_enough_premises_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_enough_premises_model.py)
-Генерация ответов yes/no [nn_yes_no_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_yes_no_model.py)
-Посимвольная генерация ответа [xgb_answer_generator_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_answer_generator_model.py)
-Определение грамматического лица фразы [xgb_person_classifier_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_person_classifier_model.py)
-Определение релевантности предпосылки и вопроса [lgb_relevancy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/lgb_relevancy_detector.py)
-Интерпретация реплики собеседника (раскрытие анафоры, дополнение ответа etc) [nn_interpreter.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_interpreter.py)
-Определение синонимии фраз [nn_synonymy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_synonymy_detector.py)
+Посимвольное встраивание слово в вектор фиксированной длины [wordchar2vector_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/wordchar2vector_model.py)  
+Определение способа генерации ответа [nn_model_selector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_model_selector.py)  
+Определение слов, копируемых из предпосылки в ответ [nn_wordcopy3.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_wordcopy3.py)  
+Определение достаточности набора предпосылок для генерации ответа [nn_enough_premises_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_enough_premises_model.py)  
+Генерация ответов yes/no [nn_yes_no_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_yes_no_model.py)  
+Посимвольная генерация ответа [xgb_answer_generator_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_answer_generator_model.py)  
+Определение грамматического лица фразы [xgb_person_classifier_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_person_classifier_model.py)  
+Определение релевантности предпосылки и вопроса [lgb_relevancy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/lgb_relevancy_detector.py)  
+Интерпретация реплики собеседника (раскрытие анафоры, дополнение ответа etc) [nn_interpreter.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_interpreter.py)  
+Определение синонимии фраз [nn_synonymy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_synonymy_detector.py)  
 
 Набор моделей и конкретная реализация могут сильно меняться по мере развития проекта,
 поэтому список является не окончательным.
