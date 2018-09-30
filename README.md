@@ -129,3 +129,16 @@ B:> 5
 смотрите на [отдельной странице](./PyModels/trainers/README.wordchar2vector.md).
 
 Также доступно [описание модели для определения релевантности факта и вопроса](README.relevance.md).
+
+## Pretrained models
+
+Модель встраивания слов в векторное пространство тренируется с помощью
+скрипта https://gist.github.com/Koziev/e39689adec30ae5bf6afaa1ca47c08e5 (Python, gensim)
+и текстового корпуса размером около 10 Гб, в котором текст предварительно разбит
+на слова и приведен к нижнему регистру.
+
+Готовый файл модели w2v.CBOW=1_WIN=5_DIM=32.bin можно скачать [здесь](https://drive.google.com/file/d/15vb2B4ub_3R1MCbfLGkuknhsHHMAoKai/view?usp=sharing).
+
+Остальные файлы моделей, которые тренируются на диалоговых корпусах и используются
+чатботом, выложены в [папке tmp репозитория](https://github.com/Koziev/chatbot/tree/master/tmp).
+Скрипты запуска бота, например [console_bot.sh](https://github.com/Koziev/chatbot/blob/master/scripts/console_bot.sh) указывают именно этот подкаталог в качестве местоположения моделей.
