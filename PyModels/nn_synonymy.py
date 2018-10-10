@@ -71,8 +71,8 @@ np.random.seed(123456789)
 
 class Sample:
     def __init__(self, phrase1, phrase2, y):
-        assert(phrase1 > 0)
-        assert(phrase2 > 0)
+        assert(len(phrase1) > 0)
+        assert(len(phrase2) > 0)
         assert(y in [0, 1])
         self.phrase1 = phrase1
         self.phrase2 = phrase2
@@ -713,12 +713,14 @@ if run_mode == 'train':
                 encoder_merged = keras.layers.concatenate(inputs=list(itertools.chain(conv1, conv2)))
 
         final_size = encoder_size*2+nb_addfeatures
-        words_final = Dense(units=final_size, activation='sigmoid')(encoder_merged)
+        #words_final = Dense(units=final_size, activation='sigmoid')(encoder_merged)
+        #words_final = Dense(units=final_size, activation='relu')(encoder_merged)
+        words_final = encoder_merged
         # words_final = BatchNormalization()(words_final)
         words_final = Dense(units=final_size//2, activation='relu')(words_final)
-        # words_final = BatchNormalization()(words_final)
+        #words_final = BatchNormalization()(words_final)
         words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
-        # words_final = BatchNormalization()(words_final)
+        #words_final = BatchNormalization()(words_final)
         #words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
 
     elif classifier_arch == 'muladd':
@@ -808,16 +810,12 @@ if run_mode == 'train':
         f.write(model.to_json())
 
     SEED = 123456
-    TEST_SHARE = 0.2
+    TEST_SHARE = 0.3
     train_samples, val_samples = train_test_split(samples, test_size=TEST_SHARE, random_state=SEED)
-
-    #for isample, sample in enumerate(val_samples):
-    #    if sample.phrase1 == u'в машине все работает' and sample.phrase2 == u'звоните приезжайте, смотрите':
-    #        pass
-
-
+    val_samples, eval_samples = train_test_split(val_samples, test_size=0.3, random_state=SEED)
     logging.info('train_samples.count={}'.format(len(train_samples)))
     logging.info('val_samples.count={}'.format(len(val_samples)))
+    logging.info('eval_samples.count={}'.format(len(eval_samples)))
 
     logging.info('Start training...')
     model_checkpoint = ModelCheckpoint(weights_path, monitor='val_acc',
@@ -940,11 +938,8 @@ if run_mode == 'query':
 
 # <editor-fold desc="query2">
 if run_mode == 'query2':
-    ################################################################
-    # Ввод двух предложений с клавиатуры - предпосылки и вопроса,
-    # поиск в датасете pqa ближайшего паттерна, для которого cos
-    # предпосылок и вопросов максимальны.
-    ################################################################
+    # В консоли вводится предложение, для которого в списке smalltalk.txt
+    # ищутся ближайшие.
 
     # Грузим конфигурацию модели, веса и т.д.
     with open(config_path, 'r') as f:
