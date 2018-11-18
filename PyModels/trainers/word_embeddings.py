@@ -67,6 +67,8 @@ class WordEmbeddings(object):
             print('w2v_dims={0}'.format(w2v_dims))
             return WordEmbeddings_W2V(wc2v, wc2v_dims, w2v, w2v_dims)
 
+    def all_words_known(self, words):
+        raise NotImplemented()
 
 class WordEmbeddings_W2V(object):
     """
@@ -80,13 +82,14 @@ class WordEmbeddings_W2V(object):
         self.vector_size = w2v_dims+wc2v_dims
         self.w2v = w2v
         self.wc2v = wc2v
+        self.missing_wc2c = set()
 
     def __contains__(self, word):
         return word != u''
 
     def __getitem__(self, word):
         v = np.zeros(self.vector_size)
-        if WordEmbeddings._is_int(word):
+        if WordEmbeddings._is_int(word) and u'_num_' in self.w2v:
             v[:self.w2v_dims] = self.w2v[u'_num_']
         elif word in self.w2v:
             v[:self.w2v_dims] = self.w2v[word]
@@ -94,10 +97,15 @@ class WordEmbeddings_W2V(object):
             pass
 
         if word not in self.wc2v:
-            print(u'Word {} missing in wordchar2vector model'.format(word))
+            if word not in self.missing_wc2c:
+                print(u'Word {} missing in wordchar2vector model'.format(word))
+                self.missing_wc2c.add(word)
         else:
             v[self.w2v_dims:] = self.wc2v[word]
         return v
+
+    def all_words_known(self, words):
+        return not any((w not in self.wc2v) for w in words)
 
 
 class WordEmbeddings_FastText(object):

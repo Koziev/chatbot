@@ -3,7 +3,7 @@
 Подготовка списка слов для тренировки модели
 встраиваний слова wordchar2vector.
 
-(c) by Koziev Ilya inkoziev@gmail.com для чат-бота https://github.com/Koziev/chatbot
+(c) by Koziev Ilya для чат-бота https://github.com/Koziev/chatbot
 '''
 
 from __future__ import print_function
@@ -30,6 +30,7 @@ else:
 
 paraphrases_path = '../data/premise_question_relevancy.csv'
 synonymy_path = '../data/synonymy_dataset.csv'
+synonymy3_path = '../data/synonymy_dataset3.csv'
 pqa_path = '../data/premise_question_answer.csv'
 pqa_multy_path = '../data/qa_multy.txt'
 eval_path = '../data/evaluate_relevancy.txt'
@@ -38,12 +39,56 @@ interpretations = ['../data/interpretation_auto_4.txt',
                    '../data/interpretation_auto_5.txt',
                    '../data/interpretation.txt']
 smalltalk_path = '../data/smalltalk.txt'
-# ---------------------------------------------------------------
+
+postagger_corpora = ['united_corpora.dat', 'morpheval_corpus_solarix.full.dat']
+
+
+goodchars = set(u'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'+
+                u'1234567890'+
+                u'+.,-?!()[]{}*<>$&=~№/\\«»%:;|#"\'°')
+
+
+stop_words = {u'_num_'}
+
+def is_punkt(c):
+    return c in u'+.,-?!()[]{}*<>$&=~№/\\«»%:;|#" \'’–'
+
+
+def is_good_word(word):
+    if word in stop_words or word.startswith(u' ') or word == u'' or len(word) > 28:
+        return False
+
+    if len(word) > 1:
+        if is_punkt(word[0]):
+            # В датасетах попадаются мусорные токены типа ((((, которые нет
+            # смысла сохранять для тренировки wc2v модели.
+            return False
+
+    if any(c not in goodchars for c in word):
+        return False
+
+    return True
+
+
+
+#r1 = is_good_word(u'! --')
+
 
 tokenizer = Tokenizer()
 
 known_words = set()
 dataset_words = set()
+
+for corpus in postagger_corpora:
+    print(u'Processing {}'.format(corpus))
+    with codecs.open(os.path.join('../data', corpus), 'r', 'utf-8') as rdr:
+        for line in rdr:
+            line = line.strip()
+            if line:
+                tx = line.split('\t')
+                word = tx[1].lower()
+                known_words.add(word)
+                dataset_words.add(word)
 
 print('Parsing {}'.format(smalltalk_path))
 with codecs.open(smalltalk_path, 'r', 'utf-8') as rdr:
@@ -80,12 +125,26 @@ for phrase in itertools.chain(df['premise'].values, df['question'].values):
     known_words.update(words)
     dataset_words.update(words)
 
+print('Parsing {}'.format(synonymy3_path))
+df = pd.read_csv(synonymy3_path, encoding='utf-8', delimiter='\t', quoting=3)
+for phrase in itertools.chain(df['anchor'].values, df['positive'].values, df['negative'].values):
+    words = tokenizer.tokenize(phrase.lower())
+    known_words.update(words)
+    dataset_words.update(words)
+
 print('Parsing {}'.format(pqa_path))
 df = pd.read_csv(pqa_path, encoding='utf-8', delimiter='\t', quoting=3)
 for phrase in itertools.chain( df['premise'].values, df['question'].values, df['answer'].values ):
     words = tokenizer.tokenize(phrase)
     known_words.update(words)
     dataset_words.update(words)
+
+df = pd.read_csv('../data/relevancy_dataset3.csv', encoding='utf-8', delimiter='\t', quoting=3)
+for phrase in itertools.chain(df['anchor'].values, df['positive'].values, df['negative'].values):
+    words = tokenizer.tokenize(phrase.lower())
+    known_words.update(words)
+    dataset_words.update(words)
+
 
 # Добавим слова, которые употребляются в датасете для оценки
 print('Parsing {}'.format(eval_path))
@@ -127,14 +186,12 @@ for p in interpretations:
 
 print('There are {} known words, {} dataset words'.format(len(known_words), len(dataset_words)))
 
-stop_words = {u'_num_'}
-
 with codecs.open(result_path, 'w', 'utf-8') as wrt:
     for word in sorted(known_words):
-        if word not in stop_words and not word.startswith(u' '):
+        if is_good_word(word):
             wrt.write(u'{}\n'.format(word))
 
 with codecs.open(result2_path, 'w', 'utf-8') as wrt:
     for word in sorted(dataset_words):
-        if word not in stop_words and not word.startswith(u' '):
+        if is_good_word(word):
             wrt.write(u'{}\n'.format(word))

@@ -352,14 +352,13 @@ for premise, question in samples2:
                         break
 
     # эксперимент от 15.11.2018
-    qx = [u'как меня зовут', u'кто я']
-    for nonrelevant_question in qx:
-        pq = premise + u'|' + nonrelevant_question
-        if pq not in all_pq:
-            samples3.append(Sample3(premise, question, nonrelevant_question))
-            all_pq.add(pq)
-            n3 += 1
-print('DEBUG@355 n3={}'.format(n3))
+    if False:
+        qx = [u'как меня зовут', u'кто я', u'где ты находишься', u'какой я']
+        for nonrelevant_question in qx:
+            pq = premise + u'|' + nonrelevant_question
+            if pq not in all_pq:
+                samples3.append(Sample3(premise, question, nonrelevant_question))
+                all_pq.add(pq)
 
 
 print(u'Storing {} triplets to dataset "{}"'.format(len(samples3), output_filepath3))

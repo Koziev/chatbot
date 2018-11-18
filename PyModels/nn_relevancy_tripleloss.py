@@ -56,6 +56,8 @@ import utils.logging_helpers
 
 PHRASE_DIM = 64
 
+PRETRAIN = True
+
 padding = 'left'
 
 random.seed(123456789)
@@ -104,7 +106,9 @@ def vectorize_words(words, X_batch, irow, word2vec):
 def generate_rows(samples, batch_size, w2v, mode):
     if mode == 1:
         # При обучении сетки каждую эпоху тасуем сэмплы.
-        random.shuffle(samples)
+        #random.shuffle(samples)
+        # эксперимент - сортируем сэмплы по тексту anchor'а
+        samples = sorted(samples, key=lambda s: s.anchor)
 
     batch_index = 0
     batch_count = 0
@@ -384,6 +388,24 @@ if run_mode == 'train':
             sample.positive_words = rpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
             sample.negative_words = rpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
 
+    if PRETRAIN:
+        logging.info('Building samples for pretraining')
+        pretrain_samples = []
+        anchors = [sample.anchor for sample in samples3]
+        positives = [sample.positive for sample in samples3]
+        negatives = [sample.negative for sample in samples3]
+
+        for _ in range(1000000):
+            sample = Sample3(random.choice(anchors),
+                             random.choice(positives),
+                             random.choice(negatives))
+
+            sample.anchor_words = rpad_wordseq(tokenizer.tokenize(sample.anchor), max_wordseq_len)
+            sample.positive_words = rpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
+            sample.negative_words = rpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
+
+            pretrain_samples.append(sample)
+
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
         'model': 'nn_relevancy_tripleloss',
@@ -487,9 +509,17 @@ if run_mode == 'train':
     model1.compile(loss='mse', optimizer='adam')
     model1.summary()
 
-    # Сохраняем архитектуру и веса этой сетки.
+    # Сохраняем архитектуру этой сетки.
     with open(arch_filepath, 'w') as f:
         f.write(model1.to_json())
+
+    if PRETRAIN:
+        logging.info('Start pretraining...')
+        model.fit_generator(generator=generate_rows(pretrain_samples, batch_size, embeddings, 1),
+                            steps_per_epoch=len(pretrain_samples) // batch_size,
+                            epochs=10,
+                            verbose=1)
+        logging.info('End of pretraining.')
 
     # разбиваем датасет на обучающую, валидационную и оценочную части.
     # таким образом, финальная оценка будет идти по сэмплам, которые
