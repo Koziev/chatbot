@@ -108,7 +108,7 @@ def train_model(lgb_params, D_train, D_val, y_val):
                         D_train,
                         valid_sets=[D_val],
                         valid_names=['val'],
-                        num_boost_round=10000,
+                        num_boost_round=5000,
                         verbose_eval=50,
                         early_stopping_rounds=50)
 
@@ -410,9 +410,9 @@ if run_mode == 'train':
     D_train = lightgbm.Dataset(data=X_train, label=y_train, weight=w_train, silent=1)
     D_val = lightgbm.Dataset(data=X_val, label=y_val, weight=w_val, silent=1)
 
-    del X_train
-    del X_data
-    del df
+    #del X_train
+    #del X_data
+    #del df
     gc.collect()
 
     model_filename = os.path.join( tmp_folder, 'lgb_relevancy.model' )
@@ -482,6 +482,15 @@ if run_mode == 'train':
         # сохраняем саму модель
         cl.save_model( model_filename )
 
+        # Для отладки - прогоним через модель весь датасет и сохраним результаты в текстовый файл.
+        y_pred = cl.predict(X_data)
+        with codecs.open(os.path.join(tmp_folder, 'lgb_relevancy.validation.txt'), 'w', 'utf-8') as wrt:
+            for i in range(len(y_pred)):
+                premise = phrases[i][2]
+                question = phrases[i][3]
+                wrt.write(u'{}\n{}\ny_true={} y_pred={}\n\n'.format(premise, question, y_data[i], y_pred[i]))
+
+
 if run_mode == 'query':
     # Ручная проверка модели на вводимых в консоли предпосылках и вопросах.
 
@@ -536,12 +545,24 @@ if run_mode == 'query2':
 
     premises = []
 
-    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if len(phrase) > 5 and phrase.startswith(u'Q:'):
-                phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
-                premises.append(phrase)
+    if False:
+        with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                    phrase2 = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                    premises.append((phrase2, phrase))
+    else:
+        for fname in ['test_premises.txt']:
+            added_phrases = set()
+            with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
+                for line in rdr:
+                    phrase = line.strip()
+                    if len(phrase) > 5:
+                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                        if phrase2 not in added_phrases:
+                            added_phrases.add(phrase2)
+                            premises.append((phrase2, phrase))
 
     nb_premises = len(premises)
     print('nb_premises={}'.format(nb_premises))
@@ -557,12 +578,12 @@ if run_mode == 'query2':
         question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
 
         for ipremise, premise in enumerate(premises):
-            premise_wx = words2str(tokenizer.tokenize(premise))
+            premise_wx = words2str(tokenizer.tokenize(premise[0]))
             premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
             vectorize_sample_x(X_data, ipremise, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
 
         y_pred = lgb_relevancy.predict(X_data)
-        phrase_rels = [(premises[i], y_pred[i]) for i in range(nb_premises)]
+        phrase_rels = [(premises[i][1], y_pred[i]) for i in range(nb_premises)]
         phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
         for phrase, sim in phrase_rels[:10]:
             print(u'{:6.4f} {}'.format(sim, phrase))

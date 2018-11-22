@@ -3,16 +3,15 @@
 Модель для определения релевантности предпосылки и вопроса.
 Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
 Для сравнения - модели определения релевантности на шинглах xgb_relevancy.py и
-lgb_relevancy.py
+lgb_relevancy.py, а также нейросетевая модель с triple loss nn_relevancy_tripleloss.py
 
 Вторая функция программы - обучение модели для генерации вектора предложения (sent2vec).
 
 Датасет должен быть предварительно сгенерирован скриптом prepare_relevancy_dataset.py
 
-Слова представляются векторами word2vector и wordchar2vector моделей. Списки соответствующих
-векторов читаются из текстовых файлов. Обучение wordchar2vector модели и генерация векторов
-для используемого списка слов должны быть выполнены заранее скриптом wordchar2vector.py в
-корне проекте.
+Слова представляются векторами word2vector и wordchar2vector моделей. Обучение wordchar2vector
+модели и генерация векторов для используемого списка слов должны быть выполнены заранее
+скриптом wordchar2vector.py в корне проекта.
 """
 
 from __future__ import division
@@ -39,6 +38,7 @@ from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, Ave
 from keras.layers import Input
 from keras.layers import Lambda
 from keras.layers import recurrent
+from keras.layers import Dropout
 from keras.layers.core import Dense
 from keras.layers.merge import concatenate, add, multiply
 from keras.layers.wrappers import Bidirectional
@@ -50,6 +50,8 @@ import keras.regularizers
 
 from sklearn.model_selection import train_test_split
 import sklearn.metrics
+
+import matplotlib.pyplot as plt
 
 from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
@@ -115,15 +117,91 @@ def v_cosine(a, b):
     else:
         return 0
 
-# -------------------------------------------------------------------
+
+def vectorize_words(words, X_batch, irow, word2vec):
+    for iword, word in enumerate(words):
+        if word != PAD_WORD:
+            X_batch[irow, iword, :] = word2vec[word]
+
+
+def generate_rows(sequences, targets, batch_size, w2v, mode):
+    batch_index = 0
+    batch_count = 0
+
+    X1_batch = np.zeros((batch_size, max_wordseq_len, word_dims), dtype=np.float32)
+    X2_batch = np.zeros((batch_size, max_wordseq_len, word_dims), dtype=np.float32)
+    y_batch = np.zeros((batch_size, 2), dtype=np.bool)
+
+    use_addfeatures = False
+    if net_arch == 'cnn2':
+        use_addfeatures = True
+        X3_batch = np.zeros((batch_size, nb_addfeatures), dtype=np.float32)
+
+    while True:
+        for irow, (seq, target) in enumerate(itertools.izip(sequences, targets)):
+
+            # DEBUG START
+            #if seq[2] == u'тебя зовут андрей' and seq[3] == u'тебя случайно не джек зовут':
+            #    print('DEBUG@144')
+            # DEBUG END
+
+            vectorize_words(seq[0], X1_batch, batch_index, w2v)
+            vectorize_words(seq[1], X2_batch, batch_index, w2v)
+            y_batch[batch_index, target] = True
+
+            if use_addfeatures:
+                iaddfeature = 0
+                for word1 in seq[0]:
+                    for word2 in seq[1]:
+                        jaccard_sim = jaccard(word1, word2, 3)
+                        X3_batch[batch_index, iaddfeature] = jaccard_sim
+                        iaddfeature += 1
+
+                        if word1 != PAD_WORD and word2 != PAD_WORD:
+                            v1 = w2v[word1]
+                            v2 = w2v[word2]
+                            w2v_sim = v_cosine(v1, v2)
+                            X3_batch[batch_index, iaddfeature] = w2v_sim
+                        iaddfeature += 1
+
+                if use_shingle_matching:
+                    # добавляем сжатую матрицу соответствия шинглов
+                    shingle_features = get_shingle_image( u' '.join(seq[0]), u' '.join(seq[1]) )
+                    iaddfeature2 = iaddfeature + shingle_features.shape[0]
+                    X3_batch[batch_index, iaddfeature:iaddfeature2] = shingle_features
+                    iaddfeature = iaddfeature2
+
+            batch_index += 1
+
+            if batch_index == batch_size:
+                batch_count += 1
+                xx = {'input_words1': X1_batch, 'input_words2': X2_batch}
+                if use_addfeatures:
+                    xx['input_addfeatures'] = X3_batch
+                #print('DEBUG @704 yield batch_count={}'.format(batch_count))
+                if mode == 1:
+                    yield (xx, {'output': y_batch})
+                else:
+                    yield xx
+
+                # очищаем матрицы порции для новой порции
+                X1_batch.fill(0)
+                X2_batch.fill(0)
+                if use_addfeatures:
+                    X3_batch.fill(0)
+                y_batch.fill(0)
+                batch_index = 0
+
+# ---------------------------------------------------------------
+
 
 NB_EPOCHS = 1000  # для экспериментов с Extreme Learning Machine можно поставить 0
 
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for text relevance estimation')
-parser.add_argument('--run_mode', type=str, default='train', help='what to do: train evaluate query query2')
-parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: ff | lstm | lstm(lstm) | lstm(cnn) | lstm+cnn | cnn | cnn2')
-parser.add_argument('--classifier', type=str, default='merge', help='final classifier architecture: merge muladd')
+parser.add_argument('--run_mode', type=str, default='train', choices='train evaluate query query2'.split(), help='what to do')
+parser.add_argument('--arch', type=str, default='lstm(cnn)', choices='ff lstm lstm(lstm) lstm(cnn) lstm+cnn cnn cnn2'.split(), help='neural model architecture')
+parser.add_argument('--classifier', type=str, default='merge', choices='merge merge2 muladd'.split(), help='final classifier architecture')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--max_nb_samples', type=int, default=1000000000, help='upper limit for number of samples')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
@@ -220,6 +298,29 @@ if run_mode == 'train':
         max_wordseq_len = max(max_wordseq_len, len(words))
 
     logging.info('max_wordseq_len={}'.format(max_wordseq_len))
+
+
+
+    # DEBUG START
+    if False:
+        phrase1 = u'тебя зовут андрей'
+        phrase2 = u'тебя случайно не джек зовут'
+        words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        samples = [(words1, words2, phrase1, phrase2)]
+        dummy_targets = [-1]
+
+        for x in generate_rows(samples, dummy_targets, len(samples), embeddings, 2):
+            # -- DEBUG START
+            print('X[0]={}'.format(x['input_words1']))
+            print('X[1]={}'.format(x['input_words2']))
+            # -- DEBUG END
+            #exit(0)
+            break
+    # DEBUG END
+
+
+
 
     # суммарное кол-во дополнительных фич, подаваемых на вход сетки
     # помимо двух отдельных предложений.
@@ -635,6 +736,7 @@ if run_mode == 'train':
         final_size = encoder_size*2+nb_addfeatures
         words_final = Dense(units=final_size, activation='sigmoid')(encoder_merged)
         # words_final = BatchNormalization()(words_final)
+        #words_final = Dropout(rate=0.2)(words_final)
         words_final = Dense(units=final_size//2, activation='relu')(words_final)
         # words_final = BatchNormalization()(words_final)
         words_final = Dense(units=encoder_size//3, activation='relu')(words_final)
@@ -751,81 +853,6 @@ if run_mode == 'train':
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
 
-# -----------------------------------------------------------------
-
-
-def vectorize_words(words, X_batch, irow, word2vec):
-    for iword, word in enumerate(words):
-        if word != PAD_WORD:
-            X_batch[irow, iword, :] = word2vec[word]
-
-
-def generate_rows(sequences, targets, batch_size, w2v, mode):
-    batch_index = 0
-    batch_count = 0
-
-    X1_batch = np.zeros((batch_size, max_wordseq_len, word_dims), dtype=np.float32)
-    X2_batch = np.zeros((batch_size, max_wordseq_len, word_dims), dtype=np.float32)
-    y_batch = np.zeros((batch_size, 2), dtype=np.bool)
-
-    use_addfeatures = False
-    if net_arch == 'cnn2':
-        use_addfeatures = True
-        X3_batch = np.zeros((batch_size, nb_addfeatures), dtype=np.float32)
-
-    while True:
-        for irow, (seq, target) in enumerate(itertools.izip(sequences, targets)):
-            vectorize_words(seq[0], X1_batch, batch_index, w2v)
-            vectorize_words(seq[1], X2_batch, batch_index, w2v)
-            y_batch[batch_index, target] = True
-
-            if use_addfeatures:
-                iaddfeature = 0
-                for word1 in seq[0]:
-                    for word2 in seq[1]:
-                        jaccard_sim = jaccard(word1, word2, 3)
-                        X3_batch[batch_index, iaddfeature] = jaccard_sim
-                        iaddfeature += 1
-
-                        if word1 != PAD_WORD and word2 != PAD_WORD:
-                            v1 = w2v[word1]
-                            v2 = w2v[word2]
-                            w2v_sim = v_cosine(v1, v2)
-                            X3_batch[batch_index, iaddfeature] = w2v_sim
-                        iaddfeature += 1
-
-                if use_shingle_matching:
-                    # добавляем сжатую матрицу соответствия шинглов
-                    shingle_features = get_shingle_image( u' '.join(seq[0]), u' '.join(seq[1]) )
-                    iaddfeature2 = iaddfeature + shingle_features.shape[0]
-                    X3_batch[batch_index, iaddfeature:iaddfeature2] = shingle_features
-                    iaddfeature = iaddfeature2
-
-            batch_index += 1
-
-            if batch_index == batch_size:
-                batch_count += 1
-                xx = {'input_words1': X1_batch, 'input_words2': X2_batch}
-                if use_addfeatures:
-                    xx['input_addfeatures'] = X3_batch
-                #print('DEBUG @704 yield batch_count={}'.format(batch_count))
-                if mode == 1:
-                    yield (xx, {'output': y_batch})
-                else:
-                    yield xx
-
-                # очищаем матрицы порции для новой порции
-                X1_batch.fill(0)
-                X2_batch.fill(0)
-                if use_addfeatures:
-                    X3_batch.fill(0)
-                y_batch.fill(0)
-                batch_index = 0
-
-# ---------------------------------------------------------------
-
-# <editor-fold desc="train">
-if run_mode == 'train':
     phrases = []
     ys = []
 
@@ -886,24 +913,70 @@ if run_mode == 'train':
         # загрузим чекпоинт с оптимальными весами
         model.load_weights(weights_path)
 
-    # получим оценку F1 на валидационных данных
-    y_true2 = []
-    y_pred2 = []
-    for istep, xy in enumerate(generate_rows(val_phrases, val_ys, batch_size, embeddings, 1)):
-        x = xy[0]
-        y = xy[1]['output']
-        y_pred = model.predict(x=x, verbose=0)
-        for k in range(len(y_pred)):
-            y_true2.append(y[k][1])
-            y_pred2.append(y_pred[k][1] > y_pred[k][0])
+    if True:
+        # получим оценку F1 на валидационных данных
+        y_true2 = []
+        y_pred2 = []
+        y_pred3 = []
+        for istep, xy in enumerate(generate_rows(val_phrases, val_ys, batch_size, embeddings, 1)):
+            x = xy[0]
+            y = xy[1]['output']
+            y_pred = model.predict(x=x, verbose=0)
+            for k in range(len(y_pred)):
+                y_true2.append(y[k][1])
+                y_pred2.append(y_pred[k][1] > y_pred[k][0])
+                y_pred3.append(y_pred[k][1])
 
-        if istep >= nb_validation_steps:
-            break
+            if istep >= nb_validation_steps:
+                break
 
-    # из-за сильного дисбаланса (в пользу исходов с y=0) оценивать качество
-    # получающейся модели лучше по f1
-    f1 = sklearn.metrics.f1_score(y_true=y_true2, y_pred=y_pred2)
-    logging.info('val f1={}'.format(f1))
+        # из-за сильного дисбаланса (в пользу исходов с y=0) оценивать качество
+        # получающейся модели лучше по f1
+        f1 = sklearn.metrics.f1_score(y_true=y_true2, y_pred=y_pred2)
+        logging.info('val f1={}'.format(f1))
+
+        if False:
+            # Отрисуем AUC кривую
+            y_pred3 = y_pred[:, 1]
+            fpr, recall, thresholds = sklearn.metrics.roc_curve(y_true=y_true2, y_score=y_pred3)
+            roc_auc = sklearn.metrics.auc(fpr, recall)
+            plt.title('Premise-question relevance ROC')
+
+            plt.plot(fpr, recall, 'b', label='AUC = %0.2f' % roc_auc)
+            plt.legend(loc='lower right')
+            plt.plot([0, 1], [0, 1], 'r--')
+            plt.xlim([0, 1])
+            plt.ylim([0, 1])
+            plt.ylabel('True Positive Rate')
+            plt.xlabel('False Positive Rate')
+            plt.savefig(os.path.join(tmp_folder, 'nn_relevancy.aucruc.png'))
+
+    # для визуального контроля за качеством модели прогоним весь датасет через модель
+    # и сохраним результаты предсказания в текстовый файл.
+    logging.info('Making predictions with {} samples'.format(len(phrases)))
+    iphrase = 0
+    with codecs.open(os.path.join(tmp_folder, 'nn_relevancy.validation.txt'), 'w', 'utf-8') as wrt:
+        for istep, xy in enumerate(generate_rows(phrases, ys, batch_size, embeddings, 1)):
+            x = xy[0]
+            y = xy[1]['output']
+            y_pred = model.predict(x=x, verbose=0)
+            for k in range(len(y_pred)):
+                phrase1 = phrases[iphrase][2]
+                phrase2 = phrases[iphrase][3]
+                y_true2 = y[k][1]
+                y_pred2 = y_pred[k][1] > y_pred[k][0]
+                wrt.write(u'{}\n{}\ny_true={} y_pred={} ({})\n'.format(phrase1, phrase2, y_true2, y_pred2, y_pred[k][1]))
+                wrt.write('X[0]={}\nX[1]={}'.format(x['input_words1'][k], x['input_words2'][k]))
+                wrt.write('\n')
+
+                iphrase += 1
+                if iphrase >= len(phrases):
+                    break
+
+            wrt.flush()
+            if istep >= len(phrases) // batch_size:
+                break
+
 
 
     if sent2vec_output is not None:
@@ -950,7 +1023,7 @@ if run_mode == 'train':
         required_sparsity = 0.1
         threshold = x_min
         x_hist, bin_edges = np.histogram(xx, bins=nb_bins)
-        for i in range(1, len(bin_edges)):
+        for i in range(1, len(bin_edges)-1):
             n1 = sum( x_hist[j] for j in range(i, nb_bins) )
             sparsity = float(n1) / nx
             if sparsity <= required_sparsity:
@@ -976,90 +1049,88 @@ if run_mode == 'train':
         with open(os.path.join(tmp_folder, config_file_name2), 'w') as f:
             json.dump(sent2vec_config, f)
 
-        # оценка качества эмбеддингов с помощью косинусной меры в качестве релевантности
-        # и валидационной задачи
-        eval_data = EvaluationDataset(max_wordseq_len, tokenizer)
-        eval_data.load(data_folder)
+        if False:
+            # оценка качества эмбеддингов с помощью косинусной меры в качестве релевантности
+            # и валидационной задачи
+            eval_data = EvaluationDataset(max_wordseq_len, tokenizer)
+            eval_data.load(data_folder)
 
-        nb_good = 0  # попадание предпосылки в top-1
-        nb_good5 = 0
-        nb_good10 = 0
-        nb_total = 0
+            nb_good = 0  # попадание предпосылки в top-1
+            nb_good5 = 0
+            nb_good10 = 0
+            nb_total = 0
 
-        for irecord, phrases in eval_data.generate_groups():
-            nb_samples = len(phrases)
-            X_data = np.zeros((nb_samples * 2, max_wordseq_len, word_dims), dtype='float32')
+            for irecord, phrases in eval_data.generate_groups():
+                nb_samples = len(phrases)
+                X_data = np.zeros((nb_samples * 2, max_wordseq_len, word_dims), dtype='float32')
 
-            for irow, (premise_words, question_words) in enumerate(phrases):
-                for iword, word in enumerate(premise_words[:max_wordseq_len]):
-                    if word != PAD_WORD:
-                        X_data[irow * 2, iword, :] = embeddings[word]
+                for irow, (premise_words, question_words) in enumerate(phrases):
+                    for iword, word in enumerate(premise_words[:max_wordseq_len]):
+                        if word != PAD_WORD:
+                            X_data[irow * 2, iword, :] = embeddings[word]
 
-                for iword, word in enumerate(question_words[:max_wordseq_len]):
-                    if word != PAD_WORD:
-                        X_data[irow * 2 + 1, iword, :] = embeddings[word]
+                    for iword, word in enumerate(question_words[:max_wordseq_len]):
+                        if word != PAD_WORD:
+                            X_data[irow * 2 + 1, iword, :] = embeddings[word]
 
-            y_pred = sent2vec_model.predict(X_data)
+                y_pred = sent2vec_model.predict(X_data)
 
-            sims = []
-            for i in range(nb_samples):
-                v1 = y_pred[i * 2]
-                v2 = y_pred[i * 2 + 1]
-                sim = v_cosine(v1, v2)
-                sims.append(sim)
+                sims = []
+                for i in range(nb_samples):
+                    v1 = y_pred[i * 2]
+                    v2 = y_pred[i * 2 + 1]
+                    sim = v_cosine(v1, v2)
+                    sims.append(sim)
 
-            # предпосылка с максимальной релевантностью
-            max_index = np.argmax(sims)
-            selected_premise = u' '.join(phrases[max_index][0]).strip()
+                # предпосылка с максимальной релевантностью
+                max_index = np.argmax(sims)
+                selected_premise = u' '.join(phrases[max_index][0]).strip()
 
-            nb_total += 1
+                nb_total += 1
 
-            # эта выбранная предпосылка соответствует одному из вариантов
-            # релевантных предпосылок в этой группе?
-            if eval_data.is_relevant_premise(irecord, selected_premise):
-                nb_good += 1
-                nb_good5 += 1
-                nb_good10 += 1
-                #print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
-            else:
-                #print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+                # эта выбранная предпосылка соответствует одному из вариантов
+                # релевантных предпосылок в этой группе?
+                if eval_data.is_relevant_premise(irecord, selected_premise):
+                    nb_good += 1
+                    nb_good5 += 1
+                    nb_good10 += 1
+                    #print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
+                else:
+                    #print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
 
-                # среди top-5 или top-10 предпосылок есть верная?
-                sorted_phrases = [x for x, _ in sorted(itertools.izip(phrases, sims), key=lambda z: -z[1])]
+                    # среди top-5 или top-10 предпосылок есть верная?
+                    sorted_phrases = [x for x, _ in sorted(itertools.izip(phrases, sims), key=lambda z: -z[1])]
 
-                for i in range(1, 10):
-                    selected_premise = u' '.join(sorted_phrases[i][0]).strip()
-                    if eval_data.is_relevant_premise(irecord, selected_premise):
-                        if i < 5:
-                            nb_good5 += 1  # верная предпосылка вошла в top-5
-                        if i < 10:
-                            nb_good10 += 1
-                        break
+                    for i in range(1, 10):
+                        selected_premise = u' '.join(sorted_phrases[i][0]).strip()
+                        if eval_data.is_relevant_premise(irecord, selected_premise):
+                            if i < 5:
+                                nb_good5 += 1  # верная предпосылка вошла в top-5
+                            if i < 10:
+                                nb_good10 += 1
+                            break
 
-            max_sim = np.max(y_pred)
+                max_sim = np.max(y_pred)
 
-            question = phrases[0][1]
-            #print(u'{:<40} {:<40} {}/{}'.format(u' '.join(question), u' '.join(phrases[max_index][0]), sims[max_index], sims[0]))
+                question = phrases[0][1]
+                #print(u'{:<40} {:<40} {}/{}'.format(u' '.join(question), u' '.join(phrases[max_index][0]), sims[max_index], sims[0]))
 
-        # Итоговая точность выбора предпосылки.
-        accuracy = float(nb_good) / float(nb_total)
-        logging.info('accuracy       ={}'.format(accuracy))
+            # Итоговая точность выбора предпосылки.
+            accuracy = float(nb_good) / float(nb_total)
+            logging.info('accuracy       ={}'.format(accuracy))
 
-        # Также выведем точность попадания верной предпосылки в top-5 и top-10
-        accuracy5 = float(nb_good5) / float(nb_total)
-        logging.info('accuracy top-5 ={}'.format(accuracy5))
+            # Также выведем точность попадания верной предпосылки в top-5 и top-10
+            accuracy5 = float(nb_good5) / float(nb_total)
+            logging.info('accuracy top-5 ={}'.format(accuracy5))
 
-        accuracy10 = float(nb_good10) / float(nb_total)
-        logging.info('accuracy top-10={}'.format(accuracy10))
-
-
+            accuracy10 = float(nb_good10) / float(nb_total)
+            logging.info('accuracy top-10={}'.format(accuracy10))
     else:
         if os.path.exists(arch_filepath2):
             os.remove(arch_filepath2)
         if os.path.exists(weights_path2):
             os.remove(weights_path2)
 
-# </editor-fold>
 
 # <editor-fold desc="evaluate">
 if run_mode == 'evaluate':
@@ -1193,7 +1264,6 @@ if run_mode == 'evaluate':
 
     accuracy10 = float(nb_good10)/float(nb_total)
     print('accuracy top-10={}'.format(accuracy10))
-
 # </editor-fold>
 
 # <editor-fold desc="query">
@@ -1213,12 +1283,12 @@ if run_mode == 'query':
         if len(phrase2) == 0:
             break
 
-        words1 = tokenizer.tokenize(phrase1)
-        words2 = tokenizer.tokenize(phrase2)
+        words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
 
         all_words_known = True
         for word in itertools.chain(words1, words2):
-            if word not in embeddings:
+            if word != PAD_WORD and word not in embeddings:
                 print(u'Unknown word {}'.format(word))
                 all_words_known = False
 
@@ -1228,7 +1298,13 @@ if run_mode == 'query':
 
             for x in generate_rows(samples, dummy_targets, len(samples), embeddings, 2):
                 y_probe = model.predict(x=x)
-                print('sim={}\n\n'.format(y_probe[0][0]))
+                print('sim={}\n\n'.format(y_probe[0][1]))
+
+                # -- DEBUG START
+                #print('X[0]={}'.format(x['input_words1']))
+                #print('X[1]={}'.format(x['input_words2']))
+                # -- DEBUG END
+
                 break
 
 # </editor-fold>
@@ -1236,20 +1312,36 @@ if run_mode == 'query':
 # <editor-fold desc="query2">
 if run_mode == 'query2':
     # Для введенного в консоли предложения ищутся top ближайших фраз среди
-    # реплик в файле data/smalltalk.txt
+    # реплик в файлах data/premises*.txt
 
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
     phrases1 = []
-    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if phrase.startswith(u'Q:'):
-                phrase = phrase.replace(u'Q:', u'').strip()
-                words = tokenizer.tokenize(phrase)
-                if len(words) > 0:
-                    phrases1.append(words)
+    if False:
+        with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if phrase.startswith(u'Q:'):
+                    phrase = phrase.replace(u'Q:', u'').strip()
+                    words = lpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
+                    if len(words) > 0:
+                        phrases1.append(words)
+    else:
+        added_phrases = set()
+        for fname in ['test_premises.txt']:
+            with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
+                for iline, line in enumerate(rdr):
+                    #print(u'{}\t"{}"'.format(iline, line))
+                    phrase = line.strip()
+                    if len(phrase) > 0 and phrase not in added_phrases:
+                        words = tokenizer.tokenize(phrase)
+                        if len(words) > 0:
+                            words = lpad_wordseq(words, max_wordseq_len)
+                            phrases1.append(words)
+                            added_phrases.add(phrase)
+                        else:
+                            print('Empty phrase in line #{}'.format(iline))
 
     nb_phrases = len(phrases1)
     print(u'{0} phrases loaded.'.format(nb_phrases))
@@ -1259,11 +1351,11 @@ if run_mode == 'query2':
         if len(phrase2) == 0:
             break
 
-        words2 = tokenizer.tokenize(phrase2)
+        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
 
         all_words_known = True
         for word in words2:
-            if word not in embeddings:
+            if word != PAD_WORD and word not in embeddings:
                 print(u'Unknown word {}'.format(word))
                 all_words_known = False
 
@@ -1274,94 +1366,14 @@ if run_mode == 'query2':
             for x in generate_rows(samples, dummy_targets, len(samples), embeddings, 2):
                 y_probe = model.predict(x=x)
 
-                sent_rels = [(phrases1[i], y_probe[i][0]) for i in range(nb_phrases)]
+                sent_rels = [(phrases1[i], y_probe[i][1]) for i in range(nb_phrases)]
                 sent_rels = sorted(sent_rels, key=lambda z: -z[1])
 
                 # Выведем top N фраз из файла
                 for phrase1, rel in sent_rels[0:10]:
-                    print(u'{:4f}\t{}'.format(rel, u' '.join(phrase1)))
+                    print(u'{:4f}\t{}'.format(rel, u' '.join(phrase1).strip()))
 
                 print('\n\n')
                 break
-
-# </editor-fold>
-
-# <editor-fold desc="query3">
-if run_mode == 'query3':
-    # С клавиатуры задается путь к файлу с предложениями, и второе предложение.
-    # Модель делает оценку релевантности для каждого предложения в файле и введенного предложения,
-    # и сохраняет список оценок с сортировкой.
-
-    word2vec, word_dims, w2v = load_word_vectors(wordchar2vector_path, word2vector_path)
-
-    path1 = raw_input('path to text file with phrases:\n> ').decode(sys.stdout.encoding).strip().lower()
-
-    phrases1 = []
-    segm_mode = raw_input('Use EOL markers (1) or segmenter (2) to split file to sentences?').strip()
-
-    max_nb_facts = int(raw_input('maximum number of samples to read from file (-1 means all):\n> ').strip())
-    if max_nb_facts == -1:
-        max_nb_facts = 10000000
-
-    if segm_mode == 2:
-        segmenter = Segmenter()
-        phrases0 = segmenter.split(codecs.open(path1, 'r', 'utf-8').readlines())
-        for phrase in enumerate(phrases):
-            words = tokenizer.tokenize(phrase)
-            if len(words) > 0:
-                phrases1.append(words)
-            if len(phrases1) >= max_nb_facts:
-                break
-    else:
-        with codecs.open(path1, 'r', 'utf-8') as rdr:
-            for phrase in rdr:
-                words = tokenizer.tokenize(phrase)
-                if len(words) > 0:
-                    phrases1.append(words)
-                if len(phrases1) >= max_nb_facts:
-                    break
-
-    nb_phrases = len(phrases1)
-    print(u'{1} phrases are loaded from {0}'.format(path1, nb_phrases))
-
-    X1_probe = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
-    X2_probe = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
-
-    for iphrase, words1 in enumerate(phrases1):
-        vectorize_words(lpad_wordseq(words1, max_wordseq_len), X1_probe, iphrase, word2vec)
-
-    while True:
-        # меняется только вторая матрица (с консоли вводится новый вопрос).
-        X2_probe.fill(0)
-
-        phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
-        if len(phrase2) == 0:
-            break
-
-        words2 = tokenizer.tokenize(phrase2)
-
-        all_words_known = True
-        for word in words2:
-            if word not in word2vec:
-                print(u'Unknown word {}'.format(word))
-                all_words_known = False
-
-        if all_words_known:
-            # вторая матрица будет содержать множество повторов одной и той же фразы,
-            # поэтому сформируем только первую строку, а остальные накопируем из нее.
-            vectorize_words(lpad_wordseq(words2, max_wordseq_len), X2_probe, 0, word2vec)
-            for i in range(1, nb_phrases):
-                X2_probe[i, :, :] = X2_probe[0, :, :]
-
-            y_probe = model.predict(x={'input_words1': X1_probe, 'input_words2': X2_probe})
-
-            sent_rels = [(phrases1[i], y_probe[i][0]) for i in range(nb_phrases)]
-            sent_rels = sorted(sent_rels, key=lambda z:-z[1])
-
-            # Выведем top N фраз из файла
-            for phrase1, rel in sent_rels[0:10]:
-                print(u'{:4f}\t{}'.format(rel, u' '.join(phrase1)))
-
-            print('\n\n')
 
 # </editor-fold>

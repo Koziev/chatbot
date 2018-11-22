@@ -59,3 +59,6 @@ class TextUtils(object):
 
     def get_lexicon(self):
         return self.lexicon
+
+    def is_question_word(self, word):
+        return word in u'кто что почему отууда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда'.split()

@@ -56,7 +56,7 @@ import utils.logging_helpers
 
 PHRASE_DIM = 64
 
-PRETRAIN = True
+PRETRAIN = False
 
 padding = 'left'
 
@@ -106,9 +106,9 @@ def vectorize_words(words, X_batch, irow, word2vec):
 def generate_rows(samples, batch_size, w2v, mode):
     if mode == 1:
         # При обучении сетки каждую эпоху тасуем сэмплы.
-        #random.shuffle(samples)
+        random.shuffle(samples)
         # эксперимент - сортируем сэмплы по тексту anchor'а
-        samples = sorted(samples, key=lambda s: s.anchor)
+        #samples = sorted(samples, key=lambda s: s.anchor)
 
     batch_index = 0
     batch_count = 0
@@ -323,7 +323,7 @@ NB_EPOCHS = 1000
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for premise-question relevancy')
 parser.add_argument('--run_mode', type=str, default='train', choices='train query query2'.split(), help='what to do: train | query | query2')
-parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn)'.split(), help='neural model architecture: lstm | lstm(cnn)')
+parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn) lstm(lstm)'.split(), help='neural model architecture: lstm | lstm(cnn)')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--input', type=str, default='../data/relevancy_dataset3.csv', help='path to input dataset with triplets')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
@@ -444,6 +444,17 @@ if run_mode == 'train':
         #negative_flow = dense(negative_flow)
         #negative_flow = Dropout(rate=0.2)(negative_flow)
 
+    if net_arch == 'lstm(lstm)':
+        lstm = recurrent.LSTM(PHRASE_DIM, return_sequences=True)
+        anchor_flow = lstm(input_anchor)
+        positive_flow = lstm(input_positive)
+        negative_flow = lstm(input_negative)
+
+        lstm2 = recurrent.LSTM(PHRASE_DIM, return_sequences=False, name='anchor_flow')
+        anchor_flow = lstm2(anchor_flow)
+        positive_flow = lstm2(positive_flow)
+        negative_flow = lstm2(negative_flow)
+
     if net_arch == 'lstm(cnn)':
         nb_filters = 128  # 128
         rnn_size = word_dims * 2
@@ -515,10 +526,10 @@ if run_mode == 'train':
 
     if PRETRAIN:
         logging.info('Start pretraining...')
-        model.fit_generator(generator=generate_rows(pretrain_samples, batch_size, embeddings, 1),
-                            steps_per_epoch=len(pretrain_samples) // batch_size,
-                            epochs=10,
-                            verbose=1)
+        hist=model.fit_generator(generator=generate_rows(pretrain_samples, batch_size, embeddings, 1),
+                                 steps_per_epoch=len(pretrain_samples) // batch_size,
+                                 epochs=20,
+                                 verbose=1)
         logging.info('End of pretraining.')
 
     # разбиваем датасет на обучающую, валидационную и оценочную части.

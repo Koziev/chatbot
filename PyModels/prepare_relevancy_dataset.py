@@ -32,7 +32,8 @@ import numpy as np
 
 from utils.tokenizer import Tokenizer
 
-USE_AUTOGEN = False  # добавлять ли сэмплы из автоматически сгенерированных датасетов
+
+USE_AUTOGEN = True  # добавлять ли сэмплы из автоматически сгенерированных датасетов
 
 HANDCRAFTED_WEIGHT = 1 # вес для сэмплов, которые в явном виде созданы вручную
 AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, сгенерированных автоматически
@@ -40,9 +41,11 @@ AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, с
 # Автоматически сгенерированных сэмплов очень много, намного больше чем вручную
 # составленных, поэтому ограничим количество паттернов для каждого типа автоматически
 # сгенерированных.
-MAX_NB_AUTOGEN = 500  # макс. число автоматически сгенерированных сэмплов одного типа
+MAX_NB_AUTOGEN = 1000  # макс. число автоматически сгенерированных сэмплов одного типа
 
-n_negative_per_positive = 4
+ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
+
+n_negative_per_positive = 1
 
 tmp_folder = '../tmp'
 data_folder = '../data'
@@ -77,6 +80,18 @@ stop_words = set(u'не ни ль и или ли что какой же ж ка�
 stop_words.update(u'о а в на у к с со по ко мне нам я он она над за из от до'.split())
 
 # ---------------------------------------------------------------
+
+
+class Sample3:
+    def __init__(self, anchor, positive, negative):
+        assert(len(anchor) > 0)
+        assert(len(positive) > 0)
+        self.anchor = anchor
+        self.positive = positive
+        self.negative = negative
+
+    def key(self):
+        return self.anchor + u'|' + self.positive + u'|' + self.negative
 
 
 def ru_sanitize(s):
@@ -176,7 +191,6 @@ with codecs.open(os.path.join(data_folder, 'qa.txt'), 'r', 'utf-8') as rdr:
             if len(words) > 0:
                 shingles = ngrams(u' '.join(words), shingle_len)
                 phrases1.append((u' '.join(words), set(words), shingles))
-
 
 
 class ResultantDataset(object):
@@ -288,43 +302,44 @@ for paraphrases_path in paraphrases_paths:
                             random_negat_pairs_count += 1
                             random_negat_pairs_count1 += 1
 
-                        # добавим пары со случайными фактами, отобранными по критерию наличия общих слов.
-                        # таким образом, получаются негативные сэмплы типа "кошка ловит мышей":"мышей в амбаре нет"
-                        words = tokenizer.tokenize(posit_lines[i1])
-                        selected_random_facts = None
-                        for word in words:
-                            if word not in stop_words:
-                                if word in word2random_facts:
-                                    if selected_random_facts is None:
-                                        selected_random_facts = set(word2random_facts[word])
-                                    else:
-                                        selected_random_facts |= set(word2random_facts[word])
+                        if ADD_SIMILAR_NEGATIVES:
+                            # добавим пары со случайными фактами, отобранными по критерию наличия общих слов.
+                            # таким образом, получаются негативные сэмплы типа "кошка ловит мышей":"мышей в амбаре нет"
+                            words = tokenizer.tokenize(posit_lines[i1])
+                            selected_random_facts = None
+                            for word in words:
+                                if word not in stop_words:
+                                    if word in word2random_facts:
+                                        if selected_random_facts is None:
+                                            selected_random_facts = set(word2random_facts[word])
+                                        else:
+                                            selected_random_facts |= set(word2random_facts[word])
 
-                        if selected_random_facts is not None and len(selected_random_facts) > 0:
-                            words = set(words)
-                            selected_random_facts = list(selected_random_facts)
-                            selected_random_facts = np.random.permutation(selected_random_facts)
-                            if len(selected_random_facts) > n_negative_per_positive:
-                                selected_random_facts = selected_random_facts[:n_negative_per_positive*4]
+                            if selected_random_facts is not None and len(selected_random_facts) > 0:
+                                words = set(words)
+                                selected_random_facts = list(selected_random_facts)
+                                selected_random_facts = np.random.permutation(selected_random_facts)
+                                if len(selected_random_facts) > n_negative_per_positive:
+                                    selected_random_facts = selected_random_facts[:n_negative_per_positive*4]
 
-                            added_facts_with_common_words = 0
-                            for ifact in selected_random_facts:
-                                neg_fact = random_facts[ifact]
-                                neg_words = set(tokenizer.tokenize(neg_fact))
-                                found_in_posit = False
-                                for p in posit_lines:
-                                    posit_words = set(tokenizer.tokenize(p))
-                                    if posit_words == neg_words:
-                                        found_in_posit = True
-                                        break
+                                added_facts_with_common_words = 0
+                                for ifact in selected_random_facts:
+                                    neg_fact = random_facts[ifact]
+                                    neg_words = set(tokenizer.tokenize(neg_fact))
+                                    found_in_posit = False
+                                    for p in posit_lines:
+                                        posit_words = set(tokenizer.tokenize(p))
+                                        if posit_words == neg_words:
+                                            found_in_posit = True
+                                            break
 
-                                if not found_in_posit:
-                                    res_dataset.add_pair(posit_lines[i1], normalize_qline(neg_fact), 0, AUTOGEN_WEIGHT)
-                                    added_facts_with_common_words += 1
-                                    random_negat_pairs_count += 1
-                                    random_negat_pairs_count1 += 1
-                                    if added_facts_with_common_words >= n_negative_per_positive:
-                                        break
+                                    if not found_in_posit:
+                                        res_dataset.add_pair(posit_lines[i1], normalize_qline(neg_fact), 0, AUTOGEN_WEIGHT)
+                                        added_facts_with_common_words += 1
+                                        random_negat_pairs_count += 1
+                                        random_negat_pairs_count1 += 1
+                                        if added_facts_with_common_words >= n_negative_per_positive:
+                                            break
 
                 lines = []
             else:
@@ -336,6 +351,25 @@ print('Done, total counts: positives={} negatives={} random_negatives={}'.format
 # ------------------------------------------------------------------------
 
 if INCLUDE_PREMISE_QUESTION:
+
+    # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
+    manual_negatives = dict()
+    with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
+        for line in rdr:
+            line = line.strip()
+            if line:
+                tx = line.split('|')
+                if len(tx) == 2:
+                    premise = normalize_qline(tx[0])
+                    question = normalize_qline(tx[1])
+                    if premise not in manual_negatives:
+                        manual_negatives[premise] = [question]
+                    else:
+                        manual_negatives[premise].append(question)
+
+    for premise, questions in manual_negatives.items():
+        for question in questions:
+            res_dataset.add_pair(premise, question, 0, 1)
 
     for qa_path, qa_weight, max_samples in qa_paths:
         print('Parsing {}'.format(qa_path))
@@ -352,7 +386,7 @@ if INCLUDE_PREMISE_QUESTION:
                 line = line.strip()
 
                 if line.startswith(u'T:'):
-                    if loading_state=='T':
+                    if loading_state == 'T':
                         text.append(normalize_qline(line))
                     else:
                         # закончился парсинг предыдущего блока из текста (предпосылки),
@@ -399,27 +433,28 @@ if INCLUDE_PREMISE_QUESTION:
                         negat_pairs_count += 1
                         n_added_random += 1
 
-            # Для каждого вопроса в qa.txt добавляем нерелевантные, но очень похожие по критерию Жаккара
-            # предпосылки.
-            if qa_path == 'qa.txt':
-                for good_question in questions:
-                    premise_words = tokenizer.tokenize(premise)
-                    question_words = tokenizer.tokenize(good_question)
-                    question_shingles = ngrams(u' '.join(question_words), shingle_len)
+            if ADD_SIMILAR_NEGATIVES:
+                # Для каждого вопроса в qa.txt добавляем нерелевантные, но очень похожие по критерию Жаккара
+                # предпосылки.
+                if qa_path == 'qa.txt':
+                    for good_question in questions:
+                        premise_words = tokenizer.tokenize(premise)
+                        question_words = tokenizer.tokenize(good_question)
+                        question_shingles = ngrams(u' '.join(question_words), shingle_len)
 
-                    phrase_sims = []
+                        phrase_sims = []
 
-                    for phrase1 in phrases1:
-                        if phrase1[0] != premise and set(premise_words) != phrases1[1]:
-                            sim = jaccard(question_shingles, phrase1[2])
-                            phrase_sims.append((phrase1, sim))
+                        for phrase1 in phrases1:
+                            if phrase1[0] != premise and set(premise_words) != phrases1[1]:
+                                sim = jaccard(question_shingles, phrase1[2])
+                                phrase_sims.append((phrase1, sim))
 
-                    # нам нужны предпосылки, максимально похожные на вопрос
-                    phrase_sims = sorted(phrase_sims, key=lambda z: -z[1])
-                    for phrase1, rel in phrase_sims[0:5]:
-                        negative_premise = phrase1[0]
-                        res_dataset.add_pair(negative_premise, good_question, 0, AUTOGEN_WEIGHT)
-                        negat_pairs_count += 1
+                        # нам нужны предпосылки, максимально похожные на вопрос
+                        phrase_sims = sorted(phrase_sims, key=lambda z: -z[1])
+                        for phrase1, rel in phrase_sims[0:5]:
+                            negative_premise = phrase1[0]
+                            res_dataset.add_pair(negative_premise, good_question, 0, AUTOGEN_WEIGHT)
+                            negat_pairs_count += 1
 
         print('done, posit_pairs_count={} negat_pairs_count={}'.format(posit_pairs_count, negat_pairs_count))
 # ---------------------------------------------------------------------------------------
@@ -514,5 +549,6 @@ res_dataset.print_stat()
 # сохраним получившийся датасет в CSV
 print('Storing dataset..')
 res_dataset.save_csv(os.path.join(data_folder,'premise_question_relevancy.csv'))
+
 
 print('All done.')

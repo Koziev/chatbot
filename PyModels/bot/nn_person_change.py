@@ -45,6 +45,16 @@ class NN_PersonChange(PersonChangeModel):
         self.word_dims = self.person_change_model_config['word_dims']
         self.max_wordseq_len = int(self.person_change_model_config['max_inputseq_len'])
 
+        self.special_changes_3 = { u'меня': u'тебя',
+                                   u'мне': u'тебе',
+                                   u'мной': u'тобой',
+                                   u'мною': u'тобою',
+                                   u'тебя': u'меня',
+                                   u'тебе': u'мне',
+                                   u'тобой': u'мной',
+                                   u'тобою': u'мною',
+                                   }
+
         # todo создание входных тензоров для модели changeable_words
         pass
 
@@ -60,7 +70,11 @@ class NN_PersonChange(PersonChangeModel):
             elif target_person == '1s' and word in self.w2s and word in self.person_change_2s_1s:
                 outwords.append(self.person_change_2s_1s[word])
             else:
-                outwords.append(word)
+                # немного хардкода.
+                if word in self.special_changes_3:
+                    outwords.append(self.special_changes_3[word])
+                else:
+                    outwords.append(word)
 
         return u' '.join(outwords)
 

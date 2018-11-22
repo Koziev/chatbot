@@ -20,10 +20,11 @@ class BaseAnsweringMachine(object):
     def start_conversation(self):
         pass
 
-    def push_phrase(self, interlocutor, phrase):
+    def push_phrase(self, bot, interlocutor, phrase):
         """
         Обработка реплики или длительного молчания собеседника.
 
+        :param bot: экземпляр бота
         :param interlocutor: строковый идентификатор собеседника,
                              например - ник в мессенджере.
 
@@ -31,13 +32,14 @@ class BaseAnsweringMachine(object):
         """
         pass
 
-    def pop_phrase(self, interlocutor):
+    def pop_phrase(self, bot, interlocutor):
         """
         Получение очередной ответной реплики бота из буфера ответов.
         Так как ответных реплик в общем случае может быть несколько,
         то возвращается самый старый элемент буфера либо пустая строка
         при пустом буфере.
 
+        :param bot: экземпляр бота
         :param interlocutor: строковый идентификатор собеседника,
                              например - ник в мессенджере.
 

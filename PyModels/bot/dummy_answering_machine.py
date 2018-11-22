@@ -18,13 +18,13 @@ class DummyAnsweringMachine(BaseAnsweringMachine):
     def get_session_factory(self):
         return self.session_factory
 
-    def push_phrase(self, interlocutor, phrase):
-        session = self.get_session(interlocutor)
+    def push_phrase(self, bot, interlocutor, phrase):
+        session = self.get_session(bot, interlocutor)
         session.add_to_buffer(phrase) # эхо - входная реплика копируется в ответ
 
 
-    def pop_phrase(self, interlocutor):
-        session = self.get_session(interlocutor)
+    def pop_phrase(self, bot, interlocutor):
+        session = self.get_session(bot, interlocutor)
         return session.extract_from_buffer()
 
     def get_session(self, interlocutor):

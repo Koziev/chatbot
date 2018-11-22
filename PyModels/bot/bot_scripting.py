@@ -40,14 +40,14 @@ class BotScripting:
 
         return None
 
-    def generate_after_answer(self, answering_machine, interlocutor, interpreted_phrase, answer):
+    def generate_after_answer(self, bot, answering_machine, interlocutor, interpreted_phrase, answer):
         # todo: потом вынести реализацию в производный класс, чтобы тут осталась только
         # пустая заглушка метода.
 
         language_resources = answering_machine.text_utils.language_resources
         probe_query_str = language_resources[u'как тебя зовут']
         probe_query = InterpretedPhrase(probe_query_str)
-        answers, answer_confidenses = answering_machine.build_answers0(interlocutor, probe_query)
+        answers, answer_confidenses = answering_machine.build_answers0(bot, interlocutor, probe_query)
         ask_name = False
         if len(answers) > 0:
             if answer_confidenses[0] < 0.70:
@@ -57,6 +57,9 @@ class BotScripting:
 
         if ask_name:
             # имя собеседника неизвестно.
-            return language_resources[u'А как тебя зовут?']
+            q = language_resources[u'А как тебя зовут?']
+            nq = answering_machine.get_session(bot, interlocutor).count_bot_phrase(q)
+            if nq < 3:  # Не будем спрашивать более 2х раз.
+                return q
 
         return None

@@ -45,6 +45,6 @@ class Jaccard_SynonymyDetector(SynonymyDetector):
         else:
             # нужно вернуть nb_results ближайших фраз.
             sim = y
-            phrases2 = [(phrases[i][0], sim[i]) for i in range(sim)]
+            phrases2 = [(phrases[i][0], sim[i]) for i in range(len(sim))]
             phrases2 = sorted(phrases2, key=lambda z: -z[1])
             return phrases2[:nb_results]

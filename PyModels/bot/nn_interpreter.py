@@ -64,6 +64,8 @@ class NN_Interpreter(BaseUtteranceInterpreter):
         self.logger = logging.getLogger('NN_Interpreter')
         self.model = None
         self.model_config = None
+        self.model_req = None
+        self.model_req_config = None
 
 
     def load(self, models_folder):
@@ -121,11 +123,18 @@ class NN_Interpreter(BaseUtteranceInterpreter):
 
             for iphrase, lemmas in enumerate(sample.phrase_lemmas):
                 for lemma in lemmas:
-                    Xlemmas_batch[iphrase][batch_index, self.lemma2id[lemma]] = 1
+                    if lemma not in self.lemma2id:
+                        self.logger.error(u'Missing key "{}" in lemma2id'.format(lemma))
+                    else:
+                        Xlemmas_batch[iphrase][batch_index, self.lemma2id[lemma]] = 1
 
             batch_index += 1
 
         yield inputs
+
+
+    def require_interpretation(self, phrase, text_utils, word_embeddings):
+        pass  # todo
 
 
     def interpret(self, phrases, text_utils, word_embeddings):
@@ -148,12 +157,25 @@ class NN_Interpreter(BaseUtteranceInterpreter):
 
         for x in self.generate_rows(self.max_nb_inputs, probe_samples, word_embeddings):
             y_pred = self.model.predict(x=x, verbose=0)
+            y_pred = y_pred[0]
             predicted_lemmas = []
-            for lemma_v in y_pred[0]:
-                lemma_index = np.argmax(lemma_v)
-                lemma = self.id2lemma[lemma_index]
-                if lemma != PAD_WORD:
-                    predicted_lemmas.append(lemma)
+            for lemma_v in y_pred:
+                lemma_p = [(i, lemma_v[i]) for i in range(len(lemma_v))]
+                lemma_p = sorted(lemma_p, key=lambda z: -z[1])
+                lx = []
+                for lemma_index, p in lemma_p[:10]:
+                    if p > 0.01:
+                        lemma = self.id2lemma[lemma_index]
+                        if lemma != PAD_WORD:
+                           lx.append((lemma, p))
+
+                if len(lx) > 0:
+                    predicted_lemmas.append(lx)
+
+            #lemma_index = np.argmax(lemma_v)
+                #lemma = self.id2lemma[lemma_index]
+                #if lemma != PAD_WORD:
+                #    predicted_lemmas.append(lemma)
 
             # Готовим решетку для Витерби, чтобы выбрать оптимальную цепочку словоформ.
             trellis = []
@@ -161,21 +183,24 @@ class NN_Interpreter(BaseUtteranceInterpreter):
             start.add_cell(InterpreterTrellisNode.create_start())
             trellis.append(start)
 
-            for lemma in predicted_lemmas:
+            for lemma_p_list in predicted_lemmas:
                 column = InterpreterTrellisColumn()
-                if text_utils.lexicon.has_forms(lemma):
-                    for form in text_utils.lexicon.get_lemma_forms(lemma):
+                for lemma, p0 in lemma_p_list:
+                    if text_utils.lexicon.has_forms(lemma):
+                        for form in text_utils.lexicon.get_lemma_forms(lemma):
+                            cell = InterpreterTrellisNode(lemma, form)
+                            cell.best_p *= p0
+                            if form not in input_1grams:
+                                cell.best_p *= 0.1
+                            column.add_cell(cell)
+                    else:
+                        self.logger.warn(u'lemma "{}" not in lemma2forms'.format(lemma))
+                        form = lemma
                         cell = InterpreterTrellisNode(lemma, form)
+                        cell.best_p *= p0
                         if form not in input_1grams:
                             cell.best_p *= 0.5
                         column.add_cell(cell)
-                else:
-                    self.logger.warn(u'lemma "{}" not in lemma2forms'.format(lemma))
-                    form = lemma
-                    cell = InterpreterTrellisNode(lemma, form)
-                    if form not in input_1grams:
-                        cell.best_p *= 0.5
-                    column.add_cell(cell)
 
                 trellis.append(column)
 
@@ -220,6 +245,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
 
             new_phrase = u' '.join(words)
             self.logger.debug(u'NN_Interpreter result={}'.format(new_phrase))
+            print(u'<<<DEBUG>>> NN_Interpreter result={}'.format(new_phrase))
             return new_phrase
 
         raise NotImplemented()

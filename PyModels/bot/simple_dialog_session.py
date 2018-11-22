@@ -6,11 +6,10 @@ class SimpleDialogSession(BaseDialogSession):
     """
     Простейшее хранилище диалоговой сессии.
     """
-    def __init__(self, interlocutor, facts_storage):
+    def __init__(self, bot_id, interlocutor, facts_storage):
         """
         Инициализация новой диалоговой сессии для нового собеседника.
-        :param interlocutor: строковый идентификатор собеседника.
         """
-        super(SimpleDialogSession, self).__init__(interlocutor, facts_storage)
+        super(SimpleDialogSession, self).__init__(bot_id, interlocutor, facts_storage)
 
 

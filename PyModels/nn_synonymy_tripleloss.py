@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 import keras.callbacks
+import keras.regularizers
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, AveragePooling1D
@@ -56,7 +57,9 @@ import utils.console_helpers
 import utils.logging_helpers
 
 
-PHRASE_DIM = 64
+PHRASE_DIM = 256
+L1 = 0.00001
+
 
 nb_neg_per_posit = 1
 
@@ -178,6 +181,69 @@ def triplet_loss(y_true, y_pred):
     return loss
 
 
+def triplet_loss2(y_true, y_pred):
+    """Модификация triplet_loss с cos-метрикой"""
+    alpha = 0.5
+
+    anchor   = y_pred[:, 0:PHRASE_DIM]
+    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
+    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+
+    # distance between the anchor and the positive
+    pos_dist = -K.sum(anchor * positive, axis=-1)
+
+    # distance between the anchor and the negative
+    neg_dist = -K.sum(anchor * negative, axis=-1)
+
+    # compute loss
+    basic_loss = pos_dist - neg_dist + alpha
+    loss = K.maximum(basic_loss, 0.0)
+    loss = K.mean(loss, axis=-1)
+    return loss
+
+
+def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon=1e-8):
+    """
+    Implementation of the triplet loss function
+    https://towardsdatascience.com/lossless-triplet-loss-7e932f990b24
+
+    Arguments:
+    y_true -- true labels, required when you define a loss in Keras, you don't need it in this function.
+    y_pred -- python list containing three objects:
+            anchor -- the encodings for the anchor data
+            positive -- the encodings for the positive data (similar to anchor)
+            negative -- the encodings for the negative data (different from anchor)
+    N  --  The number of dimension 
+    beta -- The scaling factor, N is recommended
+    epsilon -- The Epsilon value to prevent ln(0)
+
+
+    Returns:
+    loss -- real number, value of the loss
+    """
+
+    anchor   = y_pred[:, 0:PHRASE_DIM]
+    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
+    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+
+    # distance between the anchor and the positive
+    pos_dist = K.sum(K.square(anchor - positive), axis=1)
+
+    # distance between the anchor and the negative
+    neg_dist = K.sum(K.square(anchor - negative), axis=1)
+
+    # Non Linear Values
+
+    # -ln(-x/N+1)
+    pos_dist = -K.log(-pos_dist/beta + 1 + epsilon)
+    neg_dist = -K.log(-(N - neg_dist)/beta + 1 + epsilon)
+
+    # compute loss
+    loss = neg_dist + pos_dist
+
+    return loss
+
+
 # -------------------------------------------------------------------
 
 
@@ -276,12 +342,20 @@ if run_mode == 'train':
     input_negative = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input_negative')
 
     if net_arch == 'lstm':
-        lstm = recurrent.LSTM(PHRASE_DIM, return_sequences=False, name='anchor_flow')
+        a_regul = None
+        if L1 > 0.0:
+            a_regul = keras.regularizers.l1(L1)
+
+        lstm = recurrent.LSTM(PHRASE_DIM,
+                              return_sequences=False,
+                              activity_regularizer=a_regul,
+                              name='anchor_flow')
+
         anchor_flow = lstm(input_anchor)
         positive_flow = lstm(input_positive)
         negative_flow = lstm(input_negative)
 
-        #dense = Dense(units=PHRASE_DIM, activation='relu')
+        #dense = Dense(units=PHRASE_DIM, activation='sigmoid')
         #anchor_flow = dense(anchor_flow)
         #positive_flow = dense(positive_flow)
         #negative_flow = dense(negative_flow)
@@ -340,6 +414,11 @@ if run_mode == 'train':
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=output)
     model.compile(loss=triplet_loss, optimizer='nadam')
     model.summary()
+
+    keras.utils.plot_model(model,
+                           to_file=os.path.join(tmp_folder, 'nn_synonymy_tripletloss.arch.png'),
+                           show_shapes=False,
+                           show_layer_names=True)
 
     # разбиваем датасет на обучающую, валидационную и оценочную части.
     # таким образом, финальная оценка будет идти по сэмплам, которые
@@ -445,14 +524,14 @@ if run_mode == 'train':
 # </editor-fold>
 
 if run_mode == 'query2':
-    # В консоли вводится предложение, для которого в списке smalltalk.txt
+    # В консоли вводится предложение, для которого в списке smalltalk.txt (или другом)
     # ищутся ближайшие.
 
     # Грузим конфигурацию модели, веса и т.д.
     with open(config_path, 'r') as f:
         model_config = json.load(f)
         max_wordseq_len = model_config['max_wordseq_len']
-        w2v_path = model_config['w2v_path']
+        word2vector_path = model_config['w2v_path']
         wordchar2vector_path = model_config['wordchar2vector_path']
         word_dims = model_config['word_dims']
         net_arch = model_config['net_arch']
@@ -465,13 +544,24 @@ if run_mode == 'query2':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
-    phrases2 = []
-    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if len(phrase) > 5 and phrase.startswith(u'Q:'):
-                phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
-                phrases2.append(phrase)
+    phrases2 = set()
+    if True:
+        with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                    phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                    phrases2.add(phrase)
+    else:
+        with codecs.open(os.path.join(data_folder, 'electroshop.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                    phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                    phrases2.add(phrase)
+
+    phrases2 = list(phrases2)
+
 
     while True:
         phrase1 = raw_input('phrase:> ').decode(sys.stdout.encoding).strip().lower()
@@ -484,10 +574,10 @@ if run_mode == 'query2':
         print('Vectorization of {} samples'.format(nb_phrases))
         X_data = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
         for iphrase, phrase in enumerate(all_phrases):
-            words = tokenizer.tokenize(phrase)
+            words = lpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
             vectorize_words(words, X_data, iphrase, embeddings)
 
-        y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=1)
+        y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=0)
 
         # Теперь для каждой фразы мы знаем вектор
         phrase2v = dict()

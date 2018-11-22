@@ -40,6 +40,8 @@ AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, с
 # сгенерированных.
 MAX_NB_AUTOGEN = 100000  # макс. число автоматически сгенерированных сэмплов одного типа
 
+ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
+
 ADD_PARAPHRASES = False
 
 n_negative_per_positive = 1
@@ -316,31 +318,32 @@ for premise, question in samples2:
     else:
         # Рандомно генерируем нерелевантный вопрос.
         for _ in range(n_negative_per_positive):
-            # случайные вопросы, имеющие общие слова с предпосылкой
-            # таким образом, получаются негативные сэмплы типа "кошка ловит мышей":"мышей в амбаре нет?"
-            words = tokenizer.tokenize(premise)
-            selected_random_questions = None
-            for word in words:
-                if word not in stop_words:
-                    if word in word2random_questions:
-                        if selected_random_questions is None:
-                            selected_random_questions = set(word2random_questions[word])
-                        else:
-                            selected_random_questions |= set(word2random_questions[word])
-
             n_added_neg = 0
-            if selected_random_questions is not None and len(selected_random_questions) > 0:
-                words = set(words)
-                selected_random_questions = list(selected_random_questions)
-                selected_random_questions = np.random.permutation(selected_random_questions)
-                if len(selected_random_questions) > n_negative_per_positive:
-                    selected_random_questions = selected_random_questions[:n_negative_per_positive]
-                    for random_question in selected_random_questions:
-                        random_question = random_questions[random_question]
-                        pq = premise + u'|' + random_question
-                        if pq not in all_pq:
-                            samples3.append(Sample3(premise, question, random_question))
-                            n_added_neg += 1
+            if ADD_SIMILAR_NEGATIVES:
+                # случайные вопросы, имеющие общие слова с предпосылкой
+                # таким образом, получаются негативные сэмплы типа "кошка ловит мышей":"мышей в амбаре нет?"
+                words = tokenizer.tokenize(premise)
+                selected_random_questions = None
+                for word in words:
+                    if word not in stop_words:
+                        if word in word2random_questions:
+                            if selected_random_questions is None:
+                                selected_random_questions = set(word2random_questions[word])
+                            else:
+                                selected_random_questions |= set(word2random_questions[word])
+
+                if selected_random_questions is not None and len(selected_random_questions) > 0:
+                    words = set(words)
+                    selected_random_questions = list(selected_random_questions)
+                    selected_random_questions = np.random.permutation(selected_random_questions)
+                    if len(selected_random_questions) > n_negative_per_positive:
+                        selected_random_questions = selected_random_questions[:n_negative_per_positive]
+                        for random_question in selected_random_questions:
+                            random_question = random_questions[random_question]
+                            pq = premise + u'|' + random_question
+                            if pq not in all_pq:
+                                samples3.append(Sample3(premise, question, random_question))
+                                n_added_neg += 1
 
             for _ in range(max(0, n_negative_per_positive - n_added_neg)):
                 # абсолютно случайный вопрос

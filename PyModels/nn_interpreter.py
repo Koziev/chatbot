@@ -304,7 +304,7 @@ weights_path = os.path.join(tmp_folder, 'nn_interpreter.weights')
 if run_mode == 'train':
     logging.info('Start with run_mode==train')
 
-    wordchar2vector_path = os.path.join(tmp_folder,'wordchar2vector.dat')
+    #wordchar2vector_path = os.path.join(tmp_folder,'wordchar2vector.dat')
     logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path))
     wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
     wc2v_dims = len(wc2v.syn0[0])

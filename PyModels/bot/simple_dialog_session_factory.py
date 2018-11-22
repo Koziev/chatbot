@@ -3,20 +3,24 @@
 from base_session_factory import BaseDialogSessionFactory
 from simple_dialog_session import SimpleDialogSession
 
+
 class SimpleDialogSessionFactory(BaseDialogSessionFactory):
     """
-    Простейшее хранилище.
+    Простейшее хранилище сессий диалога между ботами и собеседниками.
     """
-    def __init__(self, facts_storage):
+    def __init__(self):
         super(SimpleDialogSessionFactory, self).__init__()
         self.sessions = dict()
-        self.facts_storage = facts_storage
 
-    def __getitem__(self, interlocutor):
-        assert(interlocutor is not None and len(interlocutor)!=0)
-        if interlocutor not in self.sessions:
-            # Создаем новую сессию для этого пользователя
-            self.sessions[interlocutor] = SimpleDialogSession(interlocutor, self.facts_storage )
+    def get_session(self, bot, interlocutor_id):
+        assert(interlocutor_id is not None and len(interlocutor_id) != 0)
+        assert(bot is not None)
 
-        return self.sessions[interlocutor]
+        session_key = bot.get_bot_id() + '|' + interlocutor_id
+
+        if session_key not in self.sessions:
+            # Создаем новую сессию для этой пары бота и пользователя
+            self.sessions[session_key] = SimpleDialogSession(bot.get_bot_id(), interlocutor_id, bot.facts)
+
+        return self.sessions[session_key]
 
