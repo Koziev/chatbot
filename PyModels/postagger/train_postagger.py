@@ -22,12 +22,12 @@ import json
 import utils.logging_helpers
 
 
-winspan = 0  # для каждого токена фичи берутся с окна +/- winspan. 0 - только сам токен.
-C1 = 0.80  # coefficient for L1 penalty
-C2 = 5e-3  # coefficient for L2 penalty
+winspan = 1  # для каждого токена фичи берутся с окна +/- winspan; 0 - только сам токен.
+C1 = 0.80  # coefficient for L1 penalty in CRFSuite
+C2 = 5e-3  # coefficient for L2 penalty in CRFSuite
 nb_iters = 100  # макс. число итераций обучения для CRFSuite
-max_nb_instances = 100000  # кол-во предложений для обучения (для ускорения отладки)
-use_gren = False  # использовать ли грамматический словарь как источник фич для слов
+max_nb_instances = 100000  # кол-во предложений для обучения (ограничение датасета для ускорения отладки)
+use_gren = True  # использовать ли грамматический словарь как доп. источник фич для слов
 
 data_folder = '../../data'
 corpora = ['united_corpora.dat', 'morpheval_corpus_solarix.full.dat']
@@ -94,13 +94,13 @@ def vectorize_sample(lines, word2vec, word2tags):
     nb_words = len(lines1)
     for iword, data0 in enumerate(lines1):
         label = data0[1]
-        word_features = []
+        word_features = dict()
         for j in range(-winspan, winspan+1):
             iword2 = iword + j
             if nb_words > iword2 >= 0:
                 data = lines1[iword2]
                 features = get_word_features(data[0], str(j), word2vec, word2tags)
-                word_features.extend(features)
+                word_features.update(features)
 
         lines2.append((word_features, label))
 
@@ -253,7 +253,9 @@ logging.info('all_labels.count={}'.format(len(all_labels)))
 # сохраним конфиг модели
 model_config = {'w2v_path': word2vector_path,
                 'wc2v_path': wordchar2vector_path,
-                'winspan': winspan
+                'winspan': winspan,
+                'use_gren': use_gren,
+                'model_path': model_path
                 }
 with open(os.path.join('../../tmp', 'postagger.config'), 'w') as wrt:
     json.dump(model_config, wrt)
