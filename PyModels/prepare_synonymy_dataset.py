@@ -30,7 +30,9 @@ import utils.logging_helpers
 
 
 # Кол-во негативных сэмплов, автоматически подбираемых на один позитивный пример.
-nb_neg_per_posit = 2
+nb_neg_per_posit = 1
+
+ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
 
 # Путь к файлу с отобранными вручную синонимичными фразами.
 input_path = '../data/paraphrases.txt'
@@ -291,27 +293,28 @@ neg_samples = NegSamples()
 
 # Добавим негативные сэмплы, похожие на фразы в позитивных.
 # Это должно обучить модель не полагаться просто на наличие одинаковых слов.
-for phrase1 in tqdm.tqdm(all_phrases, total=len(all_phrases), desc='Adding similar negatives'):
-    similar_phrases2 = collections.Counter()
-    group1 = phrase2group[phrase1]
-    for word1 in phrase1.split(u' '):
-        if word1 in word2phrases:
-            for phrase2 in word2phrases[word1]:
-                if phrase2group[phrase2] != group1:
-                    similar_phrases2[phrase2] += 1
+if ADD_SIMILAR_NEGATIVES:
+    for phrase1 in tqdm.tqdm(all_phrases, total=len(all_phrases), desc='Adding similar negatives'):
+        similar_phrases2 = collections.Counter()
+        group1 = phrase2group[phrase1]
+        for word1 in phrase1.split(u' '):
+            if word1 in word2phrases:
+                for phrase2 in word2phrases[word1]:
+                    if phrase2group[phrase2] != group1:
+                        similar_phrases2[phrase2] += 1
 
-    # наиболее похожие фразы по числу одинаковых слов
-    phrases2_a = similar_phrases2.most_common(10)
-    phrases2_a = list(map(operator.itemgetter(0), phrases2_a))
+        # наиболее похожие фразы по числу одинаковых слов
+        phrases2_a = similar_phrases2.most_common(10)
+        phrases2_a = list(map(operator.itemgetter(0), phrases2_a))
 
-    # Среди similar_phrases2 оставим наиболее похожие на первую фразу,
-    # используя коэф-т Жаккара как простую меру сходства
-    phrases2_b = select_most_similar(phrase1, similar_phrases2, 10)
+        # Среди similar_phrases2 оставим наиболее похожие на первую фразу,
+        # используя коэф-т Жаккара как простую меру сходства
+        phrases2_b = select_most_similar(phrase1, similar_phrases2, 10)
 
-    phrases2 = set(itertools.chain(phrases2_a, phrases2_b))
+        phrases2 = set(itertools.chain(phrases2_a, phrases2_b))
 
-    for phrase2 in phrases2:
-        neg_samples.add(phrase1, phrase2)
+        for phrase2 in phrases2:
+            neg_samples.add(phrase1, phrase2)
 
 # Добавляем рандомные негативные сэмплы
 for sample in samples:
@@ -356,9 +359,10 @@ with codecs.open(output_filepath, 'w', 'utf-8') as wrt:
     for sample in samples:
         wrt.write(u'{}\t{}\t{}\t1\n'.format(sample.phrase1, sample.phrase2, sample.y))
 
-
+# -------------------------------------------------------------------------
 # Теперь готовим датасет для модели детектора перефразировок с triplet loss
 # Тут нам надо готовить триплеты (anchor, positive, negative)
+# -------------------------------------------------------------------------
 logging.info('Start building dataset for triplet loss model for synonymy')
 
 nb_neg_per_posit = 1
@@ -516,23 +520,26 @@ for phrase in all_phrases:
 # Идем по накопленным сэмплам и добавляем для каждого негативную фразу
 for sample in tqdm.tqdm(samples2, total=len(samples2), desc='Adding negative phrases'):
     phrase1 = sample.anchor
-    similar_phrases2 = collections.Counter()
     group1 = phrase2group[phrase1]
-    for word1 in phrase1.split(u' '):
-        if word1 in word2phrases:
-            for phrase2 in word2phrases[word1]:
-                if phrase2group[phrase2] != group1:
-                    similar_phrases2[phrase2] += 1
+    if ADD_SIMILAR_NEGATIVES:
+        similar_phrases2 = collections.Counter()
+        for word1 in phrase1.split(u' '):
+            if word1 in word2phrases:
+                for phrase2 in word2phrases[word1]:
+                    if phrase2group[phrase2] != group1:
+                        similar_phrases2[phrase2] += 1
 
-    # наиболее похожие фразы по числу одинаковых слов
-    phrases2_a = similar_phrases2.most_common(2)
-    phrases2_a = list(map(operator.itemgetter(0), phrases2_a))
+        # наиболее похожие фразы по числу одинаковых слов
+        phrases2_a = similar_phrases2.most_common(2)
+        phrases2_a = list(map(operator.itemgetter(0), phrases2_a))
 
-    # Среди similar_phrases2 оставим наиболее похожие на первую фразу,
-    # используя коэф-т Жаккара как простую меру сходства
-    # phrases2_b = select_most_similar(phrase1, similar_phrases2, 2)
-    # phrases2 = set(itertools.chain(phrases2_a, phrases2_b))
-    phrases2 = phrases2_a
+        # Среди similar_phrases2 оставим наиболее похожие на первую фразу,
+        # используя коэф-т Жаккара как простую меру сходства
+        # phrases2_b = select_most_similar(phrase1, similar_phrases2, 2)
+        # phrases2 = set(itertools.chain(phrases2_a, phrases2_b))
+        phrases2 = phrases2_a
+    else:
+        phrases2 = []
 
     if len(phrases2) == 0:
         # выберем просто рандомную строку
@@ -542,7 +549,7 @@ for sample in tqdm.tqdm(samples2, total=len(samples2), desc='Adding negative phr
                 phrases2.append(phrase2)
                 break
 
-    # берем несколько случайных фраз, делаем соответствующее кол-во полных сэмплов
+    # берем несколько фраз, делаем соответствующее кол-во полных сэмплов
     for negative in phrases2[:nb_neg_per_posit]:
         sample3 = Sample3(sample.anchor, sample.positive, negative)
         samples3.append(sample3)

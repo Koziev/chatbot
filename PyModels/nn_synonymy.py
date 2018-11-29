@@ -56,7 +56,9 @@ import utils.logging_helpers
 
 use_shingle_matching = False
 
-padding = 'left'
+# Предложения приводятся к единой длине путем добавления слева или справа
+# пустых токенов. Параметр padding определяет режим выравнивания.
+padding = 'right'
 
 nb_neg_per_posit = 1
 
@@ -291,15 +293,11 @@ if run_mode == 'train':
 
     logging.info('max_wordseq_len={}'.format(max_wordseq_len))
 
-    if padding == 'left':
-        for sample in samples:
-            sample.words1 = lpad_wordseq(tokenizer.tokenize(sample.phrase1), max_wordseq_len)
-            sample.words2 = lpad_wordseq(tokenizer.tokenize(sample.phrase2), max_wordseq_len)
-    else:
-        for sample in samples:
-            sample.words1 = rpad_wordseq(tokenizer.tokenize(sample.phrase1), max_wordseq_len)
-            sample.words2 = rpad_wordseq(tokenizer.tokenize(sample.phrase2), max_wordseq_len)
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
 
+    for sample in samples:
+        sample.words1 = pad_func(tokenizer.tokenize(sample.phrase1), max_wordseq_len)
+        sample.words2 = pad_func(tokenizer.tokenize(sample.phrase2), max_wordseq_len)
 
     # суммарное кол-во дополнительных фич, подаваемых на вход сетки
     # помимо двух отдельных предложений.
@@ -809,6 +807,11 @@ if run_mode == 'train':
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
 
+    keras.utils.plot_model(model,
+                           to_file=os.path.join(tmp_folder, 'nn_synonymy.arch.png'),
+                           show_shapes=False,
+                           show_layer_names=True)
+
     SEED = 123456
     TEST_SHARE = 0.3
     train_samples, val_samples = train_test_split(samples, test_size=TEST_SHARE, random_state=SEED)
@@ -902,23 +905,21 @@ if run_mode == 'query':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
+
     while True:
         print('\nEnter two phrases:')
-        phrase1 = raw_input('phrase #1:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = utils.console_helpers.input_kbd('phrase #1:> ').strip().lower()
         if len(phrase1) == 0:
             break
 
-        phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase2 = utils.console_helpers.input_kbd('phrase #2:> ').strip().lower()
         if len(phrase2) == 0:
             break
 
         sample = Sample(phrase1, phrase2, 0)
-        if padding == 'left':
-            sample.words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-            sample.words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-        else:
-            sample.words1 = rpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-            sample.words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        sample.words1 = pad_func(tokenizer.tokenize(phrase1), max_wordseq_len)
+        sample.words2 = pad_func(tokenizer.tokenize(phrase2), max_wordseq_len)
 
         samples = [sample]
         for data in generate_rows(samples, 1, embeddings, 1):
@@ -960,16 +961,38 @@ if run_mode == 'query2':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
-    phrases2 = []
-    with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if len(phrase) > 5 and phrase.startswith(u'Q:'):
-                phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
-                phrases2.append(phrase)
+    phrases2 = set()
+
+    if True:
+        with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                    phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                    phrases2.add(phrase)
+
+    if True:
+        with codecs.open(os.path.join(data_folder, 'test_orders.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5:
+                    phrase = u' '.join(tokenizer.tokenize(phrase))
+                    phrases2.add(phrase)
+
+    if True:
+        with codecs.open(os.path.join(data_folder, 'electroshop.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                    phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
+                    phrases2.add(phrase)
+
+    phrases2 = list(phrases2)
+
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
 
     while True:
-        phrase1 = raw_input('phrase:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = utils.console_helpers.input_kbd('phrase:> ').strip().lower()
         if len(phrase1) == 0:
             break
 
@@ -978,20 +1001,13 @@ if run_mode == 'query2':
         question_samples = []
         Sample2 = collections.namedtuple('Sample2', ['words1', 'words2'])
         for phrase2 in phrases2:
-            if padding == 'left':
-                words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-                words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-            else:
-                words1 = rpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-                words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-
+            words1 = pad_func(tokenizer.tokenize(phrase1), max_wordseq_len)
+            words2 = pad_func(tokenizer.tokenize(phrase2), max_wordseq_len)
             samples.append(Sample2(words1, words2))
 
         nb_samples = len(samples)
 
-        print('Vectorization of {} samples'.format(nb_samples))
         for data in generate_rows(samples, nb_samples, embeddings, 2):
-            print('Running model to compute similarity of premises')
             sims = model.predict(x=data, batch_size=batch_size)[:, 1]
             break
 

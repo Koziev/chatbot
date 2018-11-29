@@ -57,13 +57,14 @@ import utils.console_helpers
 import utils.logging_helpers
 
 
-PHRASE_DIM = 256
-L1 = 0.00001
+# Длина вектора предложения
+PHRASE_DIM = 100
 
+# Предложения приводятся к единой длине путем добавления слева или справа
+# пустых токенов. Параметр padding определяет режим выравнивания.
+padding = 'right'
 
-nb_neg_per_posit = 1
-
-padding = 'left'
+L1 = 0  #0.00001
 
 random.seed(123456789)
 np.random.seed(123456789)
@@ -251,8 +252,8 @@ NB_EPOCHS = 1000
 
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for short text synonymy')
-parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query | query2')
-parser.add_argument('--arch', type=str, default='lstm', help='neural model architecture: lstm | lstm(cnn)')
+parser.add_argument('--run_mode', type=str, default='train', choices='train query query2'.split(), help='what to do')
+parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn)'.split(), help='neural model architecture')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--input', type=str, default='../data/synonymy_dataset3.csv', help='path to input dataset with triplets')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
@@ -306,16 +307,12 @@ if run_mode == 'train':
 
     logging.info('max_wordseq_len={}'.format(max_wordseq_len))
 
-    if padding == 'left':
-        for sample in samples3:
-            sample.anchor_words = lpad_wordseq(tokenizer.tokenize(sample.anchor), max_wordseq_len)
-            sample.positive_words = lpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
-            sample.negative_words = lpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
-    else:
-        for sample in samples3:
-            sample.anchor_words = rpad_wordseq(tokenizer.tokenize(sample.anchor), max_wordseq_len)
-            sample.positive_words = rpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
-            sample.negative_words = rpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
+
+    for sample in samples3:
+        sample.anchor_words = pad_func(tokenizer.tokenize(sample.anchor), max_wordseq_len)
+        sample.positive_words = pad_func(tokenizer.tokenize(sample.positive), max_wordseq_len)
+        sample.negative_words = pad_func(tokenizer.tokenize(sample.negative), max_wordseq_len)
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
@@ -413,6 +410,7 @@ if run_mode == 'train':
 
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=output)
     model.compile(loss=triplet_loss, optimizer='nadam')
+    #model.compile(loss=triplet_loss, optimizer='sgd')
     model.summary()
 
     keras.utils.plot_model(model,
@@ -447,15 +445,13 @@ if run_mode == 'train':
                                    verbose=1,
                                    mode='auto')
 
-    nb_validation_steps = len(val_samples)//batch_size
-
     hist = model.fit_generator(generator=generate_rows(train_samples, batch_size, embeddings, 1),
                                steps_per_epoch=len(train_samples)//batch_size,
                                epochs=NB_EPOCHS,
                                verbose=1,
                                callbacks=[model_checkpoint, early_stopping],
                                validation_data=generate_rows(val_samples, batch_size, embeddings, 1),
-                               validation_steps=nb_validation_steps,
+                               validation_steps=len(val_samples)//batch_size,
                                )
 
     logging.info('Estimating final accuracy on eval dataset...')
@@ -482,13 +478,13 @@ if run_mode == 'train':
         val_phrases.add(sample.negative)
 
     val_phrases = [(s, tokenizer.tokenize(s)) for s in val_phrases]
-    logging.info('Vectorization of {} phrases'.format(len(val_phrases)))
-
     nb_phrases = len(val_phrases)
-
+    logging.info('Vectorization of {} phrases'.format(nb_phrases))
     X_data = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
+
     for iphrase, phrase in enumerate(val_phrases):
-        vectorize_words(phrase[1], X_data, iphrase, embeddings)
+        words = pad_func(phrase[1], max_wordseq_len)
+        vectorize_words(words, X_data, iphrase, embeddings)
 
     y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=1)
 
@@ -498,7 +494,6 @@ if run_mode == 'train':
         phrase = val_phrases[i][0]
         v = y_pred[i]
         phrase2v[phrase] = v
-
 
     nb_error = 0
     nb_good = 0
@@ -535,6 +530,7 @@ if run_mode == 'query2':
         wordchar2vector_path = model_config['wordchar2vector_path']
         word_dims = model_config['word_dims']
         net_arch = model_config['net_arch']
+        padding = model_config['padding']
 
     with open(arch_filepath, 'r') as f:
         model = model_from_json(f.read())
@@ -544,6 +540,8 @@ if run_mode == 'query2':
     embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
     word_dims = embeddings.vector_size
 
+    # Загрузим эталонные предложения, похожесть на которые будем определять для
+    # введенного в консоли предложения.
     phrases2 = set()
     if True:
         with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
@@ -552,7 +550,14 @@ if run_mode == 'query2':
                 if len(phrase) > 5 and phrase.startswith(u'Q:'):
                     phrase = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
                     phrases2.add(phrase)
-    else:
+    if True:
+        with codecs.open(os.path.join(data_folder, 'test_orders.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) > 5:
+                    phrase = u' '.join(tokenizer.tokenize(phrase))
+                    phrases2.add(phrase)
+    if True:
         with codecs.open(os.path.join(data_folder, 'electroshop.txt'), 'r', 'utf-8') as rdr:
             for line in rdr:
                 phrase = line.strip()
@@ -562,19 +567,20 @@ if run_mode == 'query2':
 
     phrases2 = list(phrases2)
 
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
 
     while True:
-        phrase1 = raw_input('phrase:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = utils.console_helpers.input_kbd('phrase:> ').strip().lower()
         if len(phrase1) == 0:
             break
 
         all_phrases = list(itertools.chain(phrases2, [phrase1]))
         nb_phrases = len(all_phrases)
 
-        print('Vectorization of {} samples'.format(nb_phrases))
+        #print('Vectorization of {} samples'.format(nb_phrases))
         X_data = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
         for iphrase, phrase in enumerate(all_phrases):
-            words = lpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
+            words = pad_func(tokenizer.tokenize(phrase), max_wordseq_len)
             vectorize_words(words, X_data, iphrase, embeddings)
 
         y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=0)

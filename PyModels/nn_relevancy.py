@@ -56,6 +56,7 @@ import matplotlib.pyplot as plt
 from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
 from utils.padding_utils import lpad_wordseq
+from utils.padding_utils import rpad_wordseq
 from utils.padding_utils import PAD_WORD
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
@@ -67,6 +68,9 @@ import utils.logging_helpers
 config_file_name = 'nn_relevancy_model.config'
 config_file_name2 = 'sent2vec.config'
 
+# Предложения приводятся к единой длине путем добавления слева или справа
+# пустых токенов. Параметр padding определяет режим выравнивания.
+padding = 'right'
 
 use_shingle_matching = False
 
@@ -270,6 +274,7 @@ else:
         net_arch = model_config['net_arch']
         nb_addfeatures = model_config['nb_addfeatures']
         shingle_image_size = model_config['shingle_image_size']
+        padding = model_config['padding']
 
     print('Restoring model architecture from {}'.format(arch_filepath))
     with open(arch_filepath, 'r') as f:
@@ -298,28 +303,6 @@ if run_mode == 'train':
         max_wordseq_len = max(max_wordseq_len, len(words))
 
     logging.info('max_wordseq_len={}'.format(max_wordseq_len))
-
-
-
-    # DEBUG START
-    if False:
-        phrase1 = u'тебя зовут андрей'
-        phrase2 = u'тебя случайно не джек зовут'
-        words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
-        samples = [(words1, words2, phrase1, phrase2)]
-        dummy_targets = [-1]
-
-        for x in generate_rows(samples, dummy_targets, len(samples), embeddings, 2):
-            # -- DEBUG START
-            print('X[0]={}'.format(x['input_words1']))
-            print('X[1]={}'.format(x['input_words2']))
-            # -- DEBUG END
-            #exit(0)
-            break
-    # DEBUG END
-
-
 
 
     # суммарное кол-во дополнительных фич, подаваемых на вход сетки
@@ -353,7 +336,7 @@ if run_mode == 'train':
         'nb_addfeatures': nb_addfeatures,
         'shingle_image_size': shingle_image_size,
         'use_shingle_matching': use_shingle_matching,
-        'padding': 'left'
+        'padding': padding
     }
 
     with open(os.path.join(tmp_folder, config_file_name), 'w') as f:
@@ -859,8 +842,12 @@ if run_mode == 'train':
     for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phrases'):
         phrase1 = row['premise']
         phrase2 = row['question']
-        words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        if padding == 'left':
+            words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+            words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        else:
+            words1 = rpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+            words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
 
         if len(phrase1) < 2 or len(phrase2) < 2:
             print(u'Empty word sequence in sample #{}:\nphrase1={}\nphrase2={}'.format(index, phrase1, phrase2))
@@ -1275,16 +1262,20 @@ if run_mode == 'query':
 
     while True:
         print('\nEnter two phrases:')
-        phrase1 = raw_input('phrase #1 (premise):> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = utils.console_helpers.input_kbd('phrase #1 (premise):> ').strip().lower()
         if len(phrase1) == 0:
             break
 
-        phrase2 = raw_input('phrase #2 (question):> ').decode(sys.stdout.encoding).strip().lower()
+        phrase2 = utils.console_helpers.input_kbd('phrase #2 (question):> ').strip().lower()
         if len(phrase2) == 0:
             break
 
-        words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
-        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        if padding == 'left':
+            words1 = lpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+            words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        else:
+            words1 = rpad_wordseq(tokenizer.tokenize(phrase1), max_wordseq_len)
+            words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
 
         all_words_known = True
         for word in itertools.chain(words1, words2):
@@ -1324,9 +1315,12 @@ if run_mode == 'query2':
                 phrase = line.strip()
                 if phrase.startswith(u'Q:'):
                     phrase = phrase.replace(u'Q:', u'').strip()
-                    words = lpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
-                    if len(words) > 0:
-                        phrases1.append(words)
+                    if padding == 'left':
+                        words = lpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
+                    else:
+                        words = rpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
+
+                    phrases1.append(words)
     else:
         added_phrases = set()
         for fname in ['test_premises.txt']:
@@ -1337,7 +1331,11 @@ if run_mode == 'query2':
                     if len(phrase) > 0 and phrase not in added_phrases:
                         words = tokenizer.tokenize(phrase)
                         if len(words) > 0:
-                            words = lpad_wordseq(words, max_wordseq_len)
+                            if padding == 'left':
+                                words = lpad_wordseq(words, max_wordseq_len)
+                            else:
+                                words = rpad_wordseq(words, max_wordseq_len)
+
                             phrases1.append(words)
                             added_phrases.add(phrase)
                         else:
@@ -1347,11 +1345,14 @@ if run_mode == 'query2':
     print(u'{0} phrases loaded.'.format(nb_phrases))
 
     while True:
-        phrase2 = raw_input('phrase #2:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase2 = utils.console_helpers.input_kbd('phrase #2:> ').strip().lower()
         if len(phrase2) == 0:
             break
 
-        words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        if padding == 'left':
+            words2 = lpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
+        else:
+            words2 = rpad_wordseq(tokenizer.tokenize(phrase2), max_wordseq_len)
 
         all_words_known = True
         for word in words2:

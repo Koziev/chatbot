@@ -17,6 +17,7 @@ import itertools
 import os
 import random
 import numpy as np
+import gensim
 
 try:
     from itertools import izip as zip
@@ -34,6 +35,8 @@ USE_AUTOGEN = True  # добавлять ли сэмплы из автомати
 
 HANDCRAFTED_WEIGHT = 1 # вес для сэмплов, которые в явном виде созданы вручную
 AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, сгенерированных автоматически
+
+FILTER_KNOWN_WORDS = True  # не брать негативный сэмпл, если в нем есть неизвестные слова
 
 # Автоматически сгенерированных сэмплов очень много, намного больше чем вручную
 # составленных, поэтому ограничим количество паттернов для каждого типа автоматически
@@ -302,10 +305,33 @@ if ADD_PARAPHRASES:
                 else:
                     lines.append(line)
 
+# Собираем лексикон из слов
+known_words = set()
+if True:
+    for sample in samples2:
+        known_words.update(sample[0].split())
+        known_words.update(sample[1].split())
+else:
+    word2vector_path = os.path.expanduser('~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin')
+
+    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path,
+                                                          binary=not word2vector_path.endswith('.txt'))
+    known_words = w2v
+
+random_questions3 = list(random_questions2)
+if FILTER_KNOWN_WORDS:
+    print('Removing random question with OOV words...')
+    new_list = []
+    for random_question in random_questions3:
+        if all((word in known_words) for word in random_question.split()):
+            new_list.append(random_question)
+
+    print('{} items in list of random questions after removal'.format(len(new_list)))
+    random_questions3 = new_list
 
 # Второй проход по списку пар предпосылка-вопрос.
 # Для каждой пары подбираем негативный вопрос.
-random_questions3 = list(random_questions2)
+print('Adding negative questions to samples...')
 samples3 = []
 n3 = 0
 for premise, question in samples2:
@@ -353,15 +379,6 @@ for premise, question in samples2:
                     if pq not in all_pq:
                         samples3.append(Sample3(premise, question, random_question))
                         break
-
-    # эксперимент от 15.11.2018
-    if False:
-        qx = [u'как меня зовут', u'кто я', u'где ты находишься', u'какой я']
-        for nonrelevant_question in qx:
-            pq = premise + u'|' + nonrelevant_question
-            if pq not in all_pq:
-                samples3.append(Sample3(premise, question, nonrelevant_question))
-                all_pq.add(pq)
 
 
 print(u'Storing {} triplets to dataset "{}"'.format(len(samples3), output_filepath3))

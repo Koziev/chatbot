@@ -54,6 +54,10 @@ def is_punkt(c):
     return c in u'+.,-?!()[]{}*<>$&=~№/\\«»%:;|#" \'’–'
 
 
+def normalize_word(word):
+    return word.lower().replace(u'ё', u'е')
+
+
 def is_good_word(word):
     if word in stop_words or word.startswith(u' ') or word == u'' or len(word) > 28:
         return False
@@ -86,7 +90,7 @@ for corpus in postagger_corpora:
             line = line.strip()
             if line:
                 tx = line.split('\t')
-                word = tx[1].lower()
+                word = normalize_word(tx[1])
                 known_words.add(word)
                 dataset_words.add(word)
 
@@ -104,7 +108,7 @@ with codecs.open(corpus_path, 'r', 'utf-8') as rdr:
     line_count = 0
     for line0 in rdr:
         line = line0.strip()
-        words = line.split(u' ')
+        words = [normalize_word(w) for w in line.split(u' ')]
         known_words.update(words)
         line_count += 1
         if line_count>1000000:

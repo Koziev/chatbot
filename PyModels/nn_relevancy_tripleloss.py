@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """
+
 Тренировка нейросетевой модели для определения РЕЛЕВАНТНОСТИ ПРЕДПОСЫЛКИ И ВОПРОСА.
 Вариант архитектуры с TRIPLE LOSS.
 Для проекта чатбота https://github.com/Koziev/chatbot
@@ -54,11 +55,14 @@ import utils.console_helpers
 import utils.logging_helpers
 
 
-PHRASE_DIM = 64
+# Длина вектора предложения
+phrase_dim = 64
+
+# Предложения приводятся к единой длине путем добавления слева или справа
+# пустых токенов. Параметр padding определяет режим выравнивания.
+padding = 'right'
 
 PRETRAIN = False
-
-padding = 'left'
 
 random.seed(123456789)
 np.random.seed(123456789)
@@ -161,9 +165,9 @@ def triplet_loss(y_true, y_pred):
     """
     alpha = 0.5
 
-    anchor   = y_pred[:, 0:PHRASE_DIM]
-    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
-    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+    anchor   = y_pred[:, 0:phrase_dim]
+    positive = y_pred[:, phrase_dim:2 * phrase_dim]
+    negative = y_pred[:, 2 * phrase_dim:3 * phrase_dim]
 
     # distance between the anchor and the positive
     pos_dist = K.sum(K.square(anchor - positive), axis=1)
@@ -182,9 +186,9 @@ def triplet_loss2(y_true, y_pred):
     """Модификация triplet_loss с cos-метрикой"""
     alpha = 0.5
 
-    anchor   = y_pred[:, 0:PHRASE_DIM]
-    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
-    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+    anchor   = y_pred[:, 0:phrase_dim]
+    positive = y_pred[:, phrase_dim:2 * phrase_dim]
+    negative = y_pred[:, 2 * phrase_dim:3 * phrase_dim]
 
     # distance between the anchor and the positive
     pos_dist = -K.sum(anchor * positive, axis=-1)
@@ -199,7 +203,7 @@ def triplet_loss2(y_true, y_pred):
     return loss
 
 
-def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon=1e-8):
+def lossless_triplet_loss(y_true, y_pred, N=phrase_dim, beta=phrase_dim, epsilon=1e-8):
     """
     Implementation of the triplet loss function
     https://towardsdatascience.com/lossless-triplet-loss-7e932f990b24
@@ -210,7 +214,7 @@ def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon
             anchor -- the encodings for the anchor data
             positive -- the encodings for the positive data (similar to anchor)
             negative -- the encodings for the negative data (different from anchor)
-    N  --  The number of dimension 
+    N  --  The number of dimension
     beta -- The scaling factor, N is recommended
     epsilon -- The Epsilon value to prevent ln(0)
 
@@ -219,9 +223,9 @@ def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon
     loss -- real number, value of the loss
     """
 
-    anchor   = y_pred[:, 0:PHRASE_DIM]
-    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
-    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+    anchor   = y_pred[:, 0:phrase_dim]
+    positive = y_pred[:, phrase_dim:2 * phrase_dim]
+    negative = y_pred[:, 2 * phrase_dim:3 * phrase_dim]
 
     # distance between the anchor and the positive
     pos_dist = K.sum(K.square(anchor - positive), axis=1)
@@ -240,6 +244,62 @@ def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon
 
     return loss
 
+
+
+def convert_samples2(samples, phrase2v):
+    added = set()
+    samples2 = []
+    for sample in samples:
+        pair1 = sample.anchor + '|' + sample.positive
+        if pair1 not in added:
+            samples2.append((phrase2v[sample.anchor], phrase2v[sample.positive], 1))
+            added.add(pair1)
+
+        pair2 = sample.anchor + '|' + sample.negative
+        if pair2 not in added:
+            samples2.append((phrase2v[sample.anchor], phrase2v[sample.negative], 0))
+            added.add(pair2)
+
+    return samples2
+
+
+
+def generate_rows2(samples, batch_size, mode):
+    if mode == 1:
+        # При обучении сетки каждую эпоху тасуем сэмплы.
+        random.shuffle(samples)
+
+    phrase_dim = len(samples[0][0])
+
+    batch_index = 0
+    batch_count = 0
+
+    X1_batch = np.zeros((batch_size, phrase_dim), dtype=np.float32)
+    X2_batch = np.zeros((batch_size, phrase_dim), dtype=np.float32)
+    y_batch = np.zeros((batch_size, 2), dtype=np.bool)
+
+    while True:
+        for irow, sample in enumerate(samples):
+            X1_batch[batch_index] = sample[0]
+            X2_batch[batch_index] = sample[1]
+            y_batch[batch_index, sample[2]] = True
+
+            batch_index += 1
+
+            if batch_index == batch_size:
+                batch_count += 1
+                xx = {'input1': X1_batch,
+                      'input2': X2_batch}
+                if mode == 1:
+                    yield (xx, {'output': y_batch})
+                else:
+                    yield xx
+
+                # очищаем матрицы порции для новой порции
+                X1_batch.fill(0)
+                X2_batch.fill(0)
+                y_batch.fill(0)
+                batch_index = 0
 
 # -------------------------------------------------------------------
 
@@ -323,18 +383,25 @@ NB_EPOCHS = 1000
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for premise-question relevancy')
 parser.add_argument('--run_mode', type=str, default='train', choices='train query query2'.split(), help='what to do: train | query | query2')
-parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn) lstm(lstm)'.split(), help='neural model architecture: lstm | lstm(cnn)')
+parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn) lstm(lstm) bilstm'.split(), help='neural model architecture: lstm | lstm(cnn)')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
+parser.add_argument('--phrase_dim', type=int, default=64, help='Sentence embedding vector size')
 parser.add_argument('--input', type=str, default='../data/relevancy_dataset3.csv', help='path to input dataset with triplets')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
 parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
+parser.add_argument('--train_model1', type=bool, default=True, help='train sentence embedding model')
+parser.add_argument('--train_model2', type=bool, default=False, help='train metric model')
 
 args = parser.parse_args()
 data_folder = args.data_dir
 input_path = args.input
 tmp_folder = args.tmp
+train_model1 = args.train_model1
+train_model2 = args.train_model2
+phrase_dim = args.phrase_dim
+
 
 wordchar2vector_path = args.wordchar2vector
 word2vector_path = os.path.expanduser(args.word2vector)
@@ -342,19 +409,20 @@ batch_size = args.batch_size
 net_arch = args.arch
 
 # настраиваем логирование в файл
-utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_synonymy_tripleloss.log'))
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'nn_relevancy_tripleloss.log'))
 
 run_mode = args.run_mode
 # Варианты значения для параметра run_mode:
-# run_mode='train'
-# Тренировка модели по заранее приготовленному датасету с парами предложений
-# run_mode = 'query'
-# В консоли вводятся два предложения, модель оценивает их релевантность.
+# 'train' - Тренировка модели по заранее приготовленному датасету с парами предложений
+# 'query' - В консоли вводятся два предложения, модель оценивает их релевантность.
+# 'query2' - В вонсоли вводится вопрос, из текстового файла загружаются варианты предпосылок, релевантность к которым выдается.
 
 
 config_path = os.path.join(tmp_folder, 'nn_relevancy_tripleloss.config')
 arch_filepath = os.path.join(tmp_folder, 'nn_relevancy_tripleloss.arch')
+weights_path0 = os.path.join(tmp_folder, 'nn_relevancy_tripleloss0.weights')
 weights_path = os.path.join(tmp_folder, 'nn_relevancy_tripleloss.weights')
+weights_path2 = os.path.join(tmp_folder, 'nn_relevancy2.weights')
 
 tokenizer = Tokenizer()
 
@@ -377,16 +445,12 @@ if run_mode == 'train':
 
     logging.info('max_wordseq_len={}'.format(max_wordseq_len))
 
-    if padding == 'left':
-        for sample in samples3:
-            sample.anchor_words = lpad_wordseq(tokenizer.tokenize(sample.anchor), max_wordseq_len)
-            sample.positive_words = lpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
-            sample.negative_words = lpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
-    else:
-        for sample in samples3:
-            sample.anchor_words = rpad_wordseq(tokenizer.tokenize(sample.anchor), max_wordseq_len)
-            sample.positive_words = rpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
-            sample.negative_words = rpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
+
+    for sample in samples3:
+        sample.anchor_words = pad_func(tokenizer.tokenize(sample.anchor), max_wordseq_len)
+        sample.positive_words = pad_func(tokenizer.tokenize(sample.positive), max_wordseq_len)
+        sample.negative_words = pad_func(tokenizer.tokenize(sample.negative), max_wordseq_len)
 
     if PRETRAIN:
         logging.info('Building samples for pretraining')
@@ -400,9 +464,9 @@ if run_mode == 'train':
                              random.choice(positives),
                              random.choice(negatives))
 
-            sample.anchor_words = rpad_wordseq(tokenizer.tokenize(sample.anchor), max_wordseq_len)
-            sample.positive_words = rpad_wordseq(tokenizer.tokenize(sample.positive), max_wordseq_len)
-            sample.negative_words = rpad_wordseq(tokenizer.tokenize(sample.negative), max_wordseq_len)
+            sample.anchor_words = pad_func(tokenizer.tokenize(sample.anchor), max_wordseq_len)
+            sample.positive_words = pad_func(tokenizer.tokenize(sample.positive), max_wordseq_len)
+            sample.negative_words = pad_func(tokenizer.tokenize(sample.negative), max_wordseq_len)
 
             pretrain_samples.append(sample)
 
@@ -413,7 +477,7 @@ if run_mode == 'train':
         'w2v_path': word2vector_path,
         'wordchar2vector_path': wordchar2vector_path,
         'PAD_WORD': PAD_WORD,
-        'PHRASE_DIM': PHRASE_DIM,
+        'PHRASE_DIM': phrase_dim,
         'padding': padding,
         'arch_filepath': arch_filepath,
         'weights_path': weights_path,
@@ -431,7 +495,20 @@ if run_mode == 'train':
     input_negative = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input_negative')
 
     if net_arch == 'lstm':
-        lstm = recurrent.LSTM(PHRASE_DIM, return_sequences=False, name='anchor_flow', go_backwards=True)
+        lstm = recurrent.LSTM(phrase_dim,
+                              return_sequences=False,
+                              name='anchor_flow',
+                              go_backwards=True)
+        anchor_flow = lstm(input_anchor)
+        positive_flow = lstm(input_positive)
+        negative_flow = lstm(input_negative)
+
+    if net_arch == 'bilstm':
+        lstm = recurrent.LSTM(phrase_dim,
+                              return_sequences=False,
+                              name='anchor_flow',
+                              go_backwards=True)
+        lstm = Bidirectional(lstm)
         anchor_flow = lstm(input_anchor)
         positive_flow = lstm(input_positive)
         negative_flow = lstm(input_negative)
@@ -445,12 +522,12 @@ if run_mode == 'train':
         #negative_flow = Dropout(rate=0.2)(negative_flow)
 
     if net_arch == 'lstm(lstm)':
-        lstm = recurrent.LSTM(PHRASE_DIM, return_sequences=True)
+        lstm = recurrent.LSTM(phrase_dim, return_sequences=True)
         anchor_flow = lstm(input_anchor)
         positive_flow = lstm(input_positive)
         negative_flow = lstm(input_negative)
 
-        lstm2 = recurrent.LSTM(PHRASE_DIM, return_sequences=False, name='anchor_flow')
+        lstm2 = recurrent.LSTM(phrase_dim, return_sequences=False, name='anchor_flow')
         anchor_flow = lstm2(anchor_flow)
         positive_flow = lstm2(positive_flow)
         negative_flow = lstm2(negative_flow)
@@ -498,7 +575,7 @@ if run_mode == 'train':
         negative_flow = keras.layers.concatenate(inputs=layers3)
 
         # полносвязный слой приводит размерность вектора предложения к заданной
-        dense = Dense(units=PHRASE_DIM, activation='sigmoid')
+        dense = Dense(units=phrase_dim, activation='sigmoid')
         anchor_flow = dense(anchor_flow)
         positive_flow = dense(positive_flow)
         negative_flow = dense(negative_flow)
@@ -507,6 +584,7 @@ if run_mode == 'train':
 
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=output)
     model.compile(loss=triplet_loss, optimizer='nadam')
+    #model.compile(loss=triplet_loss, optimizer='sgd')
     model.summary()
 
     keras.utils.plot_model(model,
@@ -564,10 +642,8 @@ if run_mode == 'train':
     for iphrase, phrase in enumerate(eval_phrases):
         vectorize_words(phrase[1], X_eval, iphrase, embeddings)
 
-    #model_checkpoint = ModelCheckpoint_Acc(X_eval, eval_phrases, eval_samples, model1, weights_path)
-
     logging.info('Start training...')
-    model_checkpoint = ModelCheckpoint(weights_path, monitor='val_loss',
+    model_checkpoint = ModelCheckpoint(weights_path0, monitor='val_loss',
                                        verbose=1,
                                        save_best_only=True,
                                        mode='auto')
@@ -578,18 +654,19 @@ if run_mode == 'train':
 
     nb_validation_steps = len(val_samples)//batch_size
 
-    hist = model.fit_generator(generator=generate_rows(train_samples, batch_size, embeddings, 1),
-                               steps_per_epoch=len(train_samples)//batch_size,
-                               epochs=NB_EPOCHS,
-                               verbose=1,
-                               callbacks=[model_checkpoint, early_stopping],
-                               validation_data=generate_rows(val_samples, batch_size, embeddings, 1),
-                               validation_steps=nb_validation_steps,
-                               )
+    if train_model1:
+        hist = model.fit_generator(generator=generate_rows(train_samples, batch_size, embeddings, 1),
+                                   steps_per_epoch=len(train_samples)//batch_size,
+                                   epochs=NB_EPOCHS,
+                                   verbose=1,
+                                   callbacks=[model_checkpoint, early_stopping],
+                                   validation_data=generate_rows(val_samples, batch_size, embeddings, 1),
+                                   validation_steps=nb_validation_steps,
+                                   )
     #best_acc = model_checkpoint.get_best_accuracy()
     #logging.info('Best validation accuracy={}'.format(best_acc))
 
-    model.load_weights(weights_path)
+    model.load_weights(weights_path0)
 
     y_pred = model1.predict(x=X_eval, batch_size=batch_size, verbose=1)
 
@@ -623,10 +700,81 @@ if run_mode == 'train':
     acc = nb_good/float(nb_error+nb_good)
     logging.info('Validation results: accuracy={}'.format(acc))
 
-
     model1.save_weights(weights_path)
 
+    if train_model2:
+        # Теперь вторая модель поверх векторов из tripleloss модели
+
+        all_phrases = set()
+        for sample in samples3:
+            all_phrases.add(sample.anchor)
+            all_phrases.add(sample.positive)
+            all_phrases.add(sample.negative)
+
+        all_phrases = [(s, tokenizer.tokenize(s)) for s in all_phrases]
+        nb_phrases = len(all_phrases)
+        X_all = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
+        for iphrase, phrase in enumerate(all_phrases):
+            vectorize_words(phrase[1], X_all, iphrase, embeddings)
+
+        y_pred = model1.predict(x=X_all, batch_size=batch_size, verbose=1)
+
+        # Теперь для каждой фразы мы знаем вектор
+        phrase2v = dict()
+        nb_phrases = len(all_phrases)
+        for i in range(nb_phrases):
+            phrase = all_phrases[i][0]
+            v = y_pred[i]
+            phrase2v[phrase] = v
+
+        input1 = Input(shape=(phrase_dim,), dtype='float32', name='input1')
+        input2 = Input(shape=(phrase_dim,), dtype='float32', name='input2')
+
+        if False:
+            net2 = keras.layers.concatenate([input1, input2])
+            net2 = Dense(units=phrase_dim, activation='relu')(net2)
+        else:
+            addition = add([input1, input2])
+            minus_y1 = Lambda(lambda x: -x, output_shape=(phrase_dim,))(input1)
+            mul = add([input2, minus_y1])
+            mul = multiply([mul, mul])
+            net2 = keras.layers.concatenate(inputs=[mul, addition, input1, input2])
+
+        net2 = Dense(units=phrase_dim // 2, activation='relu')(net2)
+        net2 = Dense(units=2, activation='softmax', name='output')(net2)
+
+        model2 = Model(inputs=[input1, input2], outputs=net2)
+        model2.compile(loss=keras.losses.categorical_crossentropy,
+                       optimizer='nadam',
+                       metrics=['accuracy'])
+        model2.summary()
+
+        logging.info('Start training model2...')
+        model_checkpoint = ModelCheckpoint(weights_path2, monitor='val_acc',
+                                           verbose=1,
+                                           save_best_only=True,
+                                           mode='auto')
+        early_stopping = EarlyStopping(monitor='val_acc',
+                                       patience=20,
+                                       verbose=1,
+                                       mode='auto')
+
+
+
+        train_samples2 = convert_samples2(train_samples, phrase2v)
+        val_samples2 = convert_samples2(val_samples, phrase2v)
+
+        hist = model2.fit_generator(generator=generate_rows2(train_samples2, batch_size, 1),
+                                    steps_per_epoch=len(train_samples2) // batch_size,
+                                    epochs=NB_EPOCHS,
+                                    verbose=1,
+                                    callbacks=[model_checkpoint, early_stopping],
+                                    validation_data=generate_rows2(val_samples2, batch_size, 1),
+                                    validation_steps=len(val_samples2) // batch_size,
+                                    )
+
 # </editor-fold>
+
 
 if run_mode == 'query2':
     # В консоли вводится предложение, для которого в списках premises*.txt
@@ -640,6 +788,7 @@ if run_mode == 'query2':
         wordchar2vector_path = model_config['wordchar2vector_path']
         word_dims = model_config['word_dims']
         net_arch = model_config['net_arch']
+        padding = model_config['padding']
 
     with open(arch_filepath, 'r') as f:
         model = model_from_json(f.read())
@@ -661,16 +810,17 @@ if run_mode == 'query2':
     phrases2 = list(phrases2)
 
     while True:
-        phrase1 = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+        phrase1 = utils.console_helpers.input_kbd('question:> ').strip().lower()
         if len(phrase1) == 0:
             break
 
         all_phrases = list(itertools.chain(phrases2, [phrase1]))
         nb_phrases = len(all_phrases)
-
         X_data = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
+        pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
+
         for iphrase, phrase in enumerate(all_phrases):
-            words = lpad_wordseq(tokenizer.tokenize(phrase), max_wordseq_len)
+            words = pad_func(tokenizer.tokenize(phrase), max_wordseq_len)
             vectorize_words(words, X_data, iphrase, embeddings)
 
         y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=0)
