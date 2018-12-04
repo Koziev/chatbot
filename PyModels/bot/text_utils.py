@@ -35,6 +35,9 @@ class TextUtils(object):
         s = re.sub("(\\s{2,})", ' ', s.strip())
         return s
 
+    def wordize_text(self, s):
+        return u' '.join(self.tokenize(s))
+
     def ngrams(self, s, n):
         return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)])]
 

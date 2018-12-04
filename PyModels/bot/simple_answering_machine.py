@@ -20,6 +20,7 @@ from answer_builder import AnswerBuilder
 from interpreted_phrase import InterpretedPhrase
 from nn_enough_premises_model import NN_EnoughPremisesModel
 from nn_synonymy_detector import NN_SynonymyDetector
+from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
 from jaccard_synonymy_detector import Jaccard_SynonymyDetector
 from nn_interpreter import NN_Interpreter
 from nn_req_interpretation import NN_ReqInterpretation
@@ -72,14 +73,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Определение релевантности предпосылки и вопроса на основе XGB модели
         #self.relevancy_detector = XGB_RelevancyDetector()
-        self.relevancy_detector = LGB_RelevancyDetector()
-        #self.relevancy_detector = NN_RelevancyTripleLoss()
+        #self.relevancy_detector = LGB_RelevancyDetector()
+        self.relevancy_detector = NN_RelevancyTripleLoss()
         self.relevancy_detector.load(models_folder)
 
         # Модель определения синонимичности двух фраз
         #self.synonymy_detector = NN_SynonymyDetector()
-        #self.synonymy_detector.load(models_folder)
-        self.synonymy_detector = Jaccard_SynonymyDetector()
+        self.synonymy_detector = NN_SynonymyTripleLoss()
+        self.synonymy_detector.load(models_folder)
+        #self.synonymy_detector = Jaccard_SynonymyDetector()
 
         self.interpreter = NN_Interpreter()
         self.interpreter.load(models_folder)
@@ -148,13 +150,36 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def is_question(self, phrase):
         return self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings) == ModalityDetector.question
 
-    def interpret_phrase(self, session, raw_phrase):
+    def translate_order(self, bot, session, raw_phrase):
+        order_templates = bot.order_templates.get_templates()
+        order2anchor = dict((order, anchor) for (anchor, order) in order_templates)
+        phrases = list(order for (anchor, order) in order_templates)
+        phrases2 = list((self.text_utils.wordize_text(order),) for (anchor, order) in order_templates)
+        canonized2raw = dict((f2[0], f1) for (f1, f2) in itertools.izip(phrases, phrases2))
+
+        best_order, best_sim = self.synonymy_detector.get_most_similar(self.text_utils.wordize_text(raw_phrase),
+                                                                       phrases2,
+                                                                       self.text_utils,
+                                                                       self.word_embeddings,
+                                                                       nb_results=1)
+
+        if self.trace_enabled:
+            self.logger.info(u'Closest order is "{}" with similarity={}'.format(best_order, best_sim))
+
+        if best_sim > 0.70:
+            interpreted_order = order2anchor[canonized2raw[best_order]]
+            if self.trace_enabled:
+                self.logger.info(u'Phrase "{}" is interpreted as "{}"'.format(raw_phrase, interpreted_order))
+            return interpreted_order
+        else:
+            return None
+
+    def interpret_phrase(self, bot, session, raw_phrase):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
-        phrase_is_question = self.is_question(raw_phrase)
+        phrase_is_question = self.is_question(phrase)
 
         # история фраз доступна в session как conversation_history
-
         person = None
 
         last_phrase = session.conversation_history[-1] if len(session.conversation_history) > 0 else None
@@ -186,6 +211,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 if self.trace_enabled:
                     self.logger.debug('detected person={}'.format(person))
+
+        if not phrase_is_question and bot.order_templates is not None:
+            # попробуем найти шаблон приказа, достаточно похожий на эту фразу
+            order_str = self.translate_order(bot, session, phrase)
+            if order_str is not None:
+                phrase = order_str
+                raw_phrase = order_str
+                phrase_is_question = self.is_question(phrase)
 
         if person is None:
             # определим грамматическое лицо введенного предложения.
@@ -239,7 +272,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
         # так что мы можем раскрыть анафору, подставить в явном виде опущенные составляющие и т.д.,
         # определить, является ли фраза вопросом, фактом или императивным высказыванием.
-        interpreted_phrase = self.interpret_phrase(session, question)
+        interpreted_phrase = self.interpret_phrase(bot, session, question)
 
         # Интерпретация фраз и в общем случае реакция на них зависит и от истории
         # общения, поэтому результат интерпретации сразу добавляем в историю.
@@ -248,108 +281,118 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         answer_generated = False
 
         if not interpreted_phrase.is_question:
-            # Утверждение добавляем как факт в базу знаний, в раздел для
-            # текущего собеседника.
-            # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
-            # для текущего собеседника.
-            fact_person = '3'
-            if interpreted_phrase.phrase_person == '1s':
-                fact_person = '2s'
-            elif interpreted_phrase.phrase_person == '2s':
-                fact_person = '1s'
-            fact = interpreted_phrase.interpretation
-            if self.trace_enabled:
-                print(u'Adding [{}] to knowledge base'.format(fact))
-            bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
+            # Обработка приказов
+            order_processed = False
 
-            generated_replicas = []  # список кортежей (подобранная_реплика_бота, вес_реплики)
-            if bot.has_scripting():
-                replica = bot.scripting.generate_response4nonquestion(self, interlocutor, interpreted_phrase)
-                if replica is not None:
-                    # Не будем допускать, чтобы одна и та же реплика призносилась
-                    # ботом более 2х раз
-                    if session.count_bot_phrase(replica) <= 2:
+            if bot.order_templates is not None:
+                anchor = bot.order_templates.get_order_anchor(interpreted_phrase.interpretation)
+                if anchor is not None:
+                    self.process_order(bot, session, interpreted_phrase)
+                    order_processed = True
 
-                        # Будем учитывать, насколько хорошо предлагаемая реплика ложится в общий
-                        # дискурс текущей беседы.
-                        discourse_rel = self.calc_discourse_relevance(replica, session)
-                        replica_rel = discourse_rel*np.random.rand(0.95, 1.0)
+            if not order_processed:
+                # Утверждение добавляем как факт в базу знаний, в раздел для
+                # текущего собеседника.
+                # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
+                # для текущего собеседника.
+                fact_person = '3'
+                if interpreted_phrase.phrase_person == '1s':
+                    fact_person = '2s'
+                elif interpreted_phrase.phrase_person == '2s':
+                    fact_person = '1s'
+                fact = interpreted_phrase.interpretation
+                if self.trace_enabled:
+                    print(u'Adding [{}] to knowledge base'.format(fact))
+                bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
 
-                        # проверить, если answer является репликой-ответом: знает
-                        # ли бот ответ на этот вопрос.
-                        if self.is_question(replica):
-                            if not self.does_bot_know_answer(replica, session):
+                generated_replicas = []  # список кортежей (подобранная_реплика_бота, вес_реплики)
+                if bot.has_scripting():
+                    replica = bot.scripting.generate_response4nonquestion(self, interlocutor, interpreted_phrase)
+                    if replica is not None:
+                        # Не будем допускать, чтобы одна и та же реплика призносилась
+                        # ботом более 2х раз
+                        if session.count_bot_phrase(replica) <= 2:
+
+                            # Будем учитывать, насколько хорошо предлагаемая реплика ложится в общий
+                            # дискурс текущей беседы.
+                            discourse_rel = self.calc_discourse_relevance(replica, session)
+                            replica_rel = discourse_rel*np.random.rand(0.95, 1.0)
+
+                            # проверить, если answer является репликой-ответом: знает
+                            # ли бот ответ на этот вопрос.
+                            if self.is_question(replica):
+                                if not self.does_bot_know_answer(replica, session):
+                                    generated_replicas.add((replica, replica_rel))
+                            else:
+                                # Добавляется не вопрос.
                                 generated_replicas.add((replica, replica_rel))
-                        else:
-                            # Добавляется не вопрос.
-                            generated_replicas.add((replica, replica_rel))
 
-            if bot.enable_smalltalk:
-                # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
-                # ответ на наш вопрос, заданный ранее).
-                smalltalk_phrases = bot.facts.enumerate_smalltalk_replicas()
+                if bot.enable_smalltalk:
+                    # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
+                    # ответ на наш вопрос, заданный ранее).
+                    smalltalk_phrases = bot.facts.enumerate_smalltalk_replicas()
 
-                interlocutor_phrases = session.get_interlocutor_phrases(questions=False, assertions=True)
-                for phrase, timegap in interlocutor_phrases:
-                    best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase,
-                                                                                     [(item.query, -1, -1) for item in smalltalk_phrases],
-                                                                                     self.text_utils,
-                                                                                     self.word_embeddings)
+                    interlocutor_phrases = session.get_interlocutor_phrases(questions=False, assertions=True)
+                    for phrase, timegap in interlocutor_phrases:
+                        best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase,
+                                                                                         [(item.query, -1, -1) for item in smalltalk_phrases],
+                                                                                         self.text_utils,
+                                                                                         self.word_embeddings)
 
-                    time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
+                        time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
 
+                        for item in smalltalk_phrases:
+                            if item.query == best_premise:
+                                # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+                                # поэтому их следует сначала нормализовать.
+                                for replica in item.answers:
+                                    # Такой вопрос не задавался недавно?
+                                    if session.count_bot_phrase(replica) == 0:
+                                        # нужно учесть соответствие этой реплики replica текущему дискурсу
+                                        # беседы... Например, можно учесть максимальную похожесть на N последних
+                                        # реплик...
+                                        discourse_rel = self.calc_discourse_relevance(replica, session)
+
+                                        if self.is_question(replica):
+                                            # бот не должен задавать вопрос, если он уже знает на него ответ.
+                                            if not self.does_bot_know_answer(replica, session):
+                                                generated_replicas.append((replica, best_rel*discourse_rel*time_decay, 'debug1'))
+                                        else:
+                                            generated_replicas.append((replica, best_rel*discourse_rel*time_decay, 'debug2'))
+                                break
+
+
+                    # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
+                    # максимально близкие к вопросам в smalltalk базе.
+                    smalltalk_utterances = set()
                     for item in smalltalk_phrases:
-                        if item.query == best_premise:
-                            # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-                            # поэтому их следует сначала нормализовать.
-                            for replica in item.answers:
-                                # Такой вопрос не задавался недавно?
-                                if session.count_bot_phrase(replica) == 0:
-                                    # нужно учесть соответствие этой реплики replica текущему дискурсу
-                                    # беседы... Например, можно учесть максимальную похожесть на N последних
-                                    # реплик...
-                                    discourse_rel = self.calc_discourse_relevance(replica, session)
+                        smalltalk_utterances.update(item.answers)
 
-                                    if self.is_question(replica):
-                                        # бот не должен задавать вопрос, если он уже знает на него ответ.
-                                        if not self.does_bot_know_answer(replica, session):
-                                            generated_replicas.append((replica, best_rel*discourse_rel*time_decay, 'debug1'))
-                                    else:
-                                        generated_replicas.append((replica, best_rel*discourse_rel*time_decay, 'debug2'))
-                            break
+                    interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=False)
+                    for phrase, timegap in interlocutor_phrases:
+                        # Ищем ближайшие реплики для данной реплики человека phrase
+                        similar_items = self.synonymy_detector.get_most_similar(phrase,
+                                                                                [(s, -1, -1) for s in smalltalk_utterances],
+                                                                                self.text_utils,
+                                                                                self.word_embeddings,
+                                                                                nb_results=5
+                                                                                )
+                        for replica, rel in similar_items:
+                            if session.count_bot_phrase(replica) == 0:
+                                time_decay = math.exp(-timegap)
+                                generated_replicas.append((replica, rel*0.9*time_decay, 'debug3'))
 
-
-                # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
-                # максимально близкие к вопросам в smalltalk базе.
-                smalltalk_utterances = set()
-                for item in smalltalk_phrases:
-                    smalltalk_utterances.update(item.answers)
-
-                interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=False)
-                for phrase, timegap in interlocutor_phrases:
-                    # Ищем ближайшие реплики для данной реплики человека phrase
-                    similar_items = self.synonymy_detector.get_most_similar(phrase,
-                                                                            [(s, -1, -1) for s in smalltalk_utterances],
-                                                                            self.text_utils,
-                                                                            self.word_embeddings,
-                                                                            nb_results=5
-                                                                            )
-                    for replica, rel in similar_items:
-                        if session.count_bot_phrase(replica) == 0:
-                            time_decay = math.exp(-timegap)
-                            generated_replicas.append((replica, rel*0.9*time_decay, 'debug3'))
-
-                # Теперь среди подобранных реплик бота в generated_replicas выбираем
-                # одну, учитывая их вес.
-                if len(generated_replicas) > 0:
-                    replica_px = [z[1] for z in generated_replicas]
-                    replicas = list(map(operator.itemgetter(0), generated_replicas))
-                    sum_p = sum(replica_px) #+1e-7
-                    replica_px = [p/sum_p for p in replica_px]
-                    answer = np.random.choice(replicas, p=replica_px)
-                    answer_generated = True
-                else:
-                    answer_generated = False
+                    # Теперь среди подобранных реплик бота в generated_replicas выбираем
+                    # одну, учитывая их вес.
+                    if len(generated_replicas) > 0:
+                        replica_px = [z[1] for z in generated_replicas]
+                        replicas = list(map(operator.itemgetter(0), generated_replicas))
+                        sum_p = sum(replica_px) #+1e-7
+                        replica_px = [p/sum_p for p in replica_px]
+                        answer = np.random.choice(replicas, p=replica_px)
+                        answer_generated = True
+                    else:
+                        answer_generated = False
 
             if answer_generated:
                 self.say(session, answer)
@@ -366,6 +409,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     additional_speech = bot.scripting.generate_after_answer(bot, self, interlocutor, interpreted_phrase, answers[-1])
                     if additional_speech is not None:
                         self.say(session, additional_speech)
+
+
+    def process_order(self, bot, session, interpreted_phrase):
+        self.logger.info(u'Process order \"{}\"'.format(interpreted_phrase.interpretation))
+        bot.process_order(session, interpreted_phrase)
+
 
     def build_answers0(self, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
@@ -400,7 +449,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                  self.word_embeddings,
                                                                                  nb_results=3)
             if self.trace_enabled:
-                self.logger.debug(u'Best premise is "{}" with relevancy={}'.format(best_premises[0], best_rels[0]))
+                self.logger.info(u'Best premise is "{}" with relevancy={}'.format(best_premises[0], best_rels[0]))
 
             if bot.premise_is_answer:
                 # В качестве ответа используется весь текст найденной предпосылки.
@@ -410,7 +459,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 premises2 = []
                 premise_rels2 = []
                 max_rel = max(best_rels)
-                for premise, rel in itertools.izip(best_premises, best_rels):
+                for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):   # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
                     if rel >= self.min_premise_relevancy and rel >= 0.5*max_rel:
                         premises2.append([premise])
                         premise_rels2.append(rel)

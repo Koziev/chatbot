@@ -597,10 +597,57 @@ if run_mode == 'query2':
         v1 = phrase2v[phrase1]
         for phrase2 in phrases2:
             v2 = phrase2v[phrase2]
-            dist = np.sum(np.square(v1 - v2))
-            sim = math.exp(-dist)
+            sim = v_cosine(v1, v2)
             phrase_sims.append((phrase2, sim))
 
         phrase_sims = sorted(phrase_sims, key=lambda z: -z[1])
         for phrase, sim in phrase_sims[:10]:
             print(u'{:6.4f} {}'.format(sim, phrase))
+
+
+if run_mode == 'query':
+    # В консоли вводятся два предложения, модель выдает их похожесть
+
+    # Грузим конфигурацию модели, веса и т.д.
+    with open(config_path, 'r') as f:
+        model_config = json.load(f)
+        max_wordseq_len = model_config['max_wordseq_len']
+        word2vector_path = model_config['w2v_path']
+        wordchar2vector_path = model_config['wordchar2vector_path']
+        word_dims = model_config['word_dims']
+        net_arch = model_config['net_arch']
+        padding = model_config['padding']
+
+    with open(arch_filepath, 'r') as f:
+        model = model_from_json(f.read())
+
+    model.load_weights(weights_path)
+
+    embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+    word_dims = embeddings.vector_size
+
+    pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
+
+    while True:
+        phrase1 = utils.console_helpers.input_kbd('phrase #1:> ').strip().lower()
+        if len(phrase1) == 0:
+            break
+
+        phrase2 = utils.console_helpers.input_kbd('phrase #2:> ').strip().lower()
+        if len(phrase2) == 0:
+            break
+
+        all_phrases = [phrase1, phrase2]
+        nb_phrases = len(all_phrases)
+
+        X_data = np.zeros((2, max_wordseq_len, word_dims), dtype=np.float32)
+        for iphrase, phrase in enumerate(all_phrases):
+            words = pad_func(tokenizer.tokenize(phrase), max_wordseq_len)
+            vectorize_words(words, X_data, iphrase, embeddings)
+
+        y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=0)
+
+        v1 = y_pred[0]
+        v2 = y_pred[1]
+        sim = v_cosine(v1, v2)
+        print(u'{:6.4f}'.format(sim))

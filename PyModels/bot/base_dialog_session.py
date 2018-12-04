@@ -20,6 +20,9 @@ class BaseDialogSession(object):
         self.answer_buffer = []
         self.conversation_history = []  # все фразы беседы
 
+    def get_interlocutor(self):
+        return self.interlocutor
+
     def add_to_buffer(self, phrase):
         """
         В буфер ожидающих выдачи ответов бота добавляем новую реплику

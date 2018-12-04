@@ -245,7 +245,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
 
             new_phrase = u' '.join(words)
             self.logger.debug(u'NN_Interpreter result={}'.format(new_phrase))
-            print(u'<<<DEBUG>>> NN_Interpreter result={}'.format(new_phrase))
+            #print(u'<<<DEBUG>>> NN_Interpreter result={}'.format(new_phrase))
             return new_phrase
 
         raise NotImplemented()
