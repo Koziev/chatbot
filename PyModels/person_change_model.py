@@ -77,12 +77,12 @@ TEST_SHARE = 0.2
 
 # Слева добавляем пустые слова
 def pad_wordseq(words, n):
-    return list( itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ) )
+    return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words))
 
 
 # Справа добавляем пустые слова
 def rpad_wordseq(words, n):
-    return list( itertools.chain( words, itertools.repeat(PAD_WORD, n-len(words)) ) )
+    return list(itertools.chain( words, itertools.repeat(PAD_WORD, n-len(words))))
 
 # -------------------------------------------------------------------
 
@@ -104,7 +104,7 @@ while True:
     print('q - run queries')
     a1 = raw_input(':> ')
 
-    if a1=='0':
+    if a1 == '0':
         RUN_MODE = 'train'
         TRAIN_MODEL = 'person_classifier'
         train_classifier = True
@@ -142,7 +142,7 @@ max_inputseq_len = 0
 
 all_words = set([PAD_WORD])
 
-wordchar2vector_path = os.path.join(data_folder,'wordchar2vector.dat')
+wordchar2vector_path = os.path.join(data_folder, 'wordchar2vector.dat')
 print( 'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
 wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
 wc2v_dims = len(wc2v.syn0[0])
@@ -152,7 +152,7 @@ for word in wc2v.vocab:
     all_words.add(word)
 
 
-word2id = dict( [(c,i) for i,c in enumerate( itertools.chain([PAD_WORD], filter(lambda z:z!=PAD_WORD, all_words)))] )
+word2id = dict([(c,i) for i,c in enumerate(itertools.chain([PAD_WORD], filter(lambda z: z!=PAD_WORD, all_words)))])
 
 nb_words = len(all_words)
 print('nb_words={}'.format(nb_words))
@@ -160,8 +160,7 @@ print('nb_words={}'.format(nb_words))
 
 # --------------------------------------------------------------------------
 
-#w2v_path = '/home/eek/polygon/w2v/w2v.CBOW=0_WIN=5_DIM=32.txt'
-w2v_path = '/home/eek/polygon/w2v/w2v.CBOW=0_WIN=5_DIM=48.txt'
+w2v_path = os.path.expanduser('~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin')
 #w2v_path = '/home/eek/polygon/WordSDR2/sdr.dat'
 #w2v_path = '/home/eek/polygon/w2v/w2v.CBOW=0_WIN=5_DIM=128.txt'
 #w2v_path = r'f:\Word2Vec\word_vectors_cbow=1_win=5_dim=32.txt'
@@ -199,7 +198,7 @@ def all_words_known(word2vec, words):
 
 tokenizer = Tokenizer()
 
-if RUN_MODE=='train':
+if RUN_MODE == 'train':
     if train_classifier:
         # для тренировки классификатора нам надо взять все предпосылки из датасетов
         # по группам 1е, 2е, 3е лицо.
@@ -235,9 +234,9 @@ if RUN_MODE=='train':
 
         print('Total number of patterns={}'.format(len(input_phrases)))
 
-        n_1s = len(filter(lambda z:z=='1s', classif_ys))
-        n_2s = len(filter(lambda z:z=='2s', classif_ys))
-        n_3 = len(filter(lambda z:z=='3', classif_ys))
+        n_1s = len(filter(lambda z: z=='1s', classif_ys))
+        n_2s = len(filter(lambda z: z=='2s', classif_ys))
+        n_3 = len(filter(lambda z: z=='3', classif_ys))
         print('Classes:\n1s => {}\n2s => {}\n3  => {}'.format(n_1s, n_2s, n_3))
 
 
@@ -454,26 +453,14 @@ if RUN_MODE=='train':
 
 # -------------------------------------------------------------------------
 
-# Слева добавляем пустые слова
-def pad_wordseq(words, n):
-    return list( itertools.chain( itertools.repeat(PAD_WORD, n-len(words)), words ) )
 
-# Справа добавляем пустые слова
-def rpad_wordseq(words, n):
-    return list( itertools.chain( words, itertools.repeat(PAD_WORD, n-len(words)) ) )
-
-# -------------------------------------------------------------------------
-
-def vectorize_words( words, M, irow, word2vec ):
+def vectorize_words(words, M, irow, word2vec):
     for iword,word in enumerate( words ):
         if word!=PAD_WORD and word in word2vec:
             M[irow, iword, :] = word2vec[word]
 
 
-# -------------------------------------------------------------------
-
-
-def generate_rows_classifier( sequences, targets, batch_size, mode ):
+def generate_rows_classifier(sequences, targets, batch_size, mode):
     batch_index = 0
     batch_count = 0
     y_encoder = {'1s':0, '2s':1, '3':2}
@@ -497,10 +484,8 @@ def generate_rows_classifier( sequences, targets, batch_size, mode ):
                 y_batch.fill(0)
                 batch_index = 0
 
-# ----------------------------------------------------------------
 
-
-def generate_rows_changeable_words( sequences, probe_words, targets, batch_size, mode ):
+def generate_rows_changeable_words(sequences, probe_words, targets, batch_size, mode):
     batch_index = 0
     batch_count = 0
 
@@ -509,7 +494,7 @@ def generate_rows_changeable_words( sequences, probe_words, targets, batch_size,
     y_batch = np.zeros((batch_size, output_dims), dtype=np.bool)
 
     while True:
-        for irow, (seq,probe_word,target) in enumerate(itertools.izip(sequences, probe_words, targets)):
+        for irow, (seq, probe_word, target) in enumerate(itertools.izip(sequences, probe_words, targets)):
             vectorize_words(seq, X1_batch, batch_index, word2vec )
             X2_batch[batch_index,:] = word2vec[ probe_word ]
             y_batch[batch_index, target] = True
@@ -528,7 +513,7 @@ def generate_rows_changeable_words( sequences, probe_words, targets, batch_size,
 
 # -----------------------------------------------------------------
 
-if RUN_MODE=='train':
+if RUN_MODE == 'train':
 
     if train_classifier:
         train_input, val_input, train_output, val_output = train_test_split(input_words,
@@ -589,7 +574,7 @@ if RUN_MODE=='train':
                                    validation_steps=int(nb_valid_patterns/batch_size)
                                    )
 
-if RUN_MODE=='query':
+if RUN_MODE == 'query':
 
     with open( config_path, 'r') as f:
         model_config = json.load(f)
@@ -623,9 +608,6 @@ if RUN_MODE=='query':
             vectorize_words(words, X_batch, 0, word2vec )
             y = model.predict(X_batch)
             y = np.argmax( y[0] )
-            y_str = {0:'1s', 1:'2s', 2:'3'}[y]
+            y_str = {0: '1s', 1: '2s', 2: '3'}[y]
             print('person => {}'.format(y_str))
-
-
-
 

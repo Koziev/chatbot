@@ -53,10 +53,12 @@ from utils.padding_utils import PAD_WORD
 from trainers.word_embeddings import WordEmbeddings
 import utils.console_helpers
 import utils.logging_helpers
+from trainers.evaluation_dataset import EvaluationDataset
+from trainers.evaluation_markup import EvaluationMarkup
 
 
 # Длина вектора предложения
-phrase_dim = 64
+phrase_dim = 200
 
 # Предложения приводятся к единой длине путем добавления слева или справа
 # пустых токенов. Параметр padding определяет режим выравнивания.
@@ -382,8 +384,8 @@ NB_EPOCHS = 1000
 
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for premise-question relevancy')
-parser.add_argument('--run_mode', type=str, default='train', choices='train query query2'.split(), help='what to do: train | query | query2')
-parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn) lstm(lstm) bilstm'.split(), help='neural model architecture: lstm | lstm(cnn)')
+parser.add_argument('--run_mode', type=str, default='train', choices='train query query2 evaluate'.split(), help='what to do')
+parser.add_argument('--arch', type=str, default='lstm', choices='lstm lstm(cnn) lstm(lstm) bilstm'.split(), help='neural model architecture')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--phrase_dim', type=int, default=64, help='Sentence embedding vector size')
 parser.add_argument('--input', type=str, default='../data/relevancy_dataset3.csv', help='path to input dataset with triplets')
@@ -851,15 +853,16 @@ if run_mode == 'query2':
                 phrase_rels.append((phrase2, rel))
 
 
-        # Сортируем в порядке убывания похожести, выводит top лучших пар
+        # Сортируем в порядке убывания похожести, выводим top лучших пар
         phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
         for phrase, rel in phrase_rels[:10]:
             print(u'{:6.4f} {}'.format(rel, phrase))
 
 
-if run_mode == 'query':
-    # В консоли вводится предпосылка и вопрос, модель вычисляет их релевантность
-    # и печатает.
+# <editor-fold desc="evaluate">
+if run_mode == 'evaluate':
+    # Оценка качества натренированной модели на специальном наборе вопросов и ожидаемых выборов предпосылок
+    # из тренировочного набора.
 
     # Грузим конфигурацию модели, веса и т.д.
     with open(config_path, 'r') as f:
@@ -876,41 +879,108 @@ if run_mode == 'query':
 
     model.load_weights(weights_path)
 
-    embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
-    word_dims = embeddings.vector_size
+    # Загружаем проверочные данные - предпосылки и вопросы
+    eval_data = EvaluationDataset(max_wordseq_len, tokenizer, padding)
+    eval_data.load(data_folder)
 
-    while True:
-        phrase1 = utils.console_helpers.input_kbd('premise:> ').strip().lower()
-        if len(phrase1) == 0:
-            break
+    nb_good = 0  # попадание предпосылки в top-1
+    nb_good5 = 0
+    nb_good10 = 0
+    nb_total = 0
 
-        phrase2 = utils.console_helpers.input_kbd('question:> ').strip().lower()
-        if len(phrase2) == 0:
-            break
+    word2vec = None
 
-        all_phrases = [phrase1, phrase2]
-        nb_phrases = len(all_phrases)
+    for irecord, phrases in eval_data.generate_groups():
+        if word2vec is None:
+            # ленивая загрузка для удобства отладки.
+            word2vec = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+            word_dims = word2vec.vector_size
+
+        # phrases это список пар из предложений.
+        # развернем его в список предложений, так как наша модель
+        # умеет только получать вектор для одного предложения
+        phrases1 = set()
+        for phrase1, phrase2 in phrases:
+            phrases1.add(phrase1)
+            phrases1.add(phrase2)
+        phrases1 = list(phrases1)
+
+        nb_phrases = len(phrases1)
+
         X_data = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
         pad_func = lpad_wordseq if padding == 'left' else rpad_wordseq
 
-        for iphrase, phrase in enumerate(all_phrases):
+        for iphrase, phrase in enumerate(phrases1):
             words = pad_func(tokenizer.tokenize(phrase), max_wordseq_len)
-            vectorize_words(words, X_data, iphrase, embeddings)
+            vectorize_words(words, X_data, iphrase, word2vec)
 
         y_pred = model.predict(x=X_data, batch_size=batch_size, verbose=0)
 
         # Теперь для каждой фразы мы знаем вектор
-        v1 = y_pred[0]
-        v2 = y_pred[1]
+        phrase2v = dict()
+        for i in range(nb_phrases):
+            phrase = phrases1[i]
+            v = y_pred[i]
+            phrase2v[phrase] = v
 
-        if False:
-            # Евклидово расстояние
-            dist = np.sum(np.square(v1 - v2))
-            rel = -dist  #math.exp(-dist)
+        # найдем пару с максимальной релевантностью
+        selected_premise = None
+        max_index = -1
+        max_rel = 0.
+        phrase_rels = []
+        for iphrase, (phrase1, phrase2) in enumerate(phrases):
+            v1 = phrase2v[phrase1]
+            v2 = phrase2v[phrase2]
+            if False:
+                # Евклидово расстояние
+                dist = np.sum(np.square(v1 - v2))
+                rel = -dist  #math.exp(-dist)
+            else:
+                # Косинусная мера
+                rel = v_cosine(v1, v2)
+            phrase_rels.append(rel)
+            if rel > max_rel:
+                max_rel = rel
+                max_index = iphrase
+                selected_premise = phrase1
+
+        nb_total += 1
+
+        # эта выбранная предпосылка соответствует одному из вариантов
+        # релевантных предпосылок в этой группе?
+        if eval_data.is_relevant_premise(irecord, selected_premise):
+            nb_good += 1
+            nb_good5 += 1
+            nb_good10 += 1
+            print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
         else:
-            # Косинусная мера
-            rel = v_cosine(v1, v2)
+            print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
 
-        # Сортируем в порядке убывания похожести, выводит top лучших пар
-        print(u'{:6.4f}'.format(rel))
+            # среди top-5 или top-10 предпосылок есть верная?
+            sorted_phrases = [x for (x, _) in sorted(itertools.izip(phrases, phrase_rels), key=lambda z: -z[1])]
 
+            for i in range(1, 10):
+                selected_premise = sorted_phrases[i][0]
+                if eval_data.is_relevant_premise(irecord, selected_premise):
+                    if i < 5:
+                        nb_good5 += 1  # верная предпосылка вошла в top-5
+                    if i < 10:
+                        nb_good10 += 1
+                    break
+
+        #max_sim = np.max(phrase_rels)
+
+        question = phrases[0][1]
+        print(u'{:<60} {:<60} {}/{}'.format(question, phrases[max_index][0], phrase_rels[max_index], phrase_rels[0]))
+
+    # Итоговая точность выбора предпосылки.
+    accuracy = float(nb_good)/float(nb_total)
+    print('accuracy       ={}'.format(accuracy))
+
+    # Также выведем точность попадания верной предпосылки в top-5 и top-10
+    accuracy5 = float(nb_good5)/float(nb_total)
+    print('accuracy top-5 ={}'.format(accuracy5))
+
+    accuracy10 = float(nb_good10)/float(nb_total)
+    print('accuracy top-10={}'.format(accuracy10))
+# </editor-fold>

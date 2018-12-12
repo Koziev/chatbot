@@ -58,7 +58,7 @@ import utils.logging_helpers
 
 
 # Длина вектора предложения
-PHRASE_DIM = 100
+PHRASE_DIM = 200
 
 # Предложения приводятся к единой длине путем добавления слева или справа
 # пустых токенов. Параметр padding определяет режим выравнивания.
@@ -435,13 +435,13 @@ if run_mode == 'train':
     #    loss = triplet_loss2(y)
     #    print('{} loss={}'.format(i, loss))
 
-    logging.info('Start training...')
+    logging.info('Start training on samples {} with batch_size={}...'.format(len(train_samples), batch_size))
     model_checkpoint = ModelCheckpoint(weights_path, monitor='val_loss',
                                        verbose=1,
                                        save_best_only=True,
                                        mode='auto')
     early_stopping = EarlyStopping(monitor='val_loss',
-                                   patience=20,
+                                   patience=10,
                                    verbose=1,
                                    mode='auto')
 
@@ -637,7 +637,7 @@ if run_mode == 'query':
         if len(phrase2) == 0:
             break
 
-        all_phrases = [phrase1, phrase2]
+        all_phrases = list(itertools.chain([phrase1], [phrase2]))
         nb_phrases = len(all_phrases)
 
         X_data = np.zeros((2, max_wordseq_len, word_dims), dtype=np.float32)

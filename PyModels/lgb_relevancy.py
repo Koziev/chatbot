@@ -132,7 +132,7 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
     xgb_relevancy_nb_features = model_config['nb_features']
     xgb_relevancy_lemmalize = model_config['lemmatize']
 
-    tokenizer = PhraseSplitter.create_splitter(xgb_relevancy_lemmalize)
+    #tokenizer = PhraseSplitter.create_splitter(xgb_relevancy_lemmalize)
 
     nb_good = 0  # попадание предпосылки в top-1
     nb_good5 = 0
@@ -149,8 +149,10 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
         X_data = lil_matrix((nb_samples, xgb_relevancy_nb_features), dtype='float32')
 
         for irow, (premise_words, question_words) in enumerate(phrases):
-            premise_wx = words2str(premise_words)
-            question_wx = words2str(question_words)
+            #premise_wx = words2str(premise_words)
+            #question_wx = words2str(question_words)
+            premise_wx = premise_words
+            question_wx = question_words
 
             premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
             question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
@@ -161,7 +163,7 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
 
         # предпосылка с максимальной релевантностью
         max_index = np.argmax(y_pred)
-        selected_premise = u' '.join(phrases[max_index][0]).strip()
+        selected_premise = phrases[max_index][0]
 
         nb_total += 1
         # эта выбранная предпосылка соответствует одному из вариантов
@@ -181,31 +183,30 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
             sorted_phrases = [x for x,_ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
 
             for i in range(1, 10):
-                selected_premise = u' '.join(sorted_phrases[i][0]).strip()
+                selected_premise = sorted_phrases[i][0]
                 if eval_data.is_relevant_premise(irecord, selected_premise):
-                    if i<5:
+                    if i < 5:
                         nb_good5 += 1  # верная предпосылка вошла в top-5
-                    if i<10:
+                    if i < 10:
                         nb_good10 += 1
                     break
-
 
         max_sim = np.max(y_pred)
 
         if verbose == 1:
-            question_words = phrases[0][1]
-            message_line = u'{:<40} {:<40} {}/{}'.format(u' '.join(question_words), u' '.join(phrases[max_index][0]), y_pred[max_index], y_pred[0])
+            question = phrases[0][1]
+            message_line = u'{:<40} {:<40} {}/{}'.format(question_words, phrases[max_index][0], y_pred[max_index], y_pred[0])
             print(message_line)
             wrt.write(message_line+u'\n')
 
         # для отладки: top релевантных вопросов
         if False:
-            print(u'Most similar premises for question {}'.format(u' '.join(question)))
+            print(u'Most similar premises for question {}'.format(question))
             yy = [(y_pred[i], i) for i in range(len(y_pred))]
             yy = sorted(yy, key=lambda z:-z[0])
 
             for sim, index in yy[:5]:
-                print(u'{:.4f} {}'.format(sim, u' '.join(phrases[index][0])))
+                print(u'{:.4f} {}'.format(sim, phrases[index][0]))
 
     if wrt != None:
         wrt.close()
@@ -262,7 +263,7 @@ def objective(space):
     lgb_params = get_params(space)
 
     sorted_params = sorted(space.iteritems(), key=lambda z: z[0])
-    logging.info('Params:', str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params]))
+    logging.info('Params: {}'.format(str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
 
     cl, val_acc, val_f1 = train_model(lgb_params, D_train, D_val, y_val)
     eval_acc = evaluate_model(cl, ho_model_config, ho_eval_data, 0)
@@ -296,10 +297,10 @@ parser = argparse.ArgumentParser(description='LightGBM classifier for text relev
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | evaluate | query | query2')
 parser.add_argument('--hyperopt', type=int, default=0, help='use hyperopt when training')
 parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
-parser.add_argument('--eta', type=float, default=0.20, help='"eta" (learning rate) parameter for LightGBM')
-parser.add_argument('--subsample', type=float, default=1.00, help='"subsample" parameter for LightGBM')
-parser.add_argument('--num_leaves', type=int, default=31, help='"num_leaves" parameter for LightGBM')
-parser.add_argument('--min_data_in_leaf', type=int, default=10, help='"min_data_in_leaf" parameter for LightGBM')
+parser.add_argument('--eta', type=float, default=0.184, help='"eta" (learning rate) parameter for LightGBM')
+parser.add_argument('--subsample', type=float, default=0.997, help='"subsample" parameter for LightGBM')
+parser.add_argument('--num_leaves', type=int, default=48, help='"num_leaves" parameter for LightGBM')
+parser.add_argument('--min_data_in_leaf', type=int, default=73, help='"min_data_in_leaf" parameter for LightGBM')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
@@ -433,7 +434,7 @@ if run_mode == 'train':
     if use_hyperopt:
         ho_model_config = model_config
 
-        ho_eval_data = EvaluationDataset(0, tokenizer)
+        ho_eval_data = EvaluationDataset(0, tokenizer, 'none')
         ho_eval_data.load(data_folder)
 
         space = {
@@ -451,7 +452,7 @@ if run_mode == 'train':
         best = hyperopt.fmin(fn=objective,
                              space=space,
                              algo=HYPEROPT_ALGO,
-                             max_evals=use_hyperopt,
+                             max_evals=500,
                              trials=trials,
                              verbose=1)
 
@@ -469,7 +470,7 @@ if run_mode == 'train':
         lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
         lgb_params['lambda_l2'] = 0.0  # space['lambda_l2'],
         lgb_params['max_bin'] = 256
-        lgb_params['feature_fraction'] = 1.0
+        lgb_params['feature_fraction'] = 0.950673776143  #1.0
         lgb_params['bagging_fraction'] = subsample
         lgb_params['bagging_freq'] = 1
 
@@ -598,7 +599,7 @@ if run_mode == 'evaluate':
 
     tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
 
-    eval_data = EvaluationDataset(0, tokenizer)
+    eval_data = EvaluationDataset(0, tokenizer, 'none')
     eval_data.load(data_folder)
 
     lgb_relevancy = lightgbm.Booster(model_file=model_config['model_filename'])

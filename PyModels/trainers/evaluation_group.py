@@ -12,22 +12,40 @@ from utils.tokenizer import Tokenizer
 from utils.padding_utils import lpad_wordseq, rpad_wordseq
 
 
+def npad_wordseq(words, n):
+    return words
+
+
 class EvaluationGroup(object):
     """
     Хранилище группы вопросов и релевантных для них предпосылок.
     """
-    def __init__(self, max_wordseq_len, tokenizer):
+    def __init__(self, max_wordseq_len, tokenizer, padding):
         self.max_wordseq_len = max_wordseq_len
         self.tokenizer = tokenizer
         self.premises_str = []
         self.premises = []  # списки слов
         self.questions = []  # списки слов
+        if padding == 'left':
+            self.pad_fun = lpad_wordseq
+        elif padding == 'right':
+            self.pad_fun = rpad_wordseq
+        elif padding == 'none':
+            self.pad_fun = npad_wordseq
+        else:
+            raise NotImplemented()
 
     def is_empty(self):
         return len(self.premises) == 0
 
     def invalid_format(self):
         raise Exception('Invalid format of evaluation dataset file')
+
+    def normalize_line(self, line):
+        line = line.replace(u'T:', u'').replace(u'ё', u'е').lower().strip()
+        words = self.pad_fun(self.tokenizer.tokenize(line), self.max_wordseq_len)
+        s = u' '.join(words).strip()
+        return s, words
 
     def load(self, rdr):
         for line in rdr:
@@ -47,12 +65,12 @@ class EvaluationGroup(object):
                     self.invalid_format()
 
                 premise = line.replace(u'T:', u'').replace(u'ё', u'е').lower().strip()
-                premise_words = lpad_wordseq(self.tokenizer.tokenize(premise), self.max_wordseq_len)
-                self.premises_str.append(u' '.join(premise_words))
+                premise, premise_words = self.normalize_line(premise)
+                self.premises_str.append(premise)
                 self.premises.append(premise_words)
             elif line.startswith(u'Q:'):
                 question = line.replace(u'Q:', u'').replace(u'ё', u'е').strip()
-                question = lpad_wordseq(self.tokenizer.tokenize(question), self.max_wordseq_len)
+                question, _ = self.normalize_line(question)
                 self.questions.append(question)
             else:
                 self.invalid_format()

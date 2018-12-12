@@ -117,6 +117,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             p = os.path.join(w2v_folder, os.path.basename(p))
             self.word_embeddings.load_w2v_model(p)
 
+        self.word_embeddings.load_w2v_model(self.relevancy_detector.get_w2v_path())
+
         self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
         self.logger.debug('All models loaded')
 
@@ -458,11 +460,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             else:
                 premises2 = []
                 premise_rels2 = []
-                max_rel = max(best_rels)
-                for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):   # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
-                    if rel >= self.min_premise_relevancy and rel >= 0.5*max_rel:
-                        premises2.append([premise])
-                        premise_rels2.append(rel)
+
+                # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
+                if True:
+                    premises2 = [best_premises[:1]]
+                    premise_rels2 = best_rels[:1]
+                else:
+                    max_rel = max(best_rels)
+                    for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):
+                        if rel >= self.min_premise_relevancy and rel >= 0.4*max_rel:
+                            premises2.append([premise])
+                            premise_rels2.append(rel)
 
                 # генерация ответа на основе выбранной предпосылки.
                 answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,

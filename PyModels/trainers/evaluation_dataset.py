@@ -13,18 +13,19 @@ from utils.padding_utils import lpad_wordseq
 
 
 class EvaluationDataset(object):
-    def __init__(self, max_wordseq_len, tokenizer):
+    def __init__(self, max_wordseq_len, tokenizer, padding):
         self.max_wordseq_len = max_wordseq_len
         self.tokenizer = tokenizer
         self.eval_data = []  # список из EvaluationGroup
         self.all_premises = []
+        self.padding = padding
 
     def load(self, data_folder):
         eval_path = os.path.join(data_folder, 'evaluate_relevancy.txt')
         self.eval_data = []  # список из EvaluationGroup
         with codecs.open(eval_path, 'r', 'utf-8') as rdr:
             while True:
-                group = EvaluationGroup(self.max_wordseq_len, self.tokenizer)
+                group = EvaluationGroup(self.max_wordseq_len, self.tokenizer, self.padding)
                 eof_reached = group.load(rdr)
                 if eof_reached:
                     break
@@ -34,25 +35,13 @@ class EvaluationDataset(object):
         # Нам нужен набор нерелевантных предпосылок.
         self.all_premises = []
 
-        if False:
-            # Возьмем их из тренировочного набора.
-            # Вообще говоря, могут быть коллизии, когда для одного вопроса есть несколько
-            # релевантных предпосылок, и мы можем случайно выбрать релевантных вариант как недопустимый.
-            df = pd.read_csv(os.path.join(data_folder, 'premise_question_answer.csv'), encoding='utf-8', delimiter='\t',
-                             quoting=3)
-            for premise in df['premise'].unique():
-                premise_words = self.tokenizer.tokenize(premise)
-                if u'кого' not in premise_words:
-                    premise = lpad_wordseq(premise_words, self.max_wordseq_len)
+        # Берем нерелевантные предпосылки из базы фактов чат-бота
+        with codecs.open(os.path.join(data_folder, 'premises.txt'), 'r', 'utf-8') as rdr:
+            for line in rdr:
+                line = line.strip()
+                if len(line) > 0:
+                    premise = u' '.join(self.tokenizer.tokenize(line)).strip()
                     self.all_premises.append(premise)
-        else:
-            # Берем нерелевантные предпосылки из базы фактов чат-бота
-            with codecs.open(os.path.join(data_folder, 'premises.txt'), 'r', 'utf-8') as rdr:
-                for line in rdr:
-                    line = line.strip()
-                    if len(line) > 0:
-                        premise = lpad_wordseq(self.tokenizer.tokenize(line), self.max_wordseq_len)
-                        self.all_premises.append(premise)
 
     def get_all_phrases(self):
         phrases = set()
@@ -68,7 +57,7 @@ class EvaluationDataset(object):
 
     def generate_groups(self):
         for irecord, record in enumerate(self.eval_data):
-            for right_premise in record.premises:
+            for right_premise in record.premises_str:
                 for question in record.questions:
                     # Отдельно обрабатываем каждую релевантную пару предпосылка-вопрос.
                     # Добавляем к ней множество предпосылок из тренировочного датасета, считая их нерелевантными.
@@ -86,7 +75,7 @@ class EvaluationDataset(object):
                             phrases.append((neg_premise, question))
 
                     # перемешаем фразы, чтобы верная предпосылка находилась на разных позициях
-                    phrases = np.random.permutation(phrases)
+                    phrases = list(np.random.permutation(phrases))
                     yield (irecord, phrases)
 
     def is_relevant_premise(self, irecord, selected_premise):

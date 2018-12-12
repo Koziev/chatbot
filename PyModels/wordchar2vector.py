@@ -28,8 +28,13 @@ from __future__ import print_function
 __author__ = "Ilya Koziev"
 
 import argparse
+import os
+import logging
 
 from trainers.wordchar2vector_trainer import Wordchar2Vector_Trainer
+import utils.logging_helpers
+import utils.console_helpers
+
 
 parser = argparse.ArgumentParser(description='Training the wordchar2vector embeddings for character surface of words')
 parser.add_argument('--input_file', default='../tmp/known_words.txt', help='input text file with words to be processed')
@@ -41,7 +46,7 @@ parser.add_argument('--vectorize', default=0, type=int)
 parser.add_argument('--dims', default=56, type=int)
 parser.add_argument('--char_dims', default=0, type=int)
 parser.add_argument('--tunable_char_embeddings', default=0, type=int)
-parser.add_argument('--arch_type', default='gru(cnn)', type=str)
+parser.add_argument('--arch_type', default='gru(cnn)', choices='cnn rnn bidir_lstm lstm(lstm) lstm+cnn lstm(cnn) gru(cnn)'.split(), type=str)
 parser.add_argument('--batch_size', default=350, type=int)
 parser.add_argument('--min_batch_size', default=-1, type=int)
 parser.add_argument('--nb_samples', default=10000000, type=int, help='Max number of samples to train on')
@@ -70,6 +75,10 @@ seed = args.seed
 # lstm(cnn) - сверточные слои и поверх них рекуррентные слои.
 arch_type = args.arch_type
 
+# настраиваем логирование в файл
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_dir, 'wordchar2vector.log'))
+
+
 # -------------------------------------------------------------------
 
 # Для упрощения отладки без задания параметров запуска - запросим с консоли
@@ -77,7 +86,7 @@ arch_type = args.arch_type
 # ранее натренированной модели.
 if not do_train and not do_vectorize:
     while True:
-        a1 = raw_input('0-train model\n1-calculate embeddings using pretrained model\n[0/1]: ')
+        a1 = utils.console_helpers.input_kbd('0-train model\n1-calculate embeddings using pretrained model\n[0/1]:')
         if a1 == '0':
             do_train = True
             do_vectorize = True
@@ -108,4 +117,4 @@ if do_train:
 if do_vectorize:
     trainer.vectorize(input_path, out_file)
 
-print('\nDone.')
+logging.info('Done.')
