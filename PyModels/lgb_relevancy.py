@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Тренировка модели определения релевантности предпосылки и вопроса.
-Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
-Используется LightGBM.
+Тренировка модели определения релевантности предпосылки и вопроса (--task relevancy)
+и синонимичности (--task synonymy) на базе LightGBM.
 
-Альтернативные модели - на базе XGBoost (xgb_relevancy.py) и нейросететевые (nn_relevancy.py)
+Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
+
+Альтернативные модели - на базе XGBoost (xgb_relevancy.py) и нейросететевые (nn_relevancy.py,
+nn_relevamcy_tripleloss.py)
 
 Пример запуска обучения с нужными параметрами командной строки см. в ../scripts/train_lgb_relevancy.sh
 
-В чатботе обученная данной программой модель используется классом LGB_RelevancyDetector (https://github.com/Koziev/chatbot/blob/master/PyModels/bot/lgb_relevancy_detector.py)
+В чатботе обученная данной программой модель используется классом LGB_RelevancyDetector
+(https://github.com/Koziev/chatbot/blob/master/PyModels/bot/lgb_relevancy_detector.py)
 """
 
 from __future__ import division
@@ -18,7 +21,6 @@ import gc
 import itertools
 import json
 import os
-import sys
 import argparse
 import codecs
 import logging
@@ -27,19 +29,15 @@ import logging.handlers
 import numpy as np
 import pandas as pd
 import sklearn.metrics
-from sklearn.cluster import DBSCAN
-from sklearn.cluster import AgglomerativeClustering
 import tqdm
 import lightgbm
 
 import hyperopt
-from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
+from hyperopt import hp, tpe, STATUS_OK, Trials
 
 from scipy.sparse import lil_matrix
 from sklearn.model_selection import train_test_split
 
-from utils.tokenizer import Tokenizer
-from utils.segmenter import Segmenter
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
 from utils.phrase_splitter import PhraseSplitter
@@ -47,10 +45,8 @@ import utils.console_helpers
 import utils.logging_helpers
 
 
-config_filename = 'lgb_relevancy.config'
-
 # алгоритм сэмплирования гиперпараметров
-HYPEROPT_ALGO = tpe.suggest  #  tpe.suggest OR hyperopt.rand.suggest
+HYPEROPT_ALGO = tpe.suggest  # tpe.suggest OR hyperopt.rand.suggest
 
 BEG_WORD = '\b'
 END_WORD = '\n'
@@ -76,17 +72,17 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shing
     icol = 0
     for shingle in common_shingles:
         if shingle in shingle2id:
-            X_data[idata, icol+shingle2id[shingle]] = True
+            X_data[idata, icol + shingle2id[shingle]] = True
 
     icol += nb_shingles
     for shingle in notmatched_ps:
         if shingle in shingle2id:
-            X_data[idata, icol+shingle2id[shingle]] = True
+            X_data[idata, icol + shingle2id[shingle]] = True
 
     icol += nb_shingles
     for shingle in notmatched_qs:
         if shingle in shingle2id:
-            X_data[idata, icol+shingle2id[shingle]] = True
+            X_data[idata, icol + shingle2id[shingle]] = True
 
 
 def train_model(lgb_params, D_train, D_val, y_val):
@@ -101,9 +97,9 @@ def train_model(lgb_params, D_train, D_val, y_val):
     lgb_params['bagging_freq'] = 1
 
     logging.info('Train LightGBM model with learning_rate={} num_leaves={} min_data_in_leaf={} bagging_fraction={}...'.format(lgb_params['learning_rate'],
-                                                                                                                       lgb_params['num_leaves'],
-                                                                                                                       lgb_params['min_data_in_leaf'],
-                                                                                                                       lgb_params['bagging_fraction']))
+                                                                                                                              lgb_params['num_leaves'],
+                                                                                                                              lgb_params['min_data_in_leaf'],
+                                                                                                                              lgb_params['bagging_fraction']))
     cl = lightgbm.train(lgb_params,
                         D_train,
                         valid_sets=[D_val],
@@ -130,9 +126,6 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
     xgb_relevancy_shingle2id = model_config['shingle2id']
     xgb_relevancy_shingle_len = model_config['shingle_len']
     xgb_relevancy_nb_features = model_config['nb_features']
-    xgb_relevancy_lemmalize = model_config['lemmatize']
-
-    #tokenizer = PhraseSplitter.create_splitter(xgb_relevancy_lemmalize)
 
     nb_good = 0  # попадание предпосылки в top-1
     nb_good5 = 0
@@ -149,8 +142,6 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
         X_data = lil_matrix((nb_samples, xgb_relevancy_nb_features), dtype='float32')
 
         for irow, (premise_words, question_words) in enumerate(phrases):
-            #premise_wx = words2str(premise_words)
-            #question_wx = words2str(question_words)
             premise_wx = premise_words
             question_wx = question_words
 
@@ -180,7 +171,7 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
                 print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
                 wrt.write(EvaluationMarkup.fail_bullet)
             # среди top-5 или top-10 предпосылок есть верная?
-            sorted_phrases = [x for x,_ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
+            sorted_phrases = [x for x, _ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
 
             for i in range(1, 10):
                 selected_premise = sorted_phrases[i][0]
@@ -191,28 +182,25 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
                         nb_good10 += 1
                     break
 
-        max_sim = np.max(y_pred)
-
         if verbose == 1:
-            question = phrases[0][1]
             message_line = u'{:<40} {:<40} {}/{}'.format(question_words, phrases[max_index][0], y_pred[max_index], y_pred[0])
             print(message_line)
-            wrt.write(message_line+u'\n')
+            wrt.write(message_line + u'\n')
 
         # для отладки: top релевантных вопросов
         if False:
             print(u'Most similar premises for question {}'.format(question))
             yy = [(y_pred[i], i) for i in range(len(y_pred))]
-            yy = sorted(yy, key=lambda z:-z[0])
+            yy = sorted(yy, key=lambda z: -z[0])
 
             for sim, index in yy[:5]:
                 print(u'{:.4f} {}'.format(sim, phrases[index][0]))
 
-    if wrt != None:
+    if wrt is not None:
         wrt.close()
 
     # Итоговая точность выбора предпосылки.
-    accuracy = float(nb_good)/float(nb_total)
+    accuracy = float(nb_good) / float(nb_total)
     if verbose == 1:
         print('accuracy       ={}'.format(accuracy))
 
@@ -228,10 +216,10 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
 
 def get_params(space):
     px = dict()
-    px['boosting_type']='gbdt'
-    px['objective'] ='binary'
+    px['boosting_type'] = 'gbdt'
+    px['objective'] = 'binary'
     px['metric'] = 'binary_logloss'
-    px['learning_rate']=space['learning_rate']
+    px['learning_rate'] = space['learning_rate']
     px['num_leaves'] = int(space['num_leaves'])
     px['min_data_in_leaf'] = int(space['min_data_in_leaf'])
     px['min_sum_hessian_in_leaf'] = space['min_sum_hessian_in_leaf']
@@ -246,19 +234,19 @@ def get_params(space):
     return px
 
 
-
 obj_call_count = 0
 cur_best_acc = -np.inf
 hyperopt_log_writer = None
 ho_model_config = None
 ho_eval_data = None
 
+
 def objective(space):
     global obj_call_count, cur_best_acc
 
     obj_call_count += 1
 
-    logging.info('\nLightGBM objective call #{} cur_best_acc={:7.5f}'.format(obj_call_count, cur_best_acc) )
+    logging.info('\nLightGBM objective call #{} cur_best_acc={:7.5f}'.format(obj_call_count, cur_best_acc))
 
     lgb_params = get_params(space)
 
@@ -281,8 +269,7 @@ def objective(space):
         cl.save_model(model_filename)
         prefix = '(*)'
 
-    hyperopt_log_writer.write('{}eval acc={:<7.5f} Params:{}\n'.format(
-                                                                       prefix,
+    hyperopt_log_writer.write('{}eval acc={:<7.5f} Params:{}\n'.format(prefix,
                                                                        eval_acc,
                                                                        str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
     hyperopt_log_writer.flush()
@@ -305,6 +292,7 @@ parser.add_argument('--input', type=str, default='../data/premise_question_relev
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 parser.add_argument('--lemmatize', type=int, default=0, help='canonize phrases before extracting the shingles: 0 - none, 1 - lemmas, 2 - stems')
+parser.add_argument('--task', type=str, default='relevancy', choices='relevancy synonymy'.split(), help='model filenames keyword')
 
 args = parser.parse_args()
 
@@ -316,6 +304,9 @@ lemmatize = args.lemmatize
 subsample = args.subsample
 num_leaves = args.num_leaves
 min_data_in_leaf = args.min_data_in_leaf
+task = args.task
+
+config_filename = 'lgb_{}.config'.format(task)
 
 # количество случайных наборов параметров, проверяемых в hyperopt
 # если указать 0, то hyperopt не применяется, а выполняется обучение
@@ -335,20 +326,19 @@ if eta < 0.01 or eta >= 1.0:
 
 
 # настраиваем логирование в файл
-utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'lgb_relevancy.log'))
+utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'lgb_{}.log'.format(task)))
 
 
 if run_mode == 'train':
-
     # Режим тренировки модели.
     df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-    logging.info('samples.count={}'.format(df.shape[0]))
+    logging.info('Input dataset loaded, samples.count={}'.format(df.shape[0]))
 
     tokenizer = PhraseSplitter.create_splitter(lemmatize)
 
     all_shingles = set()
 
-    for i,record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles'):
+    for i, record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles'):
         for phrase in [record['premise'], record['question']]:
             words = tokenizer.tokenize(phrase)
             wx = words2str(words)
@@ -357,7 +347,7 @@ if run_mode == 'train':
     nb_shingles = len(all_shingles)
     logging.info('nb_shingles={}'.format(nb_shingles))
 
-    shingle2id = dict([(s,i) for i,s in enumerate(all_shingles)])
+    shingle2id = dict([(s, i) for i, s in enumerate(all_shingles)])
 
     phrases = []
     ys = []
@@ -371,13 +361,13 @@ if run_mode == 'train':
         words2 = words2str(tokenizer.tokenize(phrase2))
 
         y = row['relevance']
-        if y in (0,1):
+        if y in (0, 1):
             ys.append(y)
-            phrases.append( (words1, words2, phrase1, phrase2) )
+            phrases.append((words1, words2, phrase1, phrase2))
 
     nb_patterns = len(ys)
 
-    nb_features = nb_shingles*3
+    nb_features = nb_shingles * 3
     X_data = lil_matrix((nb_patterns, nb_features), dtype='float32')
     y_data = []
 
@@ -411,22 +401,18 @@ if run_mode == 'train':
     D_train = lightgbm.Dataset(data=X_train, label=y_train, weight=w_train, silent=1)
     D_val = lightgbm.Dataset(data=X_val, label=y_val, weight=w_val, silent=1)
 
-    #del X_train
-    #del X_data
-    #del df
     gc.collect()
 
-    model_filename = os.path.join( tmp_folder, 'lgb_relevancy.model' )
+    model_filename = os.path.join(tmp_folder, 'lgb_{}.model'.format(task))
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
-    model_config = {
-                    'model': 'lightgbm',
+    model_config = {'model': 'lightgbm',
                     'shingle2id': shingle2id,
                     'model_filename': model_filename,
                     'shingle_len': shingle_len,
                     'nb_features': nb_features,
                     'lemmatize': lemmatize
-                   }
+                    }
 
     with open(os.path.join(tmp_folder, config_filename), 'w') as f:
         json.dump(model_config, f)
@@ -437,16 +423,15 @@ if run_mode == 'train':
         ho_eval_data = EvaluationDataset(0, tokenizer, 'none')
         ho_eval_data.load(data_folder)
 
-        space = {
-                 'num_leaves': hp.quniform('num_leaves', 20, 100, 1),
+        space = {'num_leaves': hp.quniform('num_leaves', 20, 100, 1),
                  'min_data_in_leaf': hp.quniform('min_data_in_leaf', 5, 100, 1),
                  'feature_fraction': hp.uniform('feature_fraction', 0.75, 1.0),
                  'bagging_fraction': hp.uniform('bagging_fraction', 0.75, 1.0),
                  'learning_rate': hp.loguniform('learning_rate', -2, -1.2),
                  'min_sum_hessian_in_leaf': hp.loguniform('min_sum_hessian_in_leaf', 0, 2.3),
-                }
+                 }
 
-        hyperopt_log_writer = open(os.path.join(tmp_folder, 'lgb_relevancy.hyperopt.txt'), 'w')
+        hyperopt_log_writer = open(os.path.join(tmp_folder, 'lgb_{}.hyperopt.txt'.format(task)), 'w')
 
         trials = Trials()
         best = hyperopt.fmin(fn=objective,
@@ -459,8 +444,8 @@ if run_mode == 'train':
         hyperopt_log_writer.close()
     else:
         lgb_params = dict()
-        lgb_params['boosting_type']='gbdt'
-        lgb_params['objective'] ='binary'
+        lgb_params['boosting_type'] = 'gbdt'
+        lgb_params['objective'] = 'binary'
         lgb_params['metric'] = 'binary_logloss'
         lgb_params['learning_rate'] = eta
         lgb_params['num_leaves'] = num_leaves
@@ -470,7 +455,7 @@ if run_mode == 'train':
         lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
         lgb_params['lambda_l2'] = 0.0  # space['lambda_l2'],
         lgb_params['max_bin'] = 256
-        lgb_params['feature_fraction'] = 0.950673776143  #1.0
+        lgb_params['feature_fraction'] = 0.950673776143  # 1.0
         lgb_params['bagging_fraction'] = subsample
         lgb_params['bagging_freq'] = 1
 
@@ -481,11 +466,11 @@ if run_mode == 'train':
         logging.info('val f1={}'.format(f1))
 
         # сохраняем саму модель
-        cl.save_model( model_filename )
+        cl.save_model(model_filename)
 
         # Для отладки - прогоним через модель весь датасет и сохраним результаты в текстовый файл.
         y_pred = cl.predict(X_data)
-        with codecs.open(os.path.join(tmp_folder, 'lgb_relevancy.validation.txt'), 'w', 'utf-8') as wrt:
+        with codecs.open(os.path.join(tmp_folder, 'lgb_{}.validation.txt'.format(task)), 'w', 'utf-8') as wrt:
             for i in range(len(y_pred)):
                 premise = phrases[i][2]
                 question = phrases[i][3]
@@ -511,10 +496,10 @@ if run_mode == 'query':
     while True:
         X_data = lil_matrix((1, xgb_relevancy_nb_features), dtype='float32')
 
-        premise = raw_input('premise:> ').decode(sys.stdout.encoding).strip().lower()
+        premise = utils.console_helpers.input_kbd('premise:> ').strip().lower()
         if len(premise) == 0:
             break
-        question = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+        question = utils.console_helpers.input_kbd('question:> ').strip().lower()
 
         premise_wx = words2str(tokenizer.tokenize(premise))
         question_wx = words2str(tokenizer.tokenize(question))
@@ -546,16 +531,10 @@ if run_mode == 'query2':
 
     premises = []
 
-    if False:
-        with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
-            for line in rdr:
-                phrase = line.strip()
-                if len(phrase) > 5 and phrase.startswith(u'Q:'):
-                    phrase2 = u' '.join(tokenizer.tokenize(phrase.replace(u'Q:', u'')))
-                    premises.append((phrase2, phrase))
-    else:
+    added_phrases = set()
+    if task == 'relevancy':
+        # Поиск лучшей предпосылки
         for fname in ['test_premises.txt']:
-            added_phrases = set()
             with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -564,6 +543,42 @@ if run_mode == 'query2':
                         if phrase2 not in added_phrases:
                             added_phrases.add(phrase2)
                             premises.append((phrase2, phrase))
+    elif task == 'synonymy':
+        # поиск ближайшего приказа
+        phrases2 = set()
+        if True:
+            with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
+                for line in rdr:
+                    phrase = line.strip()
+                    if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                        phrase = phrase.replace(u'Q:', u'').strip()
+                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                        if phrase2 not in added_phrases:
+                            added_phrases.add(phrase2)
+                            phrases2.add((phrase2, phrase))
+        if True:
+            with codecs.open(os.path.join(data_folder, 'test_orders.txt'), 'r', 'utf-8') as rdr:
+                for line in rdr:
+                    phrase = line.strip()
+                    if len(phrase) > 5:
+                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                        if phrase2 not in added_phrases:
+                            added_phrases.add(phrase2)
+                            phrases2.add((phrase2, phrase))
+        if True:
+            with codecs.open(os.path.join(data_folder, 'electroshop.txt'), 'r', 'utf-8') as rdr:
+                for line in rdr:
+                    phrase = line.strip()
+                    if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                        phrase = phrase.replace(u'Q:', u'').strip()
+                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                        if phrase2 not in added_phrases:
+                            added_phrases.add(phrase2)
+                            phrases2.add((phrase2, phrase))
+
+        premises = list(phrases2)
+    else:
+        raise NotImplementedError()
 
     nb_premises = len(premises)
     print('nb_premises={}'.format(nb_premises))
@@ -571,7 +586,7 @@ if run_mode == 'query2':
     while True:
         X_data = lil_matrix((nb_premises, xgb_relevancy_nb_features), dtype='float32')
 
-        question = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+        question = utils.console_helpers.input_kbd('question:> ').strip().lower()
         if len(question) == 0:
             break
 
@@ -650,22 +665,22 @@ if run_mode == 'clusterize':
     max_dist = -np.inf
 
     # в принципе, достаточно вычислить верхнетреугольную матрицу расстояний.
-    for i1, (phrase1, _) in tqdm.tqdm(enumerate(phrases[:-1]), total=nb_phrases-1, desc='Distance matrix'):
+    for i1, (phrase1, _) in tqdm.tqdm(enumerate(phrases[:-1]), total=nb_phrases - 1, desc='Distance matrix'):
         shingles1 = set(ngrams(phrase1, lgb_relevancy_shingle_len))
-        n2 = nb_phrases-i1-1
+        n2 = nb_phrases - i1 - 1
         X_data = lil_matrix((n2, lgb_relevancy_nb_features), dtype='float32')
 
-        for i2, (phrase2, _) in enumerate(phrases[i1+1:]):
+        for i2, (phrase2, _) in enumerate(phrases[i1 + 1:]):
             shingles2 = set(ngrams(phrase2, lgb_relevancy_shingle_len))
             vectorize_sample_x(X_data, i2, shingles1, shingles2, lgb_relevancy_shingle2id)
 
         y_pred = lgb_relevancy.predict(X_data)
-        for i2 in range(i1+1, nb_phrases):
-            y = 1.0-y_pred[i2-i1-1]
+        for i2 in range(i1 + 1, nb_phrases):
+            y = 1.0 - y_pred[i2 - i1 - 1]
             distances[i1, i2] = y
             distances[i2, i1] = y
-            min_dist = min( min_dist, y)
-            max_dist = max( max_dist, y)
+            min_dist = min(min_dist, y)
+            max_dist = max(max_dist, y)
 
     print('\nmin_dist={} max_dist={}'.format(min_dist, max_dist))
 

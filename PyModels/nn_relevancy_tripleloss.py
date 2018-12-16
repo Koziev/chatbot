@@ -19,7 +19,6 @@ import codecs
 import itertools
 import json
 import os
-import sys
 import argparse
 import random
 import logging
@@ -27,22 +26,17 @@ import operator
 import numpy as np
 import pandas as pd
 
-import keras.callbacks
-import keras.regularizers
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint, EarlyStopping
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, AveragePooling1D
+from keras.layers import Conv1D
 from keras.layers import Input
 from keras.layers import Lambda
-from keras.layers import Dropout
 from keras.layers import recurrent
 from keras.layers.core import Dense
-from keras.layers.merge import concatenate, add, multiply
+from keras.layers.merge import add, multiply
 from keras.layers.wrappers import Bidirectional
 from keras.models import Model
 from keras.models import model_from_json
-from keras.layers.normalization import BatchNormalization
-from keras.layers import Flatten
 import keras.regularizers
 
 from sklearn.model_selection import train_test_split
@@ -86,7 +80,7 @@ def ngrams(s, n):
 def jaccard(s1, s2, shingle_len):
     shingles1 = ngrams(s1.lower(), shingle_len)
     shingles2 = ngrams(s2.lower(), shingle_len)
-    return float(len(shingles1&shingles2))/float(1e-8+len(shingles1|shingles2))
+    return float(len(shingles1 & shingles2)) / float(1e-8 + len(shingles1 | shingles2))
 
 
 def select_most_similar(phrase1, phrases2, topn):
@@ -114,7 +108,7 @@ def generate_rows(samples, batch_size, w2v, mode):
         # При обучении сетки каждую эпоху тасуем сэмплы.
         random.shuffle(samples)
         # эксперимент - сортируем сэмплы по тексту anchor'а
-        #samples = sorted(samples, key=lambda s: s.anchor)
+        # samples = sorted(samples, key=lambda s: s.anchor)
 
     batch_index = 0
     batch_count = 0
@@ -167,7 +161,7 @@ def triplet_loss(y_true, y_pred):
     """
     alpha = 0.5
 
-    anchor   = y_pred[:, 0:phrase_dim]
+    anchor = y_pred[:, 0:phrase_dim]
     positive = y_pred[:, phrase_dim:2 * phrase_dim]
     negative = y_pred[:, 2 * phrase_dim:3 * phrase_dim]
 
@@ -188,7 +182,7 @@ def triplet_loss2(y_true, y_pred):
     """Модификация triplet_loss с cos-метрикой"""
     alpha = 0.5
 
-    anchor   = y_pred[:, 0:phrase_dim]
+    anchor = y_pred[:, 0:phrase_dim]
     positive = y_pred[:, phrase_dim:2 * phrase_dim]
     negative = y_pred[:, 2 * phrase_dim:3 * phrase_dim]
 
@@ -225,7 +219,7 @@ def lossless_triplet_loss(y_true, y_pred, N=phrase_dim, beta=phrase_dim, epsilon
     loss -- real number, value of the loss
     """
 
-    anchor   = y_pred[:, 0:phrase_dim]
+    anchor = y_pred[:, 0:phrase_dim]
     positive = y_pred[:, phrase_dim:2 * phrase_dim]
     negative = y_pred[:, 2 * phrase_dim:3 * phrase_dim]
 
@@ -238,14 +232,13 @@ def lossless_triplet_loss(y_true, y_pred, N=phrase_dim, beta=phrase_dim, epsilon
     # Non Linear Values
 
     # -ln(-x/N+1)
-    pos_dist = -K.log(-pos_dist/beta + 1 + epsilon)
-    neg_dist = -K.log(-(N - neg_dist)/beta + 1 + epsilon)
+    pos_dist = -K.log(-pos_dist / beta + 1 + epsilon)
+    neg_dist = -K.log(-(N - neg_dist) / beta + 1 + epsilon)
 
     # compute loss
     loss = neg_dist + pos_dist
 
     return loss
-
 
 
 def convert_samples2(samples, phrase2v):
@@ -263,7 +256,6 @@ def convert_samples2(samples, phrase2v):
             added.add(pair2)
 
     return samples2
-
 
 
 def generate_rows2(samples, batch_size, mode):
@@ -305,6 +297,7 @@ def generate_rows2(samples, batch_size, mode):
 
 # -------------------------------------------------------------------
 
+
 class ModelCheckpoint_Acc(keras.callbacks.Callback):
     def __init__(self, X_val, val_phrases, val_samples, model, weights_path):
         self.epoch = 0
@@ -320,8 +313,6 @@ class ModelCheckpoint_Acc(keras.callbacks.Callback):
 
     def on_epoch_end(self, batch, logs={}):
         self.epoch += 1
-        nb_samples = 0
-        nb_errors = 0
 
         y_pred = self.model.predict(x=self.X_val, batch_size=batch_size, verbose=0)
 
@@ -377,7 +368,6 @@ class ModelCheckpoint_Acc(keras.callbacks.Callback):
         self.model.stop_training = False
 
 # -------------------------------------------------------------------
-
 
 
 NB_EPOCHS = 1000
@@ -515,13 +505,13 @@ if run_mode == 'train':
         positive_flow = lstm(input_positive)
         negative_flow = lstm(input_negative)
 
-        #dense = Dense(units=PHRASE_DIM, activation='sigmoid', activity_regularizer=keras.regularizers.l1(0.00001))
-        #anchor_flow = dense(anchor_flow)
-        #anchor_flow = Dropout(rate=0.2)(anchor_flow)
-        #positive_flow = dense(positive_flow)
-        #positive_flow = Dropout(rate=0.2)(positive_flow)
-        #negative_flow = dense(negative_flow)
-        #negative_flow = Dropout(rate=0.2)(negative_flow)
+        # dense = Dense(units=PHRASE_DIM, activation='sigmoid', activity_regularizer=keras.regularizers.l1(0.00001))
+        # anchor_flow = dense(anchor_flow)
+        # anchor_flow = Dropout(rate=0.2)(anchor_flow)
+        # positive_flow = dense(positive_flow)
+        # positive_flow = Dropout(rate=0.2)(positive_flow)
+        # negative_flow = dense(negative_flow)
+        # negative_flow = Dropout(rate=0.2)(negative_flow)
 
     if net_arch == 'lstm(lstm)':
         lstm = recurrent.LSTM(phrase_dim, return_sequences=True)
@@ -552,7 +542,7 @@ if run_mode == 'train':
                           name='shared_conv_{}'.format(kernel_size))
 
             pooler = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')
-            #pooler = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
+            # pooler = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
 
             # поверх сверточных идут рекуррентные слои
             lstm = recurrent.LSTM(rnn_size, return_sequences=False)
@@ -586,14 +576,13 @@ if run_mode == 'train':
 
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=output)
     model.compile(loss=triplet_loss, optimizer='nadam')
-    #model.compile(loss=triplet_loss, optimizer='sgd')
+    # model.compile(loss=triplet_loss, optimizer='sgd')
     model.summary()
 
     keras.utils.plot_model(model,
                            to_file=os.path.join(tmp_folder, 'nn_relevancy_tripletloss.arch.png'),
                            show_shapes=False,
                            show_layer_names=True)
-
 
     # Создадим сетку, которая будет выдавать вектор одной заданной фразы
     model1 = Model(inputs=input_anchor, outputs=anchor_flow)
@@ -606,10 +595,10 @@ if run_mode == 'train':
 
     if PRETRAIN:
         logging.info('Start pretraining...')
-        hist=model.fit_generator(generator=generate_rows(pretrain_samples, batch_size, embeddings, 1),
-                                 steps_per_epoch=len(pretrain_samples) // batch_size,
-                                 epochs=20,
-                                 verbose=1)
+        hist = model.fit_generator(generator=generate_rows(pretrain_samples, batch_size, embeddings, 1),
+                                   steps_per_epoch=len(pretrain_samples) // batch_size,
+                                   epochs=20,
+                                   verbose=1)
         logging.info('End of pretraining.')
 
     # разбиваем датасет на обучающую, валидационную и оценочную части.
@@ -624,10 +613,10 @@ if run_mode == 'train':
     logging.info('eval_samples.count={}'.format(len(eval_samples)))
 
     # начало отладки - прогоним через необученную модель данные, сделаем расчет loss'а
-    #y_pred = model.predict_generator(generate_rows(train_samples, batch_size, embeddings, 1), steps=1)
-    #for i, y in enumerate(y_pred):
-    #    loss = triplet_loss2(y)
-    #    print('{} loss={}'.format(i, loss))
+    # y_pred = model.predict_generator(generate_rows(train_samples, batch_size, embeddings, 1), steps=1)
+    # for i, y in enumerate(y_pred):
+    #     loss = triplet_loss2(y)
+    #     print('{} loss={}'.format(i, loss))
 
     # Валидационный набор
     eval_phrases = set()
@@ -654,19 +643,17 @@ if run_mode == 'train':
                                    verbose=1,
                                    mode='auto')
 
-    nb_validation_steps = len(val_samples)//batch_size
-
     if train_model1:
         hist = model.fit_generator(generator=generate_rows(train_samples, batch_size, embeddings, 1),
-                                   steps_per_epoch=len(train_samples)//batch_size,
+                                   steps_per_epoch=len(train_samples) // batch_size,
                                    epochs=NB_EPOCHS,
                                    verbose=1,
                                    callbacks=[model_checkpoint, early_stopping],
                                    validation_data=generate_rows(val_samples, batch_size, embeddings, 1),
-                                   validation_steps=nb_validation_steps,
+                                   validation_steps=len(val_samples) // batch_size,
                                    )
-    #best_acc = model_checkpoint.get_best_accuracy()
-    #logging.info('Best validation accuracy={}'.format(best_acc))
+    # best_acc = model_checkpoint.get_best_accuracy()
+    # logging.info('Best validation accuracy={}'.format(best_acc))
 
     model.load_weights(weights_path0)
 
@@ -679,7 +666,6 @@ if run_mode == 'train':
         phrase = eval_phrases[i][0]
         v = y_pred[i]
         phrase2v[phrase] = v
-
 
     nb_error = 0
     nb_good = 0
@@ -699,7 +685,7 @@ if run_mode == 'train':
         else:
             nb_error += 1
 
-    acc = nb_good/float(nb_error+nb_good)
+    acc = nb_good / float(nb_error + nb_good)
     logging.info('Validation results: accuracy={}'.format(acc))
 
     model1.save_weights(weights_path)
@@ -760,8 +746,6 @@ if run_mode == 'train':
                                        patience=20,
                                        verbose=1,
                                        mode='auto')
-
-
 
         train_samples2 = convert_samples2(train_samples, phrase2v)
         val_samples2 = convert_samples2(val_samples, phrase2v)
@@ -843,7 +827,7 @@ if run_mode == 'query2':
             for phrase2 in phrases2:
                 v2 = phrase2v[phrase2]
                 dist = np.sum(np.square(v1 - v2))
-                rel = -dist  #math.exp(-dist)
+                rel = -dist
                 phrase_rels.append((phrase2, rel))
         else:
             # Косинусная мера
@@ -851,7 +835,6 @@ if run_mode == 'query2':
                 v2 = phrase2v[phrase2]
                 rel = v_cosine(v1, v2)
                 phrase_rels.append((phrase2, rel))
-
 
         # Сортируем в порядке убывания похожести, выводим top лучших пар
         phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
@@ -934,7 +917,7 @@ if run_mode == 'evaluate':
             if False:
                 # Евклидово расстояние
                 dist = np.sum(np.square(v1 - v2))
-                rel = -dist  #math.exp(-dist)
+                rel = -dist  # math.exp(-dist)
             else:
                 # Косинусная мера
                 rel = v_cosine(v1, v2)
@@ -968,19 +951,17 @@ if run_mode == 'evaluate':
                         nb_good10 += 1
                     break
 
-        #max_sim = np.max(phrase_rels)
-
         question = phrases[0][1]
         print(u'{:<60} {:<60} {}/{}'.format(question, phrases[max_index][0], phrase_rels[max_index], phrase_rels[0]))
 
     # Итоговая точность выбора предпосылки.
-    accuracy = float(nb_good)/float(nb_total)
+    accuracy = float(nb_good) / float(nb_total)
     print('accuracy       ={}'.format(accuracy))
 
     # Также выведем точность попадания верной предпосылки в top-5 и top-10
-    accuracy5 = float(nb_good5)/float(nb_total)
+    accuracy5 = float(nb_good5) / float(nb_total)
     print('accuracy top-5 ={}'.format(accuracy5))
 
-    accuracy10 = float(nb_good10)/float(nb_total)
+    accuracy10 = float(nb_good10) / float(nb_total)
     print('accuracy top-10={}'.format(accuracy10))
 # </editor-fold>

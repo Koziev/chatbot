@@ -18,36 +18,24 @@ import codecs
 import itertools
 import json
 import os
-import sys
 import argparse
 import random
-import collections
 import logging
 import operator
-import math
-import tqdm
 import numpy as np
 import pandas as pd
 
-import keras.callbacks
-import keras.regularizers
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint, EarlyStopping
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, AveragePooling1D
+from keras.layers import Conv1D
 from keras.layers import Input
-from keras.layers import Lambda
 from keras.layers import recurrent
 from keras.layers.core import Dense
-from keras.layers.merge import concatenate, add, multiply
-from keras.layers.wrappers import Bidirectional
 from keras.models import Model
 from keras.models import model_from_json
-from keras.layers.normalization import BatchNormalization
-from keras.layers import Flatten
 import keras.regularizers
 
 from sklearn.model_selection import train_test_split
-import sklearn.metrics
 
 from utils.tokenizer import Tokenizer
 from utils.padding_utils import lpad_wordseq, rpad_wordseq
@@ -64,7 +52,7 @@ PHRASE_DIM = 200
 # пустых токенов. Параметр padding определяет режим выравнивания.
 padding = 'right'
 
-L1 = 0  #0.00001
+L1 = 0  # 0.00001
 
 random.seed(123456789)
 np.random.seed(123456789)
@@ -86,7 +74,7 @@ def ngrams(s, n):
 def jaccard(s1, s2, shingle_len):
     shingles1 = ngrams(s1.lower(), shingle_len)
     shingles2 = ngrams(s2.lower(), shingle_len)
-    return float(len(shingles1&shingles2))/float(1e-8+len(shingles1|shingles2))
+    return float(len(shingles1 & shingles2)) / float(1e-8 + len(shingles1 | shingles2))
 
 
 def select_most_similar(phrase1, phrases2, topn):
@@ -165,9 +153,9 @@ def triplet_loss(y_true, y_pred):
     """
     alpha = 0.5
 
-    anchor   = y_pred[:, 0:PHRASE_DIM]
-    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
-    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+    anchor = y_pred[:, 0:PHRASE_DIM]
+    positive = y_pred[:, PHRASE_DIM:2 * PHRASE_DIM]
+    negative = y_pred[:, 2 * PHRASE_DIM:3 * PHRASE_DIM]
 
     # distance between the anchor and the positive
     pos_dist = K.sum(K.square(anchor - positive), axis=1)
@@ -186,9 +174,9 @@ def triplet_loss2(y_true, y_pred):
     """Модификация triplet_loss с cos-метрикой"""
     alpha = 0.5
 
-    anchor   = y_pred[:, 0:PHRASE_DIM]
-    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
-    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+    anchor = y_pred[:, 0:PHRASE_DIM]
+    positive = y_pred[:, PHRASE_DIM:2 * PHRASE_DIM]
+    negative = y_pred[:, 2 * PHRASE_DIM:3 * PHRASE_DIM]
 
     # distance between the anchor and the positive
     pos_dist = -K.sum(anchor * positive, axis=-1)
@@ -214,7 +202,7 @@ def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon
             anchor -- the encodings for the anchor data
             positive -- the encodings for the positive data (similar to anchor)
             negative -- the encodings for the negative data (different from anchor)
-    N  --  The number of dimension 
+    N  --  The number of dimension
     beta -- The scaling factor, N is recommended
     epsilon -- The Epsilon value to prevent ln(0)
 
@@ -223,9 +211,9 @@ def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon
     loss -- real number, value of the loss
     """
 
-    anchor   = y_pred[:, 0:PHRASE_DIM]
-    positive = y_pred[:, PHRASE_DIM:2*PHRASE_DIM]
-    negative = y_pred[:, 2*PHRASE_DIM:3*PHRASE_DIM]
+    anchor = y_pred[:, 0:PHRASE_DIM]
+    positive = y_pred[:, PHRASE_DIM:2 * PHRASE_DIM]
+    negative = y_pred[:, 2 * PHRASE_DIM:3 * PHRASE_DIM]
 
     # distance between the anchor and the positive
     pos_dist = K.sum(K.square(anchor - positive), axis=1)
@@ -236,8 +224,8 @@ def lossless_triplet_loss(y_true, y_pred, N=PHRASE_DIM, beta=PHRASE_DIM, epsilon
     # Non Linear Values
 
     # -ln(-x/N+1)
-    pos_dist = -K.log(-pos_dist/beta + 1 + epsilon)
-    neg_dist = -K.log(-(N - neg_dist)/beta + 1 + epsilon)
+    pos_dist = -K.log(-pos_dist / beta + 1 + epsilon)
+    neg_dist = -K.log(-(N - neg_dist) / beta + 1 + epsilon)
 
     # compute loss
     loss = neg_dist + pos_dist
@@ -352,11 +340,10 @@ if run_mode == 'train':
         positive_flow = lstm(input_positive)
         negative_flow = lstm(input_negative)
 
-        #dense = Dense(units=PHRASE_DIM, activation='sigmoid')
-        #anchor_flow = dense(anchor_flow)
-        #positive_flow = dense(positive_flow)
-        #negative_flow = dense(negative_flow)
-
+        # dense = Dense(units=PHRASE_DIM, activation='sigmoid')
+        # anchor_flow = dense(anchor_flow)
+        # positive_flow = dense(positive_flow)
+        # negative_flow = dense(negative_flow)
 
     if net_arch == 'lstm(cnn)':
         nb_filters = 128  # 128
@@ -376,7 +363,7 @@ if run_mode == 'train':
                           name='shared_conv_{}'.format(kernel_size))
 
             pooler = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')
-            #pooler = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
+            # pooler = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
 
             # поверх сверточных идут рекуррентные слои
             lstm = recurrent.LSTM(rnn_size, return_sequences=False)
@@ -410,7 +397,7 @@ if run_mode == 'train':
 
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=output)
     model.compile(loss=triplet_loss, optimizer='nadam')
-    #model.compile(loss=triplet_loss, optimizer='sgd')
+    # model.compile(loss=triplet_loss, optimizer='sgd')
     model.summary()
 
     keras.utils.plot_model(model,
@@ -430,28 +417,29 @@ if run_mode == 'train':
     logging.info('eval_samples.count={}'.format(len(eval_samples)))
 
     # начало отладки - прогоним через необученную модель данные, сделаем расчет loss'а
-    #y_pred = model.predict_generator(generate_rows(train_samples, batch_size, embeddings, 1), steps=1)
-    #for i, y in enumerate(y_pred):
-    #    loss = triplet_loss2(y)
-    #    print('{} loss={}'.format(i, loss))
+    # y_pred = model.predict_generator(generate_rows(train_samples, batch_size, embeddings, 1), steps=1)
+    # for i, y in enumerate(y_pred):
+    #     loss = triplet_loss2(y)
+    #     print('{} loss={}'.format(i, loss))
 
     logging.info('Start training on samples {} with batch_size={}...'.format(len(train_samples), batch_size))
     model_checkpoint = ModelCheckpoint(weights_path, monitor='val_loss',
                                        verbose=1,
                                        save_best_only=True,
                                        mode='auto')
+
     early_stopping = EarlyStopping(monitor='val_loss',
                                    patience=10,
                                    verbose=1,
                                    mode='auto')
 
     hist = model.fit_generator(generator=generate_rows(train_samples, batch_size, embeddings, 1),
-                               steps_per_epoch=len(train_samples)//batch_size,
+                               steps_per_epoch=len(train_samples) // batch_size,
                                epochs=NB_EPOCHS,
                                verbose=1,
                                callbacks=[model_checkpoint, early_stopping],
                                validation_data=generate_rows(val_samples, batch_size, embeddings, 1),
-                               validation_steps=len(val_samples)//batch_size,
+                               validation_steps=len(val_samples) // batch_size,
                                )
 
     logging.info('Estimating final accuracy on eval dataset...')
@@ -513,7 +501,7 @@ if run_mode == 'train':
         else:
             nb_error += 1
 
-    acc = nb_good/float(nb_error+nb_good)
+    acc = nb_good / float(nb_error + nb_good)
     logging.info('Validation results: accuracy={}'.format(acc))
 
 # </editor-fold>
@@ -577,7 +565,7 @@ if run_mode == 'query2':
         all_phrases = list(itertools.chain(phrases2, [phrase1]))
         nb_phrases = len(all_phrases)
 
-        #print('Vectorization of {} samples'.format(nb_phrases))
+        # print('Vectorization of {} samples'.format(nb_phrases))
         X_data = np.zeros((nb_phrases, max_wordseq_len, word_dims), dtype=np.float32)
         for iphrase, phrase in enumerate(all_phrases):
             words = pad_func(tokenizer.tokenize(phrase), max_wordseq_len)
