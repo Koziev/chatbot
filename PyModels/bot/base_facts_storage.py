@@ -20,13 +20,13 @@ class BaseFactsStorage(object):
          пользователю.
         :return итерируемая последовательность кортежей (тест_факта, грамматическое_лицо, уникальная_метка_факта)
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def enumerate_smalltalk_replicas(self):
         """
         :return: итерируемая последовательность экземпляров класса SmalltalkReplicas.
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def store_new_fact(self, interlocutor, fact):
         """
@@ -38,4 +38,4 @@ class BaseFactsStorage(object):
         :param fact: строковое представление добавляемого факта
         """
         assert(len(unicode(fact)) > 0)
-        raise NotImplemented()
+        raise NotImplementedError()

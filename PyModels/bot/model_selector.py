@@ -4,8 +4,8 @@
 ответа чат-бота.
 """
 
-import os
 from model_applicator import ModelApplicator
+
 
 class ModelSelector(ModelApplicator):
     def __init__(self):
@@ -22,4 +22,4 @@ class ModelSelector(ModelApplicator):
         :param word_embeddings: экземпляр класса WordEmbeddings
         :return: целое число 0...2, определяющее способ генерации ответа
         """
-        raise NotImplemented()
+        raise NotImplementedError()

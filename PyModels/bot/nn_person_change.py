@@ -7,11 +7,11 @@
 
 import os
 import json
-import numpy as np
 import logging
 import pickle
 from keras.models import model_from_json
 from person_change_model import PersonChangeModel
+
 
 class NN_PersonChange(PersonChangeModel):
     def __init__(self):
@@ -45,20 +45,18 @@ class NN_PersonChange(PersonChangeModel):
         self.word_dims = self.person_change_model_config['word_dims']
         self.max_wordseq_len = int(self.person_change_model_config['max_inputseq_len'])
 
-        self.special_changes_3 = { u'меня': u'тебя',
-                                   u'мне': u'тебе',
-                                   u'мной': u'тобой',
-                                   u'мною': u'тобою',
-                                   u'тебя': u'меня',
-                                   u'тебе': u'мне',
-                                   u'тобой': u'мной',
-                                   u'тобою': u'мною',
-                                   }
+        self.special_changes_3 = {u'меня': u'тебя',
+                                  u'мне': u'тебе',
+                                  u'мной': u'тобой',
+                                  u'мною': u'тобою',
+                                  u'тебя': u'меня',
+                                  u'тебе': u'мне',
+                                  u'тобой': u'мной',
+                                  u'тобою': u'мною',
+                                  }
 
         # todo создание входных тензоров для модели changeable_words
         pass
-
-
 
     def change_person(self, sentence_str, target_person, text_utils, word_embeddings):
         # текущая реализация - упрощенная, использует два списка замен для слов.
@@ -77,4 +75,3 @@ class NN_PersonChange(PersonChangeModel):
                     outwords.append(word)
 
         return u' '.join(outwords)
-

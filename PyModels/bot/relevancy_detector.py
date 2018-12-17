@@ -16,3 +16,6 @@ class RelevancyDetector(ModelApplicator):
 
     def calc_relevancy1(self, premise, question, text_utils, word_embeddings):
         raise NotImplemented()
+
+    def get_w2v_path(self):
+        return None

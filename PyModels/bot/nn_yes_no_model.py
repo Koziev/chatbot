@@ -23,7 +23,7 @@ class NN_YesNoModel(YesNoModel):
         self.max_inputseq_len = model_config['max_inputseq_len']
         self.w2v_path = model_config['w2v_path']
         self.wordchar2vector_path = model_config['wordchar2vector_path']
-        #self.PAD_WORD = model_config['PAD_WORD']
+        # self.PAD_WORD = model_config['PAD_WORD']
         self.padding = model_config['padding']
         self.word_dims = model_config['word_dims']
         self.max_nb_premises = model_config['max_nb_premises']
@@ -71,5 +71,5 @@ class NN_YesNoModel(YesNoModel):
         word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
 
         y = self.model.predict(x=self.inputs)[0]
-        p_yes = y[1] # y[0] - вероятность НЕТ, y[1] - вероятность ДА
+        p_yes = y[1]  # y[0] - вероятность НЕТ, y[1] - вероятность ДА
         return p_yes

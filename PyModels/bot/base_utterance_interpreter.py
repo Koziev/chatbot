@@ -8,8 +8,7 @@ class BaseUtteranceInterpreter(ModelApplicator):
         pass
 
     def require_interpretation(self, phrase, text_utils, word_embeddings):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def interpret(self, phrases, text_utils, word_embeddings):
-        raise NotImplemented()
-
+        raise NotImplementedError()

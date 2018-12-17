@@ -11,7 +11,7 @@ import operator
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
 from word_embeddings import WordEmbeddings
-#from xgb_relevancy_detector import XGB_RelevancyDetector
+# from xgb_relevancy_detector import XGB_RelevancyDetector
 from lgb_relevancy_detector import LGB_RelevancyDetector
 from nn_relevancy_tripleloss import NN_RelevancyTripleLoss
 from xgb_person_classifier_model import XGB_PersonClassifierModel
@@ -19,9 +19,10 @@ from nn_person_change import NN_PersonChange
 from answer_builder import AnswerBuilder
 from interpreted_phrase import InterpretedPhrase
 from nn_enough_premises_model import NN_EnoughPremisesModel
-from nn_synonymy_detector import NN_SynonymyDetector
-from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
-from jaccard_synonymy_detector import Jaccard_SynonymyDetector
+# from nn_synonymy_detector import NN_SynonymyDetector
+from lgb_synonymy_detector import LGB_SynonymyDetector
+# from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
+# from jaccard_synonymy_detector import Jaccard_SynonymyDetector
 from nn_interpreter import NN_Interpreter
 from nn_req_interpretation import NN_ReqInterpretation
 from modality_detector import ModalityDetector
@@ -34,7 +35,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     """
 
     def __init__(self, text_utils):
-        super(SimpleAnsweringMachine,self).__init__()
+        super(SimpleAnsweringMachine, self).__init__()
         self.trace_enabled = False
         self.session_factory = SimpleDialogSessionFactory()
         self.text_utils = text_utils
@@ -50,7 +51,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         к файлам данных модели так, чтобы был указанный каталог.
         """
         _, tail = os.path.split(old_filepath)
-        return os.path.join( models_folder, tail)
+        return os.path.join(models_folder, tail)
 
     def load_models(self, models_folder, w2v_folder):
         self.logger.info(u'Loading models from {}'.format(models_folder))
@@ -60,7 +61,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
             model_config = json.load(f)
             self.max_inputseq_len = model_config['max_inputseq_len']
-            self.wordchar2vector_path = self.get_model_filepath( models_folder, model_config['wordchar2vector_path'] )
+            self.wordchar2vector_path = self.get_model_filepath(models_folder, model_config['wordchar2vector_path'])
             self.PAD_WORD = model_config['PAD_WORD']
             self.word_dims = model_config['word_dims']
 
@@ -72,16 +73,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # данного класса и конкретных реализации моделей.
 
         # Определение релевантности предпосылки и вопроса на основе XGB модели
-        #self.relevancy_detector = XGB_RelevancyDetector()
-        #self.relevancy_detector = LGB_RelevancyDetector()
-        self.relevancy_detector = NN_RelevancyTripleLoss()
+        # self.relevancy_detector = XGB_RelevancyDetector()
+        self.relevancy_detector = LGB_RelevancyDetector()
+        # self.relevancy_detector = NN_RelevancyTripleLoss()
         self.relevancy_detector.load(models_folder)
 
         # Модель определения синонимичности двух фраз
-        #self.synonymy_detector = NN_SynonymyDetector()
-        self.synonymy_detector = NN_SynonymyTripleLoss()
+        # self.synonymy_detector = NN_SynonymyDetector()
+        # self.synonymy_detector = NN_SynonymyTripleLoss()
+        self.synonymy_detector = LGB_SynonymyDetector()
         self.synonymy_detector.load(models_folder)
-        #self.synonymy_detector = Jaccard_SynonymyDetector()
+        # self.synonymy_detector = Jaccard_SynonymyDetector()
 
         self.interpreter = NN_Interpreter()
         self.interpreter.load(models_folder)
@@ -117,13 +119,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             p = os.path.join(w2v_folder, os.path.basename(p))
             self.word_embeddings.load_w2v_model(p)
 
-        self.word_embeddings.load_w2v_model(self.relevancy_detector.get_w2v_path())
+        w2v_path = self.relevancy_detector.get_w2v_path()
+        if w2v_path is not None:
+            self.word_embeddings.load_w2v_model(w2v_path)
 
         self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
         self.logger.debug('All models loaded')
-
-    #def set_scripting(self, scripting):
-    #    self.scripting = scripting
 
     def start_conversation(self, bot, interlocutor):
         """
@@ -156,7 +157,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         order_templates = bot.order_templates.get_templates()
         order2anchor = dict((order, anchor) for (anchor, order) in order_templates)
         phrases = list(order for (anchor, order) in order_templates)
-        phrases2 = list((self.text_utils.wordize_text(order),) for (anchor, order) in order_templates)
+        phrases2 = list((self.text_utils.wordize_text(order), None, None) for (anchor, order) in order_templates)
         canonized2raw = dict((f2[0], f1) for (f1, f2) in itertools.izip(phrases, phrases2))
 
         best_order, best_sim = self.synonymy_detector.get_most_similar(self.text_utils.wordize_text(raw_phrase),
@@ -186,10 +187,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         last_phrase = session.conversation_history[-1] if len(session.conversation_history) > 0 else None
         if len(session.conversation_history) > 0\
-            and last_phrase.is_bot_phrase\
-            and last_phrase.is_question\
-            and not phrase_is_question\
-            and self.interpreter is not None:
+           and last_phrase.is_bot_phrase\
+           and last_phrase.is_question\
+           and not phrase_is_question\
+           and self.interpreter is not None:
 
             if self.req_interpretation.require_interpretation(raw_phrase,
                                                               self.text_utils,
@@ -198,7 +199,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # задал вопрос, на который собеседник дал краткий ответ.
                 # с помощью специальной модели мы попробуем восстановить полный
                 # текст ответа ообеседника.
-                context_phrases = []
+                context_phrases = list()
                 context_phrases.append(last_phrase.interpretation)
                 context_phrases.append(raw_phrase)
                 phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
@@ -318,7 +319,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             # Будем учитывать, насколько хорошо предлагаемая реплика ложится в общий
                             # дискурс текущей беседы.
                             discourse_rel = self.calc_discourse_relevance(replica, session)
-                            replica_rel = discourse_rel*np.random.rand(0.95, 1.0)
+                            replica_rel = discourse_rel * np.random.rand(0.95, 1.0)
 
                             # проверить, если answer является репликой-ответом: знает
                             # ли бот ответ на этот вопрос.
@@ -358,11 +359,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                         if self.is_question(replica):
                                             # бот не должен задавать вопрос, если он уже знает на него ответ.
                                             if not self.does_bot_know_answer(replica, session):
-                                                generated_replicas.append((replica, best_rel*discourse_rel*time_decay, 'debug1'))
+                                                generated_replicas.append((replica, best_rel * discourse_rel * time_decay, 'debug1'))
                                         else:
-                                            generated_replicas.append((replica, best_rel*discourse_rel*time_decay, 'debug2'))
+                                            generated_replicas.append((replica, best_rel * discourse_rel * time_decay, 'debug2'))
                                 break
-
 
                     # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
                     # максимально близкие к вопросам в smalltalk базе.
@@ -382,15 +382,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         for replica, rel in similar_items:
                             if session.count_bot_phrase(replica) == 0:
                                 time_decay = math.exp(-timegap)
-                                generated_replicas.append((replica, rel*0.9*time_decay, 'debug3'))
+                                generated_replicas.append((replica, rel * 0.9 * time_decay, 'debug3'))
 
                     # Теперь среди подобранных реплик бота в generated_replicas выбираем
                     # одну, учитывая их вес.
                     if len(generated_replicas) > 0:
                         replica_px = [z[1] for z in generated_replicas]
                         replicas = list(map(operator.itemgetter(0), generated_replicas))
-                        sum_p = sum(replica_px) #+1e-7
-                        replica_px = [p/sum_p for p in replica_px]
+                        sum_p = sum(replica_px)  # +1e-7
+                        replica_px = [p / sum_p for p in replica_px]
                         answer = np.random.choice(replicas, p=replica_px)
                         answer_generated = True
                     else:
@@ -408,15 +408,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Например, для смены темы разговора.
             if len(answers) > 0:
                 if bot.has_scripting():
-                    additional_speech = bot.scripting.generate_after_answer(bot, self, interlocutor, interpreted_phrase, answers[-1])
+                    additional_speech = bot.scripting.generate_after_answer(bot,
+                                                                            self,
+                                                                            interlocutor,
+                                                                            interpreted_phrase,
+                                                                            answers[-1])
                     if additional_speech is not None:
                         self.say(session, additional_speech)
-
 
     def process_order(self, bot, session, interpreted_phrase):
         self.logger.info(u'Process order \"{}\"'.format(interpreted_phrase.interpretation))
         bot.process_order(session, interpreted_phrase)
-
 
     def build_answers0(self, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
@@ -431,11 +433,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                   word_embeddings=self.word_embeddings)
         if p_enough > 0.5:
             # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
-            answer_rel = p_enough
             answers, answer_rels = self.answer_builder.build_answer_text([u''], [1.0],
-                                                           interpreted_phrase.interpretation,
-                                                           self.text_utils,
-                                                           self.word_embeddings)
+                                                                         interpreted_phrase.interpretation,
+                                                                         self.text_utils,
+                                                                         self.word_embeddings)
             if len(answers) != 1:
                 self.logger.debug(u'Exactly 1 answer was expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
 
@@ -468,7 +469,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 else:
                     max_rel = max(best_rels)
                     for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):
-                        if rel >= self.min_premise_relevancy and rel >= 0.4*max_rel:
+                        if rel >= self.min_premise_relevancy and rel >= 0.4 * max_rel:
                             premises2.append([premise])
                             premise_rels2.append(rel)
 
@@ -479,7 +480,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                              self.word_embeddings)
 
             return answers, answer_rels
-
 
     def build_answers(self, bot, interlocutor, interpreted_phrase):
         answers, answer_confidenses = self.build_answers0(bot, interlocutor, interpreted_phrase)

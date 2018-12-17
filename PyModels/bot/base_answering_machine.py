@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 class BaseAnsweringMachine(object):
     """
     Базовый класс с интерфейсом для диалогового движка.
@@ -8,14 +9,13 @@ class BaseAnsweringMachine(object):
     def __init__(self):
         pass
 
-
     def get_session_factory(self):
         """
         Производный класс должен перегрузить этот метод, чтобы
         он возвращал экземпляр класса, производного от BaseDialogSessionFactory
         :return:
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def start_conversation(self):
         pass
@@ -47,7 +47,6 @@ class BaseAnsweringMachine(object):
                  ответов пуст.
         """
         return u''
-
 
     def get_session(self, interlocutor):
         return self.get_session_factory()[interlocutor]

@@ -6,14 +6,9 @@
 Для проекта чат-бота https://github.com/Koziev/chatbot
 """
 
-import json
-import os
 import logging
-import numpy as np
 import itertools
 
-from word_embeddings import WordEmbeddings
-#from xgb_yes_no_model import XGB_YesNoModel
 from nn_yes_no_model import NN_YesNoModel
 from nn_model_selector import NN_ModelSelector
 from nn_wordcopy3 import NN_WordCopy3
@@ -29,8 +24,8 @@ class AnswerBuilder(object):
         self.models_folder = models_folder
 
         # Модель для выбора ответов yes|no на базе XGB
-        #self.yes_no_model = XGB_YesNoModel()
-        #self.yes_no_model.load(models_folder)
+        # self.yes_no_model = XGB_YesNoModel()
+        # self.yes_no_model.load(models_folder)
 
         self.yes_no_model = NN_YesNoModel()
         self.yes_no_model.load(models_folder)
@@ -91,7 +86,7 @@ class AnswerBuilder(object):
                     answer = text_utils.language_resources[u'да']
                 answers.append(answer)
                 answer_rels.append(premise_rel)
-                break # ответ да/нет всегда единственный
+                break  # ответ да/нет всегда единственный
             elif model_selector == 1:
                 # ответ генерируется через копирование слов из предпосылки.
                 answer = self.word_copy_model.generate_answer(premise,

@@ -7,6 +7,7 @@ import numpy as np
 from keras.models import model_from_json
 from word_copy_model import WordCopyModel
 
+
 class NN_WordCopyModel(WordCopyModel):
     """
     Аппликатор нейросетевой модели генерации ответа на вопрос через
@@ -54,5 +55,3 @@ class NN_WordCopyModel(WordCopyModel):
         words = premise_words[beg_pos:end_pos + 1]
         answer = u' '.join(words)
         return answer
-
-

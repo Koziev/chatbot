@@ -67,8 +67,8 @@ bot.set_order_templates(oct)
 def on_order(order_anchor_str, bot, session):
     bot.say(session, u'Выполняю команду \"{}\"'.format(order_anchor_str))
 
-bot.on_process_order = on_order
 
+bot.on_process_order = on_order
 
 print_tech_banner()
 

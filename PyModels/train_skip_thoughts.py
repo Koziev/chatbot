@@ -1,4 +1,13 @@
 # -*- coding: utf-8 -*-
+"""
+Тренировка модели получения векторов предложений.
+На основу взята архитектура Skip-Thoughts.
+Предложения берем из большого текстового корпуса, в котором текст разбит на абзацы. Предложения
+в одном абзаце считаем связанными по смыслу.
+
+Для оценки качества получающейся модели встраивания берем датасет для тренировки nn_synonymy_tripleloss.py
+и
+"""
 
 from __future__ import division
 from __future__ import print_function
@@ -41,20 +50,24 @@ import gensim
 
 from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
-from utils.padding_utils import pad_wordseq
+from utils.padding_utils import rpad_wordseq
 from utils.padding_utils import PAD_WORD
 from trainers.evaluation_dataset import EvaluationDataset
 from trainers.evaluation_markup import EvaluationMarkup
 
+
 qa_path = '../data/qa.txt'
 relevancy_path = '../data/premise_question_relevancy.csv'
 #corpus_path = r'f:\Corpus\Raw\ru\text_blocks.txt'
-corpus_path = r'/home/eek/Corpus/Raw/ru/text_blocks.txt'
-max_nb_samples = 1000000
-batch_size = 250
+corpus_path = os.path.expanduser('~/Corpus/Raw/ru/text_blocks.txt')
+max_nb_samples = 5000000
+phrase_vector_dim = 512
+batch_size = 256
 max_inseq_len = 12
-arch = 'bilstm'
-word2vector_path = '/home/eek/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin'
+NB_EPOCHS = 100
+max_gap = 5  # максимальное расстояние между предложениями из raw корпуса
+arch = 'gru'
+word2vector_path = os.path.expanduser('~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin')
 data_folder = '../data'
 
 PAD_WORD = u''
@@ -66,8 +79,8 @@ config_path = '../tmp/train_skip_thoughts.config'
 
 def norm(v):
     """
-    Так как векторы в модели word2vec имеют значения компонентов за пределами -1...+1, то
-    для работы нейросетки нужно нормировать вектор. 
+    Так как векторы в модели word2vec могут иметь значения компонентов за пределами -1...+1 (если не были нормированы),
+    то для работы нейросетки нужно нормировать вектор.
     :param v: 
     :return: 
     """
@@ -114,8 +127,8 @@ def normalize_qline( line ):
     line = line.replace(u'Q:', u'')
     line = line.replace(u'A:', u'')
     line = line.replace(u'\t', u' ')
-    line = line.replace( '.', ' ' ).replace( ',', ' ' ).replace( '?', ' ' ).replace( '!', ' ' ).replace( '-', ' ' )
-    line = line.replace( '  ', ' ' ).strip().lower()
+    line = line.replace('.', ' ').replace(',', ' ').replace('?', ' ').replace('!', ' ').replace('-', ' ')
+    line = line.replace('  ', ' ').strip().lower()
     return line
 
 
@@ -137,6 +150,10 @@ def generate_rows(samples, batch_size, max_phrase_len, w2v, word_dims, mode):
     y_batch = np.zeros((batch_size, max_phrase_len, word_dims), dtype=np.float32)
 
     while True:
+        if mode == 1:
+            # При обучении сетки каждую эпоху тасуем сэмплы.
+            random.shuffle(samples)
+
         for irow, (words1, words2) in enumerate(samples):
             vectorize_words(words1, X_batch, batch_index, w2v)
             vectorize_words(words2, y_batch, batch_index, w2v)
@@ -157,10 +174,9 @@ def generate_rows(samples, batch_size, max_phrase_len, w2v, word_dims, mode):
 
 
 
-
+print(u'Loading w2v model from {}'.format(word2vector_path))
 w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
 w2v_dims = len(w2v.syn0[0])
-
 
 segmenter = Segmenter()
 tokenizer = Tokenizer()
@@ -170,7 +186,7 @@ samples = []
 all_words = set([PAD_WORD])
 max_phrase_len = 0
 
-if True:
+if False:
     # добавляем пары предпосылка-вопрос из обучающего датасета
 
     with codecs.open(os.path.join(data_folder, qa_path), "r", "utf-8") as inf:
@@ -223,7 +239,6 @@ if True:
     # добавляем пары соседних предложений (с допустимым max_gap) из большого корпуса.
     print(u'Loading samples from {}'.format(corpus_path))
     nb_from_corpus = 0
-    max_gap = 1
     with codecs.open(corpus_path, 'r', 'utf-8') as rdr:
         for line in rdr:
             line = line.strip()
@@ -264,7 +279,7 @@ if True:
 if False:
     # добавляем пары перефразировок
     df = pd.read_csv(relevancy_path, encoding='utf-8', delimiter='\t', quoting=3)
-    for row in df[df['relevance'] == 1].iterrows():
+    for i, row in df[df['relevance'] == 1].iterrows():
         premise = row['premise']
         question = row['question']
         if premise != question:
@@ -287,11 +302,7 @@ print('samples.count={}'.format(len(samples)))
 word_dims = w2v_dims
 
 
-
-
-
-
-
+print('Building network model {}'.format(arch))
 # на входе каждое предложение представляется цепочкой токенов
 input_curr_phrase = Input(batch_shape=(batch_size, max_phrase_len, w2v_dims), dtype='float32', name='input_curr_phrase')
 encoder_dim = -1
@@ -299,14 +310,19 @@ encoder_dim = -1
 encoder_curr = input_curr_phrase
 
 if arch == 'gru':
-    rnn_size = 64
+    rnn_size = phrase_vector_dim
     rnn_layer = recurrent.GRU(rnn_size, return_sequences=False)
     encoder_curr = rnn_layer(encoder_curr)
-    encoder_dim = rnn_size
+    encoder_dim = phrase_vector_dim
 elif arch == 'bilstm':
-    rnn_size = 512
-    rnn_layer = Bidirectional(recurrent.LSTM(rnn_size, return_sequences=False))
+    rnn_size = phrase_vector_dim
+    rnn_layer = Bidirectional(recurrent.LSTM(rnn_size//2, return_sequences=False))
     encoder_curr = rnn_layer(encoder_curr)
+    encoder_dim = phrase_vector_dim
+elif arch == 'lstm(lstm)':
+    rnn_size = phrase_vector_dim
+    encoder_curr = recurrent.LSTM(rnn_size//4, return_sequences=True)(encoder_curr)
+    encoder_curr = recurrent.LSTM(rnn_size, return_sequences=False)(encoder_curr)
     encoder_dim = rnn_size
 elif 'lstm(cnn)':
     # рекуррентные слои поверх сверточных
@@ -331,9 +347,10 @@ elif 'lstm(cnn)':
         conv_layer = lstm(conv_layer)
 
         convs.append(conv_layer)
-        encoder_dim += nb_filters
 
     encoder_curr = keras.layers.concatenate(inputs=convs)
+    encoder_curr = Dense(units=phrase_vector_dim, activation='relu')(encoder_curr)
+    encoder_dim = phrase_vector_dim
 
 elif arch == 'cnn':
     # простая сверточная архитектура.
@@ -350,24 +367,26 @@ elif arch == 'cnn':
         conv_layer = conv(encoder_curr)
         conv_layer = pooler(conv_layer)
         convs.append(conv_layer)
-        encoder_dim += nb_filters
 
     encoder_curr = keras.layers.concatenate(inputs=convs)
+    encoder_curr = Dense(units=phrase_vector_dim, activation='relu')(encoder_curr)
+    encoder_dim = phrase_vector_dim
 
-decoder1 = recurrent.LSTM(word_dims, return_sequences=True)
-decoder2 = Dense(word_dims, activation='tanh')
-nb_predict_layers = 1
-
+nb_predict_layers = 0
 predictor_next = Dense(units=encoder_dim, activation='relu')(encoder_curr)
 for _ in range(nb_predict_layers):
     predictor_next = Dense(units=encoder_dim, activation='relu')(predictor_next)
+
+decoder1 = recurrent.LSTM(word_dims, return_sequences=True)
+decoder2 = Dense(word_dims, activation='tanh')
+
 decoder_next = RepeatVector(max_phrase_len)(predictor_next)
 decoder_next = decoder1(decoder_next)
 decoder_next = TimeDistributed(decoder2, name='output_next')(decoder_next)
 
 model = Model(inputs=input_curr_phrase, outputs=decoder_next)
 model.compile(loss=keras.losses.mean_squared_error, optimizer='nadam')
-#model.summary()
+model.summary()
 
 nb_samples = len(samples)
 X_curr_data = np.zeros((nb_samples, max_phrase_len, word_dims), dtype='float32')
@@ -392,24 +411,26 @@ model_checkpoint = ModelCheckpoint(weights_path, monitor='val_loss',
 
 early_stopping = EarlyStopping(monitor='val_loss', patience=10, verbose=1, mode='auto')
 
-nb_validation_steps = int(len(samples_val) / batch_size)
+if NB_EPOCHS == 0:
+    model.save_weights(weights_path)
+else:
+    hist = model.fit_generator(generator=generate_rows(samples_train, batch_size, max_phrase_len, w2v, word_dims, 1),
+                               steps_per_epoch=len(samples_train) // batch_size,
+                               epochs=NB_EPOCHS,
+                               verbose=1,
+                               callbacks=[model_checkpoint, early_stopping],
+                               validation_data=generate_rows(samples_val, batch_size, max_phrase_len, w2v, word_dims, 1),
+                               validation_steps=len(samples_val) // batch_size
+                               )
 
-hist = model.fit_generator(generator=generate_rows(samples_train, batch_size, max_phrase_len, w2v, word_dims, 1),
-                           steps_per_epoch=int(len(samples_train) / batch_size),
-                           epochs=100,
-                           verbose=1,
-                           callbacks=[model_checkpoint, early_stopping],
-                           validation_data=generate_rows(samples_val, batch_size, max_phrase_len, w2v, word_dims, 1),
-                           validation_steps=nb_validation_steps
-                           )
-
-# сделаем валидацию модели на специальной задаче.
-# для этого нам нужен только энкодер предложения
-model.load_weights(weights_path)
+    # сделаем валидацию модели на специальной задаче.
+    # для этого нам нужен только энкодер предложения
+    model.load_weights(weights_path)
 
 # Усекаем модель до кодирующей части
 model2 = Model(inputs=input_curr_phrase, outputs=encoder_curr)
-model2.compile(loss=keras.losses.mean_squared_error, optimizer='nadam')
+#model2.compile(loss=keras.losses.mean_squared_error, optimizer='nadam')
+model2.summary()
 
 # Сохраняем кодер для использования в других моделях
 with open(arch_filepath, 'w') as f:
@@ -422,12 +443,68 @@ with open(config_path, 'w') as f:
     model_config = {'word2vector_path': word2vector_path,
                     'word_dims': word_dims,
                     'max_phrase_len': max_phrase_len,
-                    'encoder_dim': encoder_dim
+                    'encoder_dim': encoder_dim,
+                    'batch_size': batch_size
                     }
     json.dump(model_config, f)
 
+
+# Оценим точность модели по датасету, используемому для тренировки nn_synonymy_tripleloss.py
+
+class Sample3:
+    def __init__(self, anchor, positive, negative):
+        assert(len(anchor) > 0)
+        assert(len(positive) > 0)
+        self.anchor = anchor
+        self.positive = positive
+        self.negative = negative
+
+
+for dataset_path in ['../data/relevancy_dataset3.csv', '../data/synonymy_dataset3.csv']:
+    print('Vaditating on {}...'.format(dataset_path))
+    samples3 = []
+    phrases = set()
+    df = pd.read_csv(dataset_path, encoding='utf-8', delimiter='\t', quoting=3)
+    for anchor, positive, negative in itertools.izip(df['anchor'].values, df['positive'].values, df['negative'].values):
+        samples3.append(Sample3(anchor, positive, negative))
+        phrases.add(anchor)
+        phrases.add(positive)
+        phrases.add(negative)
+
+    phrases = list(phrases)
+    phrase2index = dict((phrase, i) for (i, phrase) in enumerate(phrases))
+    nb_phrases = len(phrases)
+    nrow = ((nb_phrases // batch_size)+1)*batch_size
+    X_data = np.zeros((nrow, max_phrase_len, word_dims), dtype='float32')
+
+    for irow, phrase in enumerate(phrases):
+        words = phrase.split()
+        for iword, word in enumerate(words[:max_phrase_len]):
+            if word in w2v:
+                X_data[irow, iword, :] = norm(w2v[word])
+
+    y_pred = model2.predict(X_data, batch_size=batch_size)
+    nb_good = 0
+    nb_total = 0
+    for sample in samples3:
+        v_anchor = y_pred[phrase2index[sample.anchor]]
+        v_positive = y_pred[phrase2index[sample.positive]]
+        v_negative = y_pred[phrase2index[sample.negative]]
+        sim1 = v_cosine(v_anchor, v_positive)
+        sim2 = v_cosine(v_anchor, v_negative)
+        if sim1 > sim2:
+            nb_good += 1
+
+        nb_total += 1
+
+    acc = float(nb_good) / float(nb_total)
+    print('{} accuracy={}'.format(dataset_path, acc))
+
+
+
+# Другая оценка - выбор предпосылки для вопроса.
 # Теперь грузим данные для оценочной задачи
-eval_data = EvaluationDataset(max_phrase_len, tokenizer)
+eval_data = EvaluationDataset(max_phrase_len, tokenizer, 'right')
 eval_data.load(data_folder)
 
 nb_good = 0  # попадание предпосылки в top-1
@@ -437,7 +514,12 @@ nb_total = 0
 
 for irecord, phrases in eval_data.generate_groups():
     nb_samples = len(phrases)
-    X_data = np.zeros((nb_samples*2, max_phrase_len, word_dims), dtype='float32')
+    nrow = nb_samples*2
+    if (nrow % batch_size) != 0:
+        nrow = ((nrow // batch_size)+1) * batch_size
+
+    #print('Building X_data with nrow={}'.format(nrow))
+    X_data = np.zeros((nrow, max_phrase_len, word_dims), dtype='float32')
 
     for irow, (premise_words, question_words) in enumerate(phrases):
         for iword, word in enumerate(premise_words[:max_phrase_len]):
@@ -448,7 +530,7 @@ for irecord, phrases in eval_data.generate_groups():
             if word in w2v:
                 X_data[irow*2+1, iword, :] = norm(w2v[word])
 
-    y_pred = model2.predict(X_data)
+    y_pred = model2.predict(X_data, batch_size=batch_size)
 
     sims = []
     for i in range(nb_samples):
@@ -457,10 +539,9 @@ for irecord, phrases in eval_data.generate_groups():
         sim = v_cosine(v1, v2)
         sims.append(sim)
 
-
     # предпосылка с максимальной релевантностью
     max_index = np.argmax(sims)
-    selected_premise = u' '.join(phrases[max_index][0]).strip()
+    selected_premise = phrases[max_index][0]
 
     nb_total += 1
 
@@ -470,9 +551,9 @@ for irecord, phrases in eval_data.generate_groups():
         nb_good += 1
         nb_good5 += 1
         nb_good10 += 1
-        print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
+        #print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
     else:
-        print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
+        #print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
 
         # среди top-5 или top-10 предпосылок есть верная?
         sorted_phrases = [x for x, _ in sorted(itertools.izip(phrases, sims), key=lambda z: -z[1])]
@@ -489,8 +570,7 @@ for irecord, phrases in eval_data.generate_groups():
     max_sim = np.max(y_pred)
 
     question = phrases[0][1]
-    print(u'{:<40} {:<40} {}/{}'.format(u' '.join(question), u' '.join(phrases[max_index][0]), sims[max_index],
-                                        sims[0]))
+    #print(u'{:<40} {:<40} {}/{}'.format(question, phrases[max_index][0], sims[max_index], sims[0]))
 
 
 # Итоговая точность выбора предпосылки.

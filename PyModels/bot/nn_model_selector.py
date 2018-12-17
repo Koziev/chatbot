@@ -11,6 +11,7 @@ import logging
 from keras.models import model_from_json
 from model_selector import ModelSelector
 
+
 class NN_ModelSelector(ModelSelector):
     def __init__(self):
         super(NN_ModelSelector, self).__init__()

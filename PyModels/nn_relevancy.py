@@ -47,11 +47,12 @@ from keras.models import model_from_json
 from keras.layers.normalization import BatchNormalization
 from keras.layers import Flatten
 import keras.regularizers
+import tensorflow as tf
 
 from sklearn.model_selection import train_test_split
 import sklearn.metrics
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 from utils.tokenizer import Tokenizer
 from utils.segmenter import Segmenter
@@ -195,6 +196,16 @@ def generate_rows(sequences, targets, batch_size, w2v, mode):
                     X3_batch.fill(0)
                 y_batch.fill(0)
                 batch_index = 0
+
+# focal loss для экспериментов вместо logloss
+# https://towardsdatascience.com/handling-imbalanced-datasets-in-deep-learning-f48407a0e758
+def focal_loss(y_true, y_pred):
+    gamma = 2.0
+    alpha = 0.25
+    pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
+    pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+    return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1))-K.sum((1-alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0))
+
 
 # ---------------------------------------------------------------
 
@@ -831,6 +842,7 @@ if run_mode == 'train':
     model = Model(inputs=xx, outputs=classif)
 
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
+    #model.compile(loss=[focal_loss], optimizer='nadam', metrics=['accuracy'])
     model.summary()
 
     with open(arch_filepath, 'w') as f:

@@ -13,7 +13,7 @@ class SynonymyDetector(ModelApplicator):
     вопрос к части предпосылки не считается синонимом.
     """
     def __init__(self):
-        pass
+        super(SynonymyDetector, self).__init__()
 
     def get_most_similar(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
-        raise NotImplemented()
+        raise NotImplementedError()

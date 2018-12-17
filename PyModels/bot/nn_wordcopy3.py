@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Нейросетевая реализация модели генерации ответа через выбор
-копируемых слов их предпосылки. 
+копируемых слов их предпосылки.
 Для вопросно-ответной системы https://github.com/Koziev/chatbot.
 """
 
@@ -11,6 +11,7 @@ import numpy as np
 import logging
 from keras.models import model_from_json
 from word_copy_model import WordCopyModel
+
 
 class NN_WordCopy3(WordCopyModel):
     def __init__(self):
@@ -56,7 +57,7 @@ class NN_WordCopy3(WordCopyModel):
         word_embeddings.vectorize_words(self.w2v_filename, premise_words, self.X1_probe, 0)
         word_embeddings.vectorize_words(self.w2v_filename, question_words, self.X2_probe, 0)
 
-        #for i1, word1 in enumerate(premise_words):
+        # for i1, word1 in enumerate(premise_words):
         #    if len(word1)>0:
         #        print(u'{} {} ==> {}'.format(i1, word1, self.X1_probe[0, i1, :]))
 
@@ -65,6 +66,6 @@ class NN_WordCopy3(WordCopyModel):
         end_pos = np.argmax(y2_probe[0])
         words = premise_words[beg_pos:end_pos + 1]
         answer = u' '.join(words)
-        #print(u'\nDEBUG nn_wordcopy3 @63 ==> beg_pos={} end_pos={} answer="{}"'.format(beg_pos, end_pos, answer))
+        # print(u'\nDEBUG nn_wordcopy3 @63 ==> beg_pos={} end_pos={} answer="{}"'.format(beg_pos, end_pos, answer))
 
         return answer

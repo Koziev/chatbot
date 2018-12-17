@@ -7,6 +7,7 @@ import logging
 
 from interpreted_phrase import InterpretedPhrase
 
+
 class BotScripting:
     def __init__(self, data_folder):
         self.data_folder = data_folder

@@ -2,6 +2,7 @@
 
 import os
 
+
 class ModelApplicator(object):
     """
     Класс предназначен для скрытия деталей применения различных
@@ -20,7 +21,7 @@ class ModelApplicator(object):
         :param models_folder: папка, где располагаются все файлы модели.
         :type arg1: unicode
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def get_model_filepath(self, models_folder, old_filepath):
         """
@@ -34,4 +35,4 @@ class ModelApplicator(object):
         :rtype: unicode
         """
         _, tail = os.path.split(old_filepath)
-        return os.path.join(models_folder,  tail)
+        return os.path.join(models_folder, tail)

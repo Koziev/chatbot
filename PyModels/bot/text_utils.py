@@ -24,7 +24,7 @@ class TextUtils(object):
         self.tokenizer = Tokenizer()
         self.lemmatizer = Mystem()
         self.lexicon = Word2Lemmas()
-        self.language_resources = LanguageResources();
+        self.language_resources = LanguageResources()
 
     def load_dictionaries(self, data_folder):
         word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
@@ -54,11 +54,11 @@ class TextUtils(object):
 
     # Слева добавляем пустые слова
     def lpad_wordseq(self, words, n):
-        return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words))
+        return list(itertools.chain(itertools.repeat(PAD_WORD, n - len(words)), words))
 
     # Справа добавляем пустые слова
     def rpad_wordseq(self, words, n):
-        return list(itertools.chain(words, itertools.repeat(PAD_WORD, n-len(words))))
+        return list(itertools.chain(words, itertools.repeat(PAD_WORD, n - len(words))))
 
     def get_lexicon(self):
         return self.lexicon

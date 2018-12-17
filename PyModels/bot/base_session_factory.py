@@ -18,4 +18,4 @@ class BaseDialogSessionFactory(object):
         :param interlocutor_id: уникальный строковый идентификатор собеседника
         :return: класс, производный от BaseDialogSession
         """
-        raise NotImplemented()
+        raise NotImplementedError()

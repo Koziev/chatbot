@@ -23,7 +23,6 @@ class InterpreterSample:
         self.phrase_lemmas = phrase_lemmas[:]
 
 
-
 class InterpreterTrellisNode:
     def __init__(self, lemma, word):
         self.lemma = lemma
@@ -66,7 +65,6 @@ class NN_Interpreter(BaseUtteranceInterpreter):
         self.model_config = None
         self.model_req = None
         self.model_req_config = None
-
 
     def load(self, models_folder):
         self.logger.info('Loading NN_Interpreter model files')
@@ -132,10 +130,8 @@ class NN_Interpreter(BaseUtteranceInterpreter):
 
         yield inputs
 
-
     def require_interpretation(self, phrase, text_utils, word_embeddings):
         pass  # todo
-
 
     def interpret(self, phrases, text_utils, word_embeddings):
         assert(len(phrases) == 2)
@@ -167,14 +163,14 @@ class NN_Interpreter(BaseUtteranceInterpreter):
                     if p > 0.01:
                         lemma = self.id2lemma[lemma_index]
                         if lemma != PAD_WORD:
-                           lx.append((lemma, p))
+                            lx.append((lemma, p))
 
                 if len(lx) > 0:
                     predicted_lemmas.append(lx)
 
-            #lemma_index = np.argmax(lemma_v)
-                #lemma = self.id2lemma[lemma_index]
-                #if lemma != PAD_WORD:
+            # lemma_index = np.argmax(lemma_v)
+                # lemma = self.id2lemma[lemma_index]
+                # if lemma != PAD_WORD:
                 #    predicted_lemmas.append(lemma)
 
             # Готовим решетку для Витерби, чтобы выбрать оптимальную цепочку словоформ.
@@ -245,7 +241,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
 
             new_phrase = u' '.join(words)
             self.logger.debug(u'NN_Interpreter result={}'.format(new_phrase))
-            #print(u'<<<DEBUG>>> NN_Interpreter result={}'.format(new_phrase))
+            # print(u'<<<DEBUG>>> NN_Interpreter result={}'.format(new_phrase))
             return new_phrase
 
-        raise NotImplemented()
+        raise NotImplementedError()

@@ -17,9 +17,9 @@ class EnoughPremisesModel(ModelApplicator):
         """
         Определяем, достаточен ли набор предпосылок для ответа на вопрос
         :param premise_str_list: список unicode строк с предпосылками, может быть 0 строк.
-        :param question_str: unicode строка с вопросом. 
+        :param question_str: unicode строка с вопросом.
         :param text_utils: интерфейс для языковых процедур
         :param word_embeddings: интерфейс для доступа к векторам слов
-        :return: 
+        :return:
         """
-        raise NotImplemented()
+        raise NotImplementedError()
