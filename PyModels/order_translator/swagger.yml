@@ -1,0 +1,69 @@
+swagger: "2.0"
+info:
+  description: This is the swagger file for order translation REST API
+  version: "1.0.0"
+  title: Order Translation REST API
+consumes:
+  - "application/json"
+produces:
+  - "application/json"
+
+basePath: "/api"
+
+# Paths supported by the server application
+paths:
+  /orders:
+    get:
+      operationId: "orders.read_all"
+      tags:
+        - "Orders"
+      summary: Read the entire list of anchor orders
+      description: Read the list of anchor orders
+      parameters:
+        - name: length
+          in: query
+          type: integer
+          description: Number of anchor orders to get from database
+          required: false
+        - name: offset
+          in: query
+          type: integer
+          description: Offset from beginning of list where to start gathering orders
+          required: false
+      responses:
+        200:
+          description: Successfully read anchor list operation
+          schema:
+            type: array
+            items:
+              properties:
+                order_text:
+                  type: string
+
+  /order:
+    get:
+      operationId: "orders.translate_order"
+      tags:
+        - "Orders"
+      summary: "Order translation"
+      description: "Parse the order and return the result"
+      parameters:
+        - name: raw
+          in: query
+          description: raw order text
+          type: string
+          required: True
+      responses:
+        200:
+          description: "Order translation"
+          schema:
+            properties:
+              anchor_order:
+                type: string
+              ok:
+                type: boolean
+              error_str:
+                type: string
+              similarity:
+                type: number
+
