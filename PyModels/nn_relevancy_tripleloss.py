@@ -39,7 +39,10 @@ from keras.models import Model
 from keras.models import model_from_json
 import keras.regularizers
 
+import sklearn.metrics
 from sklearn.model_selection import train_test_split
+
+import matplotlib.pyplot as plt
 
 from utils.tokenizer import Tokenizer
 from utils.padding_utils import lpad_wordseq, rpad_wordseq
@@ -657,7 +660,9 @@ if run_mode == 'train':
 
     model.load_weights(weights_path0)
 
-    y_pred = model1.predict(x=X_eval, batch_size=batch_size, verbose=1)
+    model1.save_weights(weights_path)
+
+    y_pred = model1.predict(x=X_eval, batch_size=batch_size, verbose=0)
 
     # Теперь для каждой фразы мы знаем вектор
     phrase2v = dict()
@@ -667,6 +672,10 @@ if run_mode == 'train':
         v = y_pred[i]
         phrase2v[phrase] = v
 
+    # первая оценка точности берет каждую тройку и смотрит,
+    # будет ли позивтивный вектор ближе к опорному, чем негативный.
+    # если будет - значит классификация правильная, иначе - неправильная.
+    # Отсюда получается доля верных классификаций - точность №1.
     nb_error = 0
     nb_good = 0
     for sample in eval_samples:
@@ -686,9 +695,68 @@ if run_mode == 'train':
             nb_error += 1
 
     acc = nb_good / float(nb_error + nb_good)
-    logging.info('Validation results: accuracy={}'.format(acc))
+    logging.info('Validation results: inner accuracy of ranking in triplets = {}'.format(acc))
 
-    model1.save_weights(weights_path)
+    # Точность ранжирования внутри троек не очень информативна как мера точности
+    # классификатора при выборе одной предпосылки среди множества потенциальных предпосылок.
+    # Сделаем вторую оценку, выделив пары (anchor, positive) и (anchor, negative) из оценочных
+    # сэмплов.
+    y2_pred = []
+    y2_true = []
+    eval_samples2 = []
+    all_evals = set()
+
+    for sample in eval_samples:
+        anchor = phrase2v[sample.anchor]
+        positive = phrase2v[sample.positive]
+        negative = phrase2v[sample.negative]
+
+        k = sample.anchor + '|' + sample.positive
+        if k not in all_evals:
+            all_evals.add(k)
+
+            # cosine similarity between the anchor and the positive
+            pos_dist = v_cosine(anchor, positive)
+
+            y2_pred.append(pos_dist)
+            y2_true.append(1.0)
+
+        k = sample.anchor + '|' + sample.negative
+        if k not in all_evals:
+            all_evals.add(k)
+
+            # cosine similarity between the anchor and the negative
+            neg_dist = v_cosine(anchor, negative)
+
+            y2_pred.append(neg_dist)
+            y2_true.append(0.0)
+
+    aucroc = sklearn.metrics.roc_auc_score(y2_true, y2_pred)
+    logging.info('Validation results: auc roc={}'.format(aucroc))
+
+    if True:
+        fpr, tpr, thresholds = sklearn.metrics.roc_curve(y2_true, y2_pred)
+        roc_auc = sklearn.metrics.auc(fpr, tpr)
+
+        plt.figure()
+        plt.plot(fpr, tpr, label='ROC curve (area = {:0.2f})'.format(roc_auc))
+        plt.plot([0, 1], [0, 1], 'k--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver operating characteristic')
+        plt.legend(loc="lower right")
+
+        #ax2 = plt.gca().twinx()
+        #ax2.plot(fpr, thresholds, markeredgecolor='r', linestyle='dashed', color='r')
+        #ax2.set_ylabel('Threshold', color='r')
+        #ax2.set_ylim([thresholds[-1], thresholds[0]])
+        #ax2.set_xlim([fpr[0], fpr[-1]])
+
+        plt.savefig(os.path.join(tmp_folder, 'nn_relevancy_tripleloss.roc_and_threshold.png'))
+        plt.close()
+
 
     if train_model2:
         # Теперь вторая модель поверх векторов из tripleloss модели
