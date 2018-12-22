@@ -7,11 +7,8 @@
 
 from __future__ import print_function
 
-import six
 import numpy as np
 import os
-import codecs
-import random
 import json
 import logging
 
@@ -27,13 +24,9 @@ from keras.layers import TimeDistributed
 from keras.models import Model
 from keras.models import model_from_json
 
-from trainers.wordchar2vector_trainer import FILLER_CHAR  # символ для выравнивания слов по одинаковой длине
-from trainers.wordchar2vector_trainer import BEG_CHAR  # символ отмечает начало цепочки символов слова
-from trainers.wordchar2vector_trainer import END_CHAR  # символ отмечает конец цепочки символов слова
 
 class Wordchar2VectorModel:
     def __init__(self):
-        #super(Wordchar2VectorModel, self).__init__()
         self.logger = logging.getLogger('Wordchar2VectorModel')
         self.model = None
         self.model_config = None
@@ -46,10 +39,12 @@ class Wordchar2VectorModel:
             self.model_config = json.load(f)
 
         # грузим готовую модель
-        with open(self.model_config['arch_filepath'], 'r') as f:
+        arch_filepath = os.path.join(models_folder, os.path.basename(self.model_config['arch_filepath']))
+        with open(arch_filepath, 'r') as f:
             self.model = model_from_json(f.read())
 
-        self.model.load_weights(self.model_config['weights_path'])
+        weights_path = os.path.join(models_folder, os.path.basename(self.model_config['weights_path']))
+        self.model.load_weights(weights_path)
 
         # прочие параметры
         self.vec_size = self.model_config['vec_size']
@@ -76,9 +71,3 @@ class Wordchar2VectorModel:
         word_vect = y_pred[0, :]
         self.word2vector[word] = word_vect
         return word_vect
-
-
-
-
-
-

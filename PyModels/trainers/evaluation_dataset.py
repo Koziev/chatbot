@@ -5,11 +5,9 @@ from __future__ import print_function
 
 import codecs
 import os
-import pandas as pd
 import numpy as np
 
 from evaluation_group import EvaluationGroup
-from utils.padding_utils import lpad_wordseq
 
 
 class EvaluationDataset(object):
@@ -83,4 +81,3 @@ class EvaluationDataset(object):
         Вернет True, если предпосылка selected_premise корректна для группы irecord.
         """
         return self.eval_data[irecord].is_relevant_premise(selected_premise)
-

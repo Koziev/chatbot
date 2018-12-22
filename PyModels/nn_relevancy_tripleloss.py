@@ -754,7 +754,7 @@ if run_mode == 'train':
         #ax2.set_ylim([thresholds[-1], thresholds[0]])
         #ax2.set_xlim([fpr[0], fpr[-1]])
 
-        plt.savefig(os.path.join(tmp_folder, 'nn_relevancy_tripleloss.roc_and_threshold.png'))
+        plt.savefig(os.path.join(tmp_folder, 'nn_relevancy_tripleloss.roc_auc.png'))
         plt.close()
 
 

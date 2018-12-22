@@ -12,12 +12,8 @@ from __future__ import division
 from __future__ import print_function
 
 import codecs
-import collections
-import itertools
 import os
-import random
-import numpy as np
-import gensim
+import tqdm
 
 try:
     from itertools import izip as zip
@@ -25,6 +21,7 @@ except ImportError:
     pass
 
 from utils.tokenizer import Tokenizer
+from preparation.corpus_searcher import CorpusSearcher
 
 
 # Путь к создаваемому датасету для модели детектора на базе triplet loss
@@ -33,8 +30,8 @@ output_filepath3 = '../data/relevancy_dataset3.csv'
 
 USE_AUTOGEN = True  # добавлять ли сэмплы из автоматически сгенерированных датасетов
 
-HANDCRAFTED_WEIGHT = 1 # вес для сэмплов, которые в явном виде созданы вручную
-AUTOGEN_WEIGHT = 1 # вес для синтетических сэмплов, сгенерированных автоматически
+HANDCRAFTED_WEIGHT = 1  # вес для сэмплов, которые в явном виде созданы вручную
+AUTOGEN_WEIGHT = 1  # вес для синтетических сэмплов, сгенерированных автоматически
 
 FILTER_KNOWN_WORDS = True  # не брать негативный сэмпл, если в нем есть неизвестные слова
 
@@ -43,11 +40,9 @@ FILTER_KNOWN_WORDS = True  # не брать негативный сэмпл, е
 # сгенерированных.
 MAX_NB_AUTOGEN = 100000  # макс. число автоматически сгенерированных сэмплов одного типа
 
-ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
+ADD_SIMILAR_NEGATIVES = True  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
 
-ADD_PARAPHRASES = False
-
-n_negative_per_positive = 1
+n_negative_per_positive = 2
 
 tmp_folder = '../tmp'
 data_folder = '../data'
@@ -106,23 +101,22 @@ def ngrams(s, n):
 
 
 def jaccard(shingles1, shingles2):
-    return float(len(shingles1 & shingles2))/float(len(shingles1 | shingles2))
+    return float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2))
 
 
 # ---------------------------------------------------------------
 
 tokenizer = Tokenizer()
 
-# ------------------------------------------------------------------------
-
-random_questions = []
+random_questions = CorpusSearcher()
+random_facts = CorpusSearcher()
 
 qwords = set(u'кто кому ком когда где зачем почему откуда куда как сколько что чем чему чего'.split())
 
 # прочитаем список случайных вопросов из заранее сформированного файла
 # (см. код на C# https://github.com/Koziev/chatbot/tree/master/CSharpCode/ExtractFactsFromParsing
 # и результаты его работы https://github.com/Koziev/NLP_Datasets/blob/master/Samples/questions4.txt)
-print('Loading random questions from {}'.format(questions_path))
+print('Loading random questions and facts')
 with codecs.open(questions_path, 'r', 'utf-8') as rdr:
     for line in rdr:
         if len(line) < 40:
@@ -130,27 +124,25 @@ with codecs.open(questions_path, 'r', 'utf-8') as rdr:
             words = tokenizer.tokenize(question)
             if any((w in qwords) for w in words):
                 question = ru_sanitize(u' '.join(words))
-                random_questions.append(question)
+                random_questions.add_phrase(question)
 
-for facts_path in ['facts4.txt', 'facts5.txt', 'facts6.txt']:
-    print('Loading random questions from {}'.format(facts_path))
+for facts_path in ['paraphrases.txt', 'facts4.txt', 'facts5.txt', 'facts6.txt']:
     with codecs.open(os.path.join(data_folder, facts_path), 'r', 'utf-8') as rdr:
         n = 0
         for line in rdr:
-            if n > 100000:
-                s = line.strip()
+            s = line.strip()
+            if s:
                 if s[-1] == u'?':
                     words = tokenizer.tokenize(question)
                     if any((w in qwords) for w in words):
                         question = ru_sanitize(u' '.join(words))
-                        random_questions.append(question)
+                        random_questions.add_phrase(question)
             n += 1
             if n > 2000000:
                 break
 
 
 for q_path in qa_paths:
-    print('Loading random questions from {}'.format(q_path))
     with codecs.open(os.path.join(data_folder, q_path[0]), 'r', 'utf-8') as rdr:
         for line in rdr:
             s = line.strip()
@@ -159,39 +151,24 @@ for q_path in qa_paths:
                 words = tokenizer.tokenize(question)
                 if any((w in qwords) for w in words):
                     question = u' '.join(words)
-                    random_questions.append(question)
+                    random_questions.add_phrase(question)
 
-random_questions = list(random_questions)
+# Прочитаем список случайных фактов
+for facts_path in ['paraphrases.txt', 'facts4.txt', 'facts5.txt', 'facts6.txt', ]:
+    with codecs.open(os.path.join(data_folder, facts_path), 'r', 'utf-8') as rdr:
+        n = 0
+        for line in rdr:
+            s = line.strip()
+            if s:
+                if s[-1] != u'?':
+                    random_facts.add_phrase(normalize_qline(s))
 
-print('Prepare index of {} random questions...'.format(len(random_questions)))
-word2random_questions = dict()
-for iquest, quest in enumerate(random_questions):
-    words = tokenizer.tokenize(quest)
+                n += 1
+                if n > 2000000:
+                    break
 
-    for word in words:
-        if word not in stop_words:
-            if word not in word2random_questions:
-                word2random_questions[word] = [iquest]
-            else:
-                word2random_questions[word].append(iquest)
-
-print('{} random questions in set'.format(len(random_questions)))
-
-# Для генерации негативных паттернов нам надо будет для каждого
-# предложения быстро искать близкие к нему по критерию Жаккара.
-# Заранее подготовим списки шинглов для датасета "qa.txt".
-shingle_len = 3
-tokenizer = Tokenizer()
-phrases1 = []  # список кортежей (предпосылка, слова_без_повторов, шинглы)
-with codecs.open(os.path.join(data_folder, 'qa.txt'), 'r', 'utf-8') as rdr:
-    for phrase in rdr:
-        if phrase.startswith(u'T:'):
-            phrase = phrase.replace(u'T:', u'').lower().strip()
-            phrase = ru_sanitize(phrase)
-            words = tokenizer.tokenize(phrase.strip())
-            if len(words) > 0:
-                shingles = ngrams(u' '.join(words), shingle_len)
-                phrases1.append((u' '.join(words), set(words), shingles))
+print('Random facts pool size={}'.format(len(random_facts)))
+print('Random questions pool size={}'.format(len(random_questions)))
 
 
 # ------------------------------------------------------------------------
@@ -249,8 +226,6 @@ for qa_path, qa_weight, max_samples in qa_paths:
                     # вопросов и ответов.
                     # Из загруженных записей добавим пары в обучающий датасет
                     if len(text) == 1:
-                        #premise_questions.append((text[0], questions))
-
                         for premise in text:
                             for question in questions:
                                 random_questions2.add(question)
@@ -268,117 +243,57 @@ for qa_path, qa_weight, max_samples in qa_paths:
                 loading_state = 'Q'
                 questions.append(normalize_qline(line))
 
-# Добавляем перефразировки
-if ADD_PARAPHRASES:
-    lines = []
-    for paraphrases_path in paraphrases_paths:
-        print('Parsing {} '.format(paraphrases_path))
-        posit_pairs_count1 = 0  # кол-во релевантных пар, извлеченных из обрабатываемого файла
-        negat_pairs_count1 = 0  # кол-во нерелевантных пар, извлеченных из обрабатываемого файла
-        random_negat_pairs_count1 = 0  # кол-во добавленных случайных нерелевантных пар
-        with codecs.open(paraphrases_path, "r", "utf-8") as inf:
-            for line in inf:
-                line = line.strip()
-                if len(line) == 0:
-                    if len(lines) > 1:
-                        posit_lines = []
-                        negat_lines = []
-                        for line in lines:
-                            if line.startswith(u'(+)') or not line.startswith(u'(-)'):
-                                posit_lines.append(normalize_qline(line))
-                            else:
-                                negat_lines.append(normalize_qline(line))
-
-                        for i1 in range(len(posit_lines)):
-                            for i2 in range(len(posit_lines)):
-                                str1 = posit_lines[i1]
-                                str2 = posit_lines[i2]
-                                if str1 != str2:
-                                    pq = str1 + u'|' + str2
-                                    if pq not in all_pq:
-                                        samples2.append((str1, str2))
-                                        all_pq.add(pq)
-
-                                    posit_pairs_count1 += 1
-
-                    lines = []
-                else:
-                    lines.append(line)
-
-# Собираем лексикон из слов
-known_words = set()
-if True:
-    for sample in samples2:
-        known_words.update(sample[0].split())
-        known_words.update(sample[1].split())
-else:
-    word2vector_path = os.path.expanduser('~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin')
-
-    w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path,
-                                                          binary=not word2vector_path.endswith('.txt'))
-    known_words = w2v
-
-random_questions3 = list(random_questions2)
-if FILTER_KNOWN_WORDS:
-    print('Removing random question with OOV words...')
-    new_list = []
-    for random_question in random_questions3:
-        if all((word in known_words) for word in random_question.split()):
-            new_list.append(random_question)
-
-    print('{} items in list of random questions after removal'.format(len(new_list)))
-    random_questions3 = new_list
 
 # Второй проход по списку пар предпосылка-вопрос.
 # Для каждой пары подбираем негативный вопрос.
 print('Adding negative questions to samples...')
 samples3 = []
 n3 = 0
-for premise, question in samples2:
+for premise, question in tqdm.tqdm(samples2, desc='Adding negatives', total=len(samples2)):
     # Для предпосылки есть заданные вручную негативные вопросы?
     if premise in manual_negatives:
         for nonrelevant_question in manual_negatives[premise]:
-            samples3.append(Sample3(premise, question, nonrelevant_question))
             pq = premise + u'|' + nonrelevant_question
-            all_pq.add(pq)
-    else:
-        # Рандомно генерируем нерелевантный вопрос.
-        for _ in range(n_negative_per_positive):
-            n_added_neg = 0
-            if ADD_SIMILAR_NEGATIVES:
-                # случайные вопросы, имеющие общие слова с предпосылкой
-                # таким образом, получаются негативные сэмплы типа "кошка ловит мышей":"мышей в амбаре нет?"
-                words = tokenizer.tokenize(premise)
-                selected_random_questions = None
-                for word in words:
-                    if word not in stop_words:
-                        if word in word2random_questions:
-                            if selected_random_questions is None:
-                                selected_random_questions = set(word2random_questions[word])
-                            else:
-                                selected_random_questions |= set(word2random_questions[word])
+            if pq not in all_pq:
+                samples3.append(Sample3(premise, question, nonrelevant_question))
+                all_pq.add(pq)
 
-                if selected_random_questions is not None and len(selected_random_questions) > 0:
-                    words = set(words)
-                    selected_random_questions = list(selected_random_questions)
-                    selected_random_questions = np.random.permutation(selected_random_questions)
-                    if len(selected_random_questions) > n_negative_per_positive:
-                        selected_random_questions = selected_random_questions[:n_negative_per_positive]
-                        for random_question in selected_random_questions:
-                            random_question = random_questions[random_question]
-                            pq = premise + u'|' + random_question
-                            if pq not in all_pq:
-                                samples3.append(Sample3(premise, question, random_question))
-                                n_added_neg += 1
+    neg_2_add = n_negative_per_positive
 
-            for _ in range(max(0, n_negative_per_positive - n_added_neg)):
-                # абсолютно случайный вопрос
-                while True:
-                    random_question = random.choice(random_questions3)
-                    pq = premise+u'|'+random_question
-                    if pq not in all_pq:
-                        samples3.append(Sample3(premise, question, random_question))
-                        break
+    if ADD_SIMILAR_NEGATIVES:
+        # Берем ближайшие случайные вопросы
+        for neg_question in random_questions.find_similar(premise, neg_2_add // 2 if neg_2_add > 0 else 1):
+            pq = premise + u'|' + neg_question
+            if pq not in all_pq:
+                samples3.append(Sample3(premise, question, neg_question))
+                all_pq.add(pq)
+                neg_2_add -= 1
+
+        for neg_premise in random_facts.find_similar(question, neg_2_add):
+            pq = neg_premise + u'|' + question
+            if pq not in all_pq:
+                samples3.append(Sample3(question, premise, neg_premise))
+                all_pq.add(pq)
+                neg_2_add -= 1
+
+
+    # Добавим случайные нерелевантные вопросы
+    if neg_2_add > 0:
+        for neg_question in random_questions.get_random(neg_2_add // 2 if neg_2_add > 0 else 1):
+            pq = premise + u'|' + neg_question
+            if pq not in all_pq:
+                samples3.append(Sample3(premise, question, neg_question))
+                all_pq.add(pq)
+                neg_2_add -= 1
+
+        for neg_premise in random_facts.get_random(neg_2_add):
+            pq = neg_premise + u'|' + question
+            if pq not in all_pq:
+                samples3.append(Sample3(question, premise, neg_premise))
+                all_pq.add(pq)
+                neg_2_add -= 1
+
+    assert (neg_2_add == 0)
 
 
 print(u'Storing {} triplets to dataset "{}"'.format(len(samples3), output_filepath3))
@@ -386,4 +301,3 @@ with codecs.open(output_filepath3, 'w', 'utf-8') as wrt:
     wrt.write(u'anchor\tpositive\tnegative\n')
     for sample in samples3:
         wrt.write(u'{}\t{}\t{}\n'.format(sample.anchor, sample.positive, sample.negative))
-

@@ -2,7 +2,7 @@
 """
 Тренировка модели для превращения символьной цепочки слова в вектор
 действительных чисел фиксированной длины.
- 
+
 Реализации RNN и CNN вариантов энкодера, включая комбинации. Реализовано на Keras.
 Подробности: https://github.com/Koziev/chatbot/blob/master/PyModels/trainers/README.wordchar2vector.md
 """
@@ -20,13 +20,12 @@ import json
 import logging
 
 import keras.callbacks
-from keras.layers.core import Activation, RepeatVector, Dense, Masking
+from keras.layers.core import RepeatVector
 from keras.layers import recurrent
-from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Embedding
 from keras.layers.wrappers import Bidirectional
-from keras.layers import Dense, Dropout, Input, Permute, Flatten, Reshape
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D
+from keras.layers import Dense, Input
+from keras.layers import Conv1D, GlobalAveragePooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
 from keras.models import model_from_json
@@ -42,7 +41,7 @@ END_CHAR = u']'  # символ отмечает конец цепочки си�
 
 
 def pad_word(word, max_word_len):
-    return BEG_CHAR + word + END_CHAR + (max_word_len-len(word))*FILLER_CHAR
+    return BEG_CHAR + word + END_CHAR + (max_word_len - len(word)) * FILLER_CHAR
 
 
 def unpad_word(word):
@@ -50,7 +49,7 @@ def unpad_word(word):
 
 
 def raw_wordset(wordset, max_word_len):
-    return [(pad_word(word, max_word_len),pad_word(word, max_word_len)) for word in wordset]
+    return [(pad_word(word, max_word_len), pad_word(word, max_word_len)) for word in wordset]
 
 
 def vectorize_word(word, corrupt_word, X_batch, y_batch, irow, char2index):
@@ -100,8 +99,8 @@ def generate_rows(wordset, batch_size, char2index, seq_len, mode):
 def build_test(wordset, max_word_len, char2index):
     ndata = len(wordset)
     nb_chars = len(char2index)
-    X_data = np.zeros((ndata, max_word_len+2), dtype=np.int32)
-    y_data = np.zeros((ndata, max_word_len+2, nb_chars), dtype=np.float32)
+    X_data = np.zeros((ndata, max_word_len + 2), dtype=np.int32)
+    y_data = np.zeros((ndata, max_word_len + 2, nb_chars), dtype=np.float32)
 
     for irow, (word, corrupt_word) in enumerate(wordset):
         vectorize_word(word, corrupt_word, X_data, y_data, irow, char2index)
@@ -110,10 +109,11 @@ def build_test(wordset, max_word_len, char2index):
 
 
 def build_input(wordset, max_word_len, char2index):
-    X, y_unused = build_test(wordset, max_word_len, char2index )
+    X, y_unused = build_test(wordset, max_word_len, char2index)
     return X
 
 # -----------------------------------------------------------------
+
 
 class colors:
     ok = '\033[92m'
@@ -160,15 +160,15 @@ class VisualizeCallback(keras.callbacks.Callback):
             predicted_char_indeces = preds[0, :, :].argmax(axis=-1)
             guess = self.decode_char_indeces(predicted_char_indeces)
 
-            if ind<10:
+            if ind < 10:
                 print(colors.ok + '☑ ' + colors.close if correct == guess else colors.fail + '☒ ' + colors.close, end='')
-                print(u'wordform={} model_output={}'.format(correct, guess) )
+                print(u'wordform={} model_output={}'.format(correct, guess))
 
             nb_samples += 1
-            if guess!=correct:
+            if guess != correct:
                 nb_errors += 1
 
-        val_acc = float(nb_samples-nb_errors)/nb_samples
+        val_acc = float(nb_samples - nb_errors) / nb_samples
 
         with open(self.learning_curve_filename, 'a') as wrt:
             wrt.write('{}\t{}\n'.format(self.epoch, val_acc))
@@ -204,7 +204,7 @@ class Wordchar2Vector_Trainer(object):
     Класс реализует обучение нейросетевой модели для кодирования слов.
     """
     def __init__(self, arch_type, tunable_char_embeddings, char_dims,
-                 model_dir, vec_size, batch_size, min_batch_size, seed ):
+                 model_dir, vec_size, batch_size, min_batch_size, seed):
         self.arch_type = arch_type
         self.tunable_char_embeddings = tunable_char_embeddings
         self.char_dims = char_dims
@@ -315,7 +315,7 @@ class Wordchar2Vector_Trainer(object):
                                     padding='valid',
                                     activation='relu',
                                     strides=1)(encoder)
-                #conv_layer = GlobalMaxPooling1D()(conv_layer)
+                # conv_layer = GlobalMaxPooling1D()(conv_layer)
                 conv_layer = GlobalAveragePooling1D()(conv_layer)
                 conv_list.append(conv_layer)
                 merged_size += nb_filters
@@ -327,11 +327,11 @@ class Wordchar2Vector_Trainer(object):
             encoder = recurrent.LSTM(units=self.vec_size, return_sequences=False)(encoder)
 
         elif self.arch_type == 'bidir_lstm':
-            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size//2, return_sequences=False))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size // 2, return_sequences=False))(encoder)
 
         elif self.arch_type == 'lstm(lstm)':
-            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size//2, return_sequences=True))(encoder)
-            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size//2, return_sequences=False))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size // 2, return_sequences=True))(encoder)
+            encoder = Bidirectional(recurrent.LSTM(units=self.vec_size // 2, return_sequences=False))(encoder)
 
         elif self.arch_type == 'lstm+cnn':
             conv_list = []
@@ -348,7 +348,7 @@ class Wordchar2Vector_Trainer(object):
                                     padding='valid',
                                     activation='relu',
                                     strides=1)(encoder)
-                #conv_layer = GlobalMaxPooling1D()(conv_layer)
+                # conv_layer = GlobalMaxPooling1D()(conv_layer)
                 conv_layer = GlobalAveragePooling1D()(conv_layer)
                 conv_list.append(conv_layer)
                 merged_size += nb_filters
@@ -371,7 +371,7 @@ class Wordchar2Vector_Trainer(object):
                                     strides=1,
                                     name='shared_conv_{}'.format(kernel_size))(encoder)
 
-                #conv_layer = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
+                # conv_layer = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
                 conv_layer = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')(conv_layer)
                 conv_layer = recurrent.LSTM(rnn_size, return_sequences=False)(conv_layer)
 
@@ -435,19 +435,6 @@ class Wordchar2Vector_Trainer(object):
 
         with open(os.path.join(self.model_dir, self.config_filename), 'w') as f:
             json.dump(model_config, f)
-
-
-        # model_checkpoint = ModelCheckpoint( weigths_path,
-        #                                    monitor='val_loss',
-        #                                    verbose=1,
-        #                                    save_best_only=True,
-        #                                    mode='auto')
-        #
-        # early_stopping = EarlyStopping(monitor='val_loss',
-        #                                patience=20,
-        #                                verbose=1,
-        #                                mode='auto')
-
 
         X_viz, y_viz = build_test(list(val_words)[0:1000], max_word_len, char2index)
 
@@ -523,20 +510,19 @@ class Wordchar2Vector_Trainer(object):
         with codecs.open(result_path, 'w', 'utf-8') as wrt:
             wrt.write('{} {}\n'.format(nb_words, self.vec_size))
 
-            nb_batch = nb_words//self.batch_size + (0 if (nb_words%self.batch_size) == 0 else 1)
             wx = list(output_words)
             words = raw_wordset(wx, self.max_word_len)
 
             words_remainder = nb_words
-            word_index=0
+            word_index = 0
             while words_remainder > 0:
                 print('words_remainder={:<10d}'.format(words_remainder), end='\r')
                 nw = min(self.batch_size, words_remainder)
-                batch_words = words[word_index:word_index+nw]
+                batch_words = words[word_index:word_index + nw]
                 X_data = build_input(batch_words, self.max_word_len, self.char2index)
                 y_pred = model.predict(x=X_data, batch_size=nw, verbose=0)
 
-                for iword, (word,corrupt_word) in enumerate(batch_words):
+                for iword, (word, corrupt_word) in enumerate(batch_words):
                     word_vect = y_pred[iword, :]
                     naked_word = unpad_word(word)
                     wrt.write(u'{} {}\n'.format(naked_word, u' '.join([str(x) for x in word_vect])))

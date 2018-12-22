@@ -10,7 +10,6 @@ import sys
 from gensim.models.wrappers import FastText
 
 
-
 class WordEmbeddings(object):
     def __init__(self):
         self.w2v_dims = -1
@@ -25,7 +24,7 @@ class WordEmbeddings(object):
         return word.isdigit()
 
     def __getitem__(self, word):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     @staticmethod
     def _flush_print():
@@ -37,12 +36,12 @@ class WordEmbeddings(object):
         """
         Фабрика для получения удобного доступа к обеим моделям встраивания слов - посимвольной
         морфологической и пословной синтактико-семантической.
-        
+
          :param wordchar2vector путь к файлу с векторами слов в модели посимвольного встраивания.
          :param word2vector_path путь к файлу с векторами слов в word2vec, fasttext или glove моделях
-         
+
          :return экземпляр класса, предоставляющий метод-индексатор и возвращающий объединенный
-          вектор встраивания для слова. 
+          вектор встраивания для слова.
         """
 
         print('Loading the wordchar2vector model {} '.format(wordchar2vector_path), end='')
@@ -68,7 +67,8 @@ class WordEmbeddings(object):
             return WordEmbeddings_W2V(wc2v, wc2v_dims, w2v, w2v_dims)
 
     def all_words_known(self, words):
-        raise NotImplemented()
+        raise NotImplementedError()
+
 
 class WordEmbeddings_W2V(object):
     """
@@ -79,7 +79,7 @@ class WordEmbeddings_W2V(object):
     def __init__(self, wc2v, wc2v_dims, w2v, w2v_dims):
         self.w2v_dims = w2v_dims
         self.wc2v_dims = wc2v_dims
-        self.vector_size = w2v_dims+wc2v_dims
+        self.vector_size = w2v_dims + wc2v_dims
         self.w2v = w2v
         self.wc2v = wc2v
         self.missing_wc2c = set()

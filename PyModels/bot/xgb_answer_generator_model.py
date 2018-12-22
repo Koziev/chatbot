@@ -5,15 +5,14 @@
 
 import os
 import json
-import numpy as np
 import logging
 import itertools
-import scipy
 
 import xgboost
 from scipy.sparse import lil_matrix
 
 from answer_generator_model import AnswerGeneratorModel
+
 
 BEG_WORD = u'\b'
 END_WORD = u'\n'
@@ -62,7 +61,7 @@ class XGB_AnswerGeneratorModel(AnswerGeneratorModel):
         self.phrase2sdr = None
 
         self.generator = xgboost.Booster()
-        self.generator.load_model(self.get_model_filepath( models_folder, cfg['model_filename']))
+        self.generator.load_model(self.get_model_filepath(models_folder, cfg['model_filename']))
 
         self.id2outchar = dict((i, c) for c, i in self.outchar2id.items())
 
@@ -230,8 +229,6 @@ class XGB_AnswerGeneratorModel(AnswerGeneratorModel):
         return u'{}'.format(answer_chain[1:-1]).strip()
 
     def generate_answer(self, premise_str, question_str, text_utils, word_embeddings):
-        lexicon = text_utils.get_lexicon()
-
         answer = self.generate_answer0(self.generator, text_utils,
                                        self.outshingle2id, self.inshingle2id, self.outchar2id,
                                        self.SHINGLE_LEN, self.NB_PREV_CHARS, self.nb_features, self.id2outchar, self.phrase2sdr,

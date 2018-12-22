@@ -3,12 +3,6 @@
 from __future__ import division
 from __future__ import print_function
 
-import codecs
-import itertools
-import os
-import sys
-
-from utils.tokenizer import Tokenizer
 from utils.padding_utils import lpad_wordseq, rpad_wordseq
 
 
@@ -33,7 +27,7 @@ class EvaluationGroup(object):
         elif padding == 'none':
             self.pad_fun = npad_wordseq
         else:
-            raise NotImplemented()
+            raise NotImplementedError()
 
     def is_empty(self):
         return len(self.premises) == 0

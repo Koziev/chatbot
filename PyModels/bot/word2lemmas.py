@@ -5,9 +5,6 @@ from __future__ import print_function
 
 import itertools
 import logging
-import json
-import os
-import sys
 import gzip
 
 
@@ -52,10 +49,6 @@ class Word2Lemmas(object):
 
     def get_forms(self, word):
         if word in self.forms:
-            #result = set()
-            #for lemma in self.forms[word]:
-            #    result.update(self.lemmas[lemma])
-            #return result
             return set(itertools.chain(*(self.lemmas[lemma] for lemma in self.forms[word])))
         else:
             return [word]

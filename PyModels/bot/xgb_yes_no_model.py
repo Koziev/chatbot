@@ -62,9 +62,6 @@ class XGB_YesNoModel(YesNoModel):
 
         premise_str = premise_str_list[0] if len(premise_str_list) == 1 else u''
 
-        #premise_words = self.text_utils.pad_wordseq(text_utils.tokenize(best_premise), max_wordseq_len2)
-        #question_words = self.text_utils.pad_wordseq(text_utils.tokenize(question), max_wordseq_len2)
-
         premise_words = text_utils.tokenize(premise_str)
         question_words = text_utils.tokenize(question_str)
 
@@ -80,4 +77,3 @@ class XGB_YesNoModel(YesNoModel):
         D_data = xgboost.DMatrix(X_data, feature_names=self.xgb_yesno_feature_names)
         y = self.xgb_yesno.predict(D_data)[0]
         return y
-

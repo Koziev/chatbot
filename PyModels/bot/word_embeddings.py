@@ -34,7 +34,6 @@ class WordEmbeddings(object):
         logging.info(u'Loading wordchar2vector from {}'.format(wc2v_path))
         self.wc2v = gensim.models.KeyedVectors.load_word2vec_format(wc2v_path, binary=False)
         self.wc2v_dims = len(self.wc2v.syn0[0])
-        #print(u'DEBUG @44 wc2v[меня]={}'.format(self.wc2v[u'меня']))
 
     def load_w2v_model(self, w2v_path):
         w2v_filename = os.path.basename(w2v_path)

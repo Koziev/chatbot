@@ -27,7 +27,7 @@ class XGB_RelevancyDetector(GB_RelevancyDetector):
         self.init_model_params(model_config)
 
         self.xgb_relevancy = xgboost.Booster()
-        self.xgb_relevancy.load_model(self.get_model_filepath(models_folder,  model_config['model_filename']))
+        self.xgb_relevancy.load_model(self.get_model_filepath(models_folder, model_config['model_filename']))
 
     def predict_by_model(self, X_data):
         D_data = xgboost.DMatrix(X_data)

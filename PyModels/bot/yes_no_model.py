@@ -8,4 +8,4 @@ class YesNoModel(ModelApplicator):
         pass
 
     def calc_yes_no(self, premise_str_list, question_str, text_utils, word_embeddings):
-        raise NotImplemented()
+        raise NotImplementedError()

@@ -4,7 +4,7 @@ import logging
 import os
 
 from lgb_relevancy_detector import LGB_RelevancyDetector
-from xgb_yes_no_model import XGB_YesNoModel
+# from xgb_yes_no_model import XGB_YesNoModel
 from nn_yes_no_model import NN_YesNoModel
 from word_embeddings import WordEmbeddings
 
@@ -14,7 +14,7 @@ class YesNoBot:
         self.text_utils = text_utils
         self.logger = logging.getLogger('YesNoBot')
         self.relevancy_detector = LGB_RelevancyDetector()
-        #self.yes_no_model = XGB_YesNoModel()
+        # self.yes_no_model = XGB_YesNoModel()
         self.yes_no_model = NN_YesNoModel()
         self.word_embeddings = WordEmbeddings()
         self.show_relevancy = True
@@ -32,7 +32,6 @@ class YesNoBot:
         if p is not None:
             p = os.path.join(w2v_folder, os.path.basename(p))
             self.word_embeddings.load_w2v_model(p)
-
 
     def get_yes_answer(self):
         return self.text_utils.language_resources[u'да']
