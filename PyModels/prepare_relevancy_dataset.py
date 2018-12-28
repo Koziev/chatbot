@@ -29,6 +29,7 @@ import itertools
 import os
 import tqdm
 import numpy as np
+import six
 
 from utils.tokenizer import Tokenizer
 from preparation.corpus_searcher import CorpusSearcher
@@ -46,7 +47,7 @@ MAX_NB_AUTOGEN = 1000  # макс. число автоматически сге�
 
 ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
 
-n_negative_per_positive = 50
+n_negative_per_positive = 20
 
 tmp_folder = '../tmp'
 data_folder = '../data'
@@ -172,14 +173,14 @@ class ResultantDataset(object):
         # сохраним получившийся датасет в CSV
         with codecs.open(filepath, 'w', 'utf-8') as wrt:
             wrt.write(u'premise\tquestion\trelevance\tweight\n')
-            for (s1, s2), r, w in np.random.permutation(zip(self.str_pairs, self.relevancy, self.weights)):
+            for (s1, s2), r, w in np.random.permutation(list(zip(self.str_pairs, self.relevancy, self.weights))):
                 wrt.write(u'{}\t{}\t{}\t{}\n'.format(s1, s2, r, w))
 
     def print_stat(self):
         print('Total number of samples={}'.format(len(self.str_pairs)))
 
         for y in range(max(self.relevancy) + 1):
-            print('rel={} number of samples={}'.format(y, len(filter(lambda z: z == y, self.relevancy))))
+            print('rel={} number of samples={}'.format(y, sum(1 for z in self.relevancy if z == y)))
 
         weight2count = collections.Counter()
         for w in self.weights:
@@ -189,7 +190,7 @@ class ResultantDataset(object):
         print('question max len={}'.format(max(map(lambda z: len(z[1]), self.str_pairs))))
 
     def list_positives(self):
-        for pair, rel in itertools.izip(self.str_pairs, self.relevancy):
+        for pair, rel in zip(self.str_pairs, self.relevancy):
             if rel == 1.0:
                 yield pair
 

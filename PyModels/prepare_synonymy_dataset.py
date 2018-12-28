@@ -50,11 +50,12 @@ data_folder = '../data'
 random.seed(123456789)
 np.random.seed(123456789)
 
+
 class Sample:
     def __init__(self, phrase1, phrase2, y):
-        assert(phrase1 > 0)
-        assert(phrase2 > 0)
-        assert(y in [0, 1])
+        assert(len(phrase1) > 0)
+        assert(len(phrase2) > 0)
+        assert(y in (0, 1))
         self.phrase1 = phrase1
         self.phrase2 = phrase2
         self.y = y
@@ -120,9 +121,9 @@ def jaccard(s1, s2, shingle_len):
     нарезаются на шинглы длиной по shingle_len символов.
     Возвращается действительное число в диапазоне от 0.0 до 1.0 
     """
-    shingles1 = ngrams(BEG_CHAR+s1.lower()+END_CHAR, shingle_len)
-    shingles2 = ngrams(BEG_CHAR+s2.lower()+END_CHAR, shingle_len)
-    return float(len(shingles1&shingles2))/float(1e-8+len(shingles1|shingles2))
+    shingles1 = ngrams(BEG_CHAR + s1.lower() + END_CHAR, shingle_len)
+    shingles2 = ngrams(BEG_CHAR + s2.lower() + END_CHAR, shingle_len)
+    return float(len(shingles1 & shingles2)) / float(1e-8 + len(shingles1 | shingles2))
 
 
 def select_most_similar(phrase1, phrases2, topn):
@@ -199,7 +200,7 @@ with codecs.open(input_path, 'r', 'utf-8') as rdr:
         else:
             group.append(phrase)
 
-logging.info('{} pairs loaded from "{}"'.format(len(samples), input_path))
+logging.info('[[[OK]]] {} pairs (positive and negative ones) have been loaded from "{}"'.format(len(samples), input_path))
 
 # Из датасета для "антонимов" берем обязательные негативные примеры.
 group = []
@@ -231,7 +232,7 @@ with codecs.open(os.path.join(data_folder, 'contradictions.txt'), 'r', 'utf-8') 
         else:
             group.append(phrase)
 
-logging.info('{} antonyms loaded from \"contradictions.txt\"'.format(nb_antonyms))
+logging.info('{} antonyms loaded from "contradictions.txt"'.format(nb_antonyms))
 
 # добавим некоторое кол-во идентичных пар.
 all_phrases = set()
@@ -335,7 +336,7 @@ nb_1 = sum(sample.y == 1 for sample in samples)
 
 # ограничим кол-во негативных сэмплов
 neg_samples = neg_samples.get_samples()
-neg_samples = np.random.permutation(neg_samples)[:nb_1*nb_neg_per_posit]
+neg_samples = np.random.permutation(neg_samples)[:nb_1 * nb_neg_per_posit]
 logging.info('{} negative samples added'.format(len(neg_samples)))
 samples.extend(neg_samples)
 samples = np.random.permutation(samples)
@@ -359,17 +360,43 @@ with codecs.open(output_filepath, 'w', 'utf-8') as wrt:
     for sample in samples:
         wrt.write(u'{}\t{}\t{}\t1\n'.format(sample.phrase1, sample.phrase2, sample.y))
 
-# -------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 # Теперь готовим датасет для модели детектора перефразировок с triplet loss
 # Тут нам надо готовить триплеты (anchor, positive, negative)
-# -------------------------------------------------------------------------
-logging.info('Start building dataset for triplet loss model for synonymy')
+logging.info('Start building dataset for triplet loss model of synonymy')
 
-nb_neg_per_posit = 1
+# nb_neg_per_posit = 2
 samples3 = []  # финальный список из экземпляров Sample, содержащих тройки (anchor, positive, negative)
 samples2 = []  # вспомогательный список из экземпляров Sample2, содержащих пары (anchor, positive)
 
 fcleaner = PhraseCleaner()
+
+# Из этого файла берем негативные фразы для троек.
+phrase2contradict = dict()
+with codecs.open(os.path.join(data_folder, 'contradictions.txt'), 'r', 'utf-8') as rdr:
+    group = []
+    for line in rdr:
+        phrase = line.strip()
+        if len(phrase) == 0:
+            if len(group) == 2:
+                phrase1 = fcleaner.process(group[0])
+                phrase2 = fcleaner.process(group[1])
+
+                if phrase1 not in phrase2contradict:
+                    phrase2contradict[phrase1] = [phrase2]
+                else:
+                    phrase2contradict[phrase1].append(phrase2)
+
+                if phrase2 not in phrase2contradict:
+                    phrase2contradict[phrase2] = [phrase1]
+                else:
+                    phrase2contradict[phrase2].append(phrase1)
+
+                group = []
+        else:
+            group.append(phrase)
+
+
 
 # Для генерации негативных сэмплов нам надо исключать
 # вероятность попадания перефразировок в качестве негативных
@@ -380,6 +407,7 @@ phrase2group = dict()
 # Грузим датасеты с перефразировками
 igroup = 0
 group = []
+nb_paraphrases1 = 0
 with codecs.open('../data/paraphrases.txt', 'r', 'utf-8') as rdr:
     for line in rdr:
         phrase = line.strip()
@@ -414,15 +442,18 @@ with codecs.open('../data/paraphrases.txt', 'r', 'utf-8') as rdr:
                     phrase1 = pos_phrases[i1]
                     for i2 in range(1, len(pos_phrases)):
                         phrase2 = pos_phrases[i2]
-                        samples2.append(Sample2(phrase1, phrase2))
-                        if phrase1 != phrase2:
-                            # меняем местами сравниваемые фразы
-                            samples2.append(Sample2(phrase2, phrase1))
+                        if phrase1 != phrase2:  # исключаем сэмплы, в которых постулируется похожесть одинаковых предложений
+                            nb_paraphrases1 += 1
+                            samples2.append(Sample2(phrase1, phrase2))
 
-                        # если есть негативные фразы, то сразу можем генерировать
-                        # финальные триплеты.
-                        for negative in neg_phrases:
-                            samples3.append(Sample3(phrase1, phrase2, negative))
+                            # если есть негативные фразы, то сразу можем генерировать
+                            # финальные триплеты.
+                            for negative in neg_phrases:
+                                samples3.append(Sample3(phrase1, phrase2, negative))
+
+                            if phrase1 in phrase2contradict:
+                                for negative in phrase2contradict[phrase1]:
+                                    samples3.append(Sample3(phrase1, phrase2, negative))
 
                 for i1 in range(n):
                     phrase1 = group[i1]
@@ -460,7 +491,7 @@ with codecs.open('../data/paraphrases.txt', 'r', 'utf-8') as rdr:
         else:
             group.append(phrase)
 
-logging.info('{} pairs loaded from "{}"'.format(len(samples2), input_path))
+logging.info('[[[OK]]] {} positive pairs have been loaded from "{}"'.format(nb_paraphrases1, input_path))
 
 # добавим некоторое кол-во идентичных пар.
 all_phrases = set()
@@ -541,7 +572,7 @@ for sample in tqdm.tqdm(samples2, total=len(samples2), desc='Adding negative phr
     else:
         phrases2 = []
 
-    if len(phrases2) == 0:
+    if len(phrases2) < nb_neg_per_posit:
         # выберем просто рандомную строку
         for _ in range(nb_neg_per_posit):
             phrase2 = random.choice(all_phrases)

@@ -40,9 +40,9 @@ FILTER_KNOWN_WORDS = True  # не брать негативный сэмпл, е
 # сгенерированных.
 MAX_NB_AUTOGEN = 100000  # макс. число автоматически сгенерированных сэмплов одного типа
 
-ADD_SIMILAR_NEGATIVES = True  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
+ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
 
-n_negative_per_positive = 2
+n_negative_per_positive = 5
 
 tmp_folder = '../tmp'
 data_folder = '../data'
@@ -57,8 +57,8 @@ if USE_AUTOGEN:
                      ('premise_question_answer4_1s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
                      ('premise_question_answer4_2s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
                      ('premise_question_answer5_1s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
-                     ('premise_question_answer5_2s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
-                    ])
+                     ('premise_question_answer5_2s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN)
+                     ])
 questions_path = '../data/questions.txt'
 
 stop_words = set(u'не ни ль и или ли что какой же ж какая какие сам сама сами само был были было есть '.split())
@@ -276,7 +276,6 @@ for premise, question in tqdm.tqdm(samples2, desc='Adding negatives', total=len(
                 all_pq.add(pq)
                 neg_2_add -= 1
 
-
     # Добавим случайные нерелевантные вопросы
     if neg_2_add > 0:
         for neg_question in random_questions.get_random(neg_2_add // 2 if neg_2_add > 0 else 1):
@@ -293,7 +292,7 @@ for premise, question in tqdm.tqdm(samples2, desc='Adding negatives', total=len(
                 all_pq.add(pq)
                 neg_2_add -= 1
 
-    assert (neg_2_add == 0)
+    #assert (neg_2_add == 0)
 
 
 print(u'Storing {} triplets to dataset "{}"'.format(len(samples3), output_filepath3))

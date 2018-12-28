@@ -17,8 +17,22 @@ def input_kbd(prompt):
 
 
 def print_red_line(msg):
-    print(colorama.Fore.RED + msg+colorama.Fore.RESET)
+    print(colorama.Fore.RED + msg + colorama.Fore.RESET)
 
 
 def print_green_line(msg):
-    print(colorama.Fore.GREEN + msg+colorama.Fore.RESET)
+    print(colorama.Fore.GREEN + msg + colorama.Fore.RESET)
+
+
+def get_ok_label():
+    if platform.system() == 'Windows':
+        return u'(+) '
+    else:
+        return u'☑ '
+
+
+def get_fail_label():
+    if platform.system() == 'Windows':
+        return u'(-) '
+    else:
+        return u'☒ '

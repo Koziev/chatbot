@@ -18,6 +18,7 @@ import codecs
 import random
 import json
 import logging
+import platform
 
 import keras.callbacks
 from keras.layers.core import RepeatVector
@@ -116,9 +117,15 @@ def build_input(wordset, max_word_len, char2index):
 
 
 class colors:
-    ok = '\033[92m'
-    fail = '\033[91m'
-    close = '\033[0m'
+    if platform.system() == 'Windows':
+        ok = ''
+        fail = ''
+        close = ''
+    else:
+        ok = '\033[92m'
+        fail = '\033[91m'
+        close = '\033[0m'
+
 
 
 class VisualizeCallback(keras.callbacks.Callback):
@@ -161,7 +168,11 @@ class VisualizeCallback(keras.callbacks.Callback):
             guess = self.decode_char_indeces(predicted_char_indeces)
 
             if ind < 10:
-                print(colors.ok + '☑ ' + colors.close if correct == guess else colors.fail + '☒ ' + colors.close, end='')
+                print(colors.ok +
+                      utils.console_helpers.get_ok_label() +
+                      colors.close if correct == guess else colors.fail +
+                      utils.console_helpers.get_fail_label() +
+                      colors.close, end='')
                 print(u'wordform={} model_output={}'.format(correct, guess))
 
             nb_samples += 1
@@ -412,10 +423,13 @@ class Wordchar2Vector_Trainer(object):
         model = Model(inputs=input_chars, outputs=decoder)
         model.compile(loss='categorical_crossentropy', optimizer='nadam')
 
-        keras.utils.plot_model(model,
-                               to_file=os.path.join(self.model_dir, 'wordchar2vector.arch.png'),
-                               show_shapes=False,
-                               show_layer_names=True)
+        try:
+            keras.utils.plot_model(model,
+                                   to_file=os.path.join(self.model_dir, 'wordchar2vector.arch.png'),
+                                   show_shapes=False,
+                                   show_layer_names=True)
+        except:
+            print('Could not render network graph, something wrong with pydot or Graphviz')
 
         weigths_path = os.path.join(self.model_dir, 'wordchar2vector.model')
         arch_filepath = os.path.join(self.model_dir, 'wordchar2vector.arch')
