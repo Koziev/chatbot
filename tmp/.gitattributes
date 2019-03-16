@@ -1,0 +1,1 @@
+wordchar2vector.dat filter=lfs diff=lfs merge=lfs -text
