@@ -74,7 +74,7 @@ def pad_wordseq(words, n):
 
 
 def vectorize_words(words, M, irow, word2vec):
-    for iword,word in enumerate( words ):
+    for iword,word in enumerate(words):
         if word in word2vec:
             M[irow, iword, :] = word2vec[word]
 
@@ -215,6 +215,8 @@ if run_mode == 'train':
     logging.info('samples.count={}'.format(df.shape[0]))
 
     tokenizer = Tokenizer()
+    tokenizer.load()
+
     for i, record in df.iterrows():
         for phrase in [record['premise'], record['question']]:
             all_chars.update(phrase)
@@ -304,7 +306,7 @@ if run_mode == 'train':
         encoder_rnn1 = shared_words_rnn(words_net1)
         encoder_rnn2 = shared_words_rnn(words_net2)
 
-        repr_size = rnn_size*2
+        repr_size = rnn_size  #*2
         conv1.append(encoder_rnn1)
         conv2.append(encoder_rnn2)
 

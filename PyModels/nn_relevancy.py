@@ -21,7 +21,6 @@ import codecs
 import itertools
 import json
 import os
-import sys
 import argparse
 
 import numpy as np
@@ -31,7 +30,6 @@ import logging
 
 import skimage.transform
 
-import keras.callbacks
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D, AveragePooling1D
@@ -112,7 +110,7 @@ def ngrams(s, n):
 def jaccard(s1, s2, shingle_len):
     shingles1 = ngrams(s1.lower(), shingle_len)
     shingles2 = ngrams(s2.lower(), shingle_len)
-    return float(len(shingles1&shingles2))/float(1e-8+len(shingles1|shingles2))
+    return float(len(shingles1 & shingles2)) / float(1e-8 + len(shingles1 | shingles2))
 
 
 def v_cosine(a, b):
@@ -150,8 +148,8 @@ def generate_rows(sequences, targets, batch_size, w2v, mode):
             #    print('DEBUG@144')
             # DEBUG END
 
-            vectorize_words(seq[0], X1_batch, batch_index, w2v)
-            vectorize_words(seq[1], X2_batch, batch_index, w2v)
+            vectorize_words(seq[0][:max_wordseq_len], X1_batch, batch_index, w2v)
+            vectorize_words(seq[1][:max_wordseq_len], X2_batch, batch_index, w2v)
             y_batch[batch_index, target] = True
 
             if use_addfeatures:
@@ -841,7 +839,8 @@ if run_mode == 'train':
         xx = [words_net1, words_net2, addfeatures_input]
     model = Model(inputs=xx, outputs=classif)
 
-    model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=['accuracy'])
+    optimizer = keras.optimizers.Adam(clipvalue=0.01)
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
     #model.compile(loss=[focal_loss], optimizer='nadam', metrics=['accuracy'])
     model.summary()
 
@@ -977,7 +976,6 @@ if run_mode == 'train':
                 break
 
 
-
     if sent2vec_output is not None:
         # построим новую модель sent2vector и сохраним
         # ее на диск.
@@ -1042,7 +1040,7 @@ if run_mode == 'train':
          'weights_path': weights_path2,
          'word_dims': word_dims,
          'sent2vec_dim': sent2vec_dim,
-         'threshold': threshold
+         #'threshold': threshold
          }
 
         with open(os.path.join(tmp_folder, config_file_name2), 'w') as f:
@@ -1149,7 +1147,7 @@ if run_mode == 'evaluate':
     # ...
     # пустая строка
     # T: ...
-    eval_data = EvaluationDataset(max_wordseq_len, tokenizer)
+    eval_data = EvaluationDataset(max_wordseq_len, tokenizer, padding)
     eval_data.load(data_folder)
 
     word2vec = None
@@ -1211,7 +1209,7 @@ if run_mode == 'evaluate':
 
         # предпосылка с максимальной релевантностью
         max_index = np.argmax(y_pred)
-        selected_premise = u' '.join(phrases[max_index][0]).strip()
+        selected_premise = phrases[max_index][0]
 
         nb_total += 1
 
@@ -1229,29 +1227,18 @@ if run_mode == 'evaluate':
             sorted_phrases = [x for x,_ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
 
             for i in range(1, 10):
-                selected_premise = u' '.join(sorted_phrases[i][0]).strip()
+                selected_premise = sorted_phrases[i][0]
                 if eval_data.is_relevant_premise(irecord, selected_premise):
-                    if i<5:
+                    if i < 5:
                         nb_good5 += 1  # верная предпосылка вошла в top-5
-                    if i<10:
+                    if i < 10:
                         nb_good10 += 1
                     break
 
         max_sim = np.max(y_pred)
 
         question = phrases[0][1]
-        print(u'{:<40} {:<40} {}/{}'.format(u' '.join(question), u' '.join(phrases[max_index][0]), y_pred[max_index], y_pred[0]))
-
-        # для отладки: top релевантных вопросов
-        if False:
-            print(u'Most similar premises for question {}'.format(u' '.join(question)))
-            yy = [(y_pred[i], i) for i in range(len(y_pred))]
-            yy = sorted(yy, key=lambda z:-z[0])
-
-            for sim, index in yy[:5]:
-                print(u'{:.4f} {}'.format(sim, u' '.join(phrases[index][0])))
-
-            exit(0)
+        print(u'{:<40} {:<40} {}/{}'.format(question, phrases[max_index][0], y_pred[max_index], y_pred[0]))
 
     # Итоговая точность выбора предпосылки.
     accuracy = float(nb_good)/float(nb_total)

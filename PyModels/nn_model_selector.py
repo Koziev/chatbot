@@ -157,6 +157,7 @@ config_path = os.path.join(tmp_folder, 'qa_model_selector.config')
 # --------------------------------------------------------------------------
 
 tokenizer = Tokenizer()
+tokenizer.load()
 
 if run_mode == 'train':
     logging.info('Start run_mode==train')
@@ -353,7 +354,7 @@ if run_mode == 'train':
                                        verbose=1,
                                        save_best_only=True,
                                        mode='auto')
-    early_stopping = EarlyStopping(monitor=monitor_metric, patience=20, verbose=1, mode='auto')
+    early_stopping = EarlyStopping(monitor=monitor_metric, patience=10, verbose=1, mode='auto')
 
     callbacks = [model_checkpoint, early_stopping]
 

@@ -13,5 +13,3 @@ import re
 def preprocess_line(text0):
     text = re.sub(u'\\[[0-9]+\\]', u'', text0)
     return text
-
-# -----------------------------------------------------------

@@ -578,8 +578,10 @@ if run_mode == 'train':
     output = keras.layers.concatenate(inputs=[anchor_flow, positive_flow, negative_flow], name='output')
 
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=output)
-    model.compile(loss=triplet_loss, optimizer='nadam')
-    # model.compile(loss=triplet_loss, optimizer='sgd')
+
+    optimizer = keras.optimizers.Nadam()  #clipvalue=0.01)
+    model.compile(loss=triplet_loss, optimizer=optimizer)
+    #model.compile(loss=triplet_loss, optimizer='adam')
     model.summary()
 
     keras.utils.plot_model(model,

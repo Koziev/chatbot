@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 '''
-Тренировка модели, которая посимвольно в режиме teacher forcing учится генерировать
-ответ для заданной предпосылки и вопроса.
+Тренировка авторегрессионной модели, которая посимвольно в режиме teacher forcing учится
+генерировать ответ для заданной предпосылки и вопроса.
 
 В качестве классификационного движка для выбора символов используется XGBoost.
 
@@ -32,6 +32,7 @@ from sklearn.random_projection import SparseRandomProjection
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 
+import rusyllab
 
 from utils.tokenizer import Tokenizer
 import utils.console_helpers
@@ -41,9 +42,9 @@ import utils.logging_helpers
 # предпосылки и вопроса (bag of shingles).
 SHINGLE_LEN = 3
 
-NB_PREV_CHARS = 5 # кол-во пред. символов в сгенерированном ответе, учитываемых при выборе следующего символа.
+NB_PREV_CHARS = 5  # кол-во пред. символов в сгенерированном ответе, учитываемых при выборе следующего символа.
 
-NB_SAMPLES = 1000000 # кол-во записей в датасете (до разбивки на тренировку и валидацию)
+NB_SAMPLES = 1000000  # кол-во записей в датасете (до разбивки на тренировку и валидацию)
 
 # Шинглы с частотой меньше указанной не будут давать входные фичи.
 MIN_SHINGLE_FREQ = 2
@@ -72,6 +73,10 @@ class Sample:
         self.question = question
         self.answer = answer
 
+
+def word2pieces(word):
+    return word  # вариант для разбивки на символы
+    #return rusyllab.split_word(word)  # вариант для разбивки на слоги
 
 
 def ngrams(s, n):
@@ -128,13 +133,13 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
     for shingles in sx:
         for shingle in shingles:
             if shingle in inshingle2id:
-                X_data[idata, icol+inshingle2id[shingle]] = True
+                X_data[idata, icol + inshingle2id[shingle]] = True
         icol += nb_inshingles
 
     nb_outshingles = len(outshingle2id)
     for shingle in answer_shingles:
         if shingle in outshingle2id:
-            X_data[idata, icol+outshingle2id[shingle]] = True
+            X_data[idata, icol + outshingle2id[shingle]] = True
     icol += nb_outshingles
 
     for c in answer_prev_chars:
@@ -151,33 +156,33 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, answe
     # части ответа с точки зрения строки предпосылки, вопроса и т.д.
     prev_char1 = answer_prev_chars[::-1][-1]
 
-    premise_str1 = premise_str.replace(BEG_CHAR+u' ', BEG_CHAR)
+    premise_str1 = premise_str.replace(BEG_CHAR + u' ', BEG_CHAR)
     for c, char_index in outchar2id.items():
-        if prev_char1+c in premise_str1:
+        if prev_char1 + c in premise_str1:
             X_data[idata, icol+char_index] = True
     icol += len(outchar2id)
 
-    question_str1 = question_str.replace(BEG_CHAR+u' ', BEG_CHAR)
+    question_str1 = question_str.replace(BEG_CHAR + u' ', BEG_CHAR)
     for c, char_index in outchar2id.items():
-        if prev_char1+c in question_str1:
+        if prev_char1 + c in question_str1:
             X_data[idata, icol+char_index] = True
     icol += len(outchar2id)
 
     premise_words_2grams = set()
     for premise_word in premise_words:
         for wordform in lexicon.get_forms(premise_word):
-            premise_words_2grams.update(ngrams(u' '+wordform+u' ', 2))
+            premise_words_2grams.update(ngrams(u' ' + wordform + u' ', 2))
     for c, char_index in outchar2id.items():
-        if prev_char1+c in premise_words_2grams:
+        if prev_char1 + c in premise_words_2grams:
             X_data[idata, icol+char_index] = True
     icol += len(outchar2id)
 
     question_words_2grams = set()
     for question_word in question_words:
         for wordform in lexicon.get_forms(question_word):
-            question_words_2grams.update(ngrams(u' '+wordform+u' ', 2))
+            question_words_2grams.update(ngrams(u' ' + wordform + u' ', 2))
     for c, char_index in outchar2id.items():
-        if prev_char1+c in question_words_2grams:
+        if prev_char1 + c in question_words_2grams:
             X_data[idata, icol+char_index] = True
     icol += len(outchar2id)
 

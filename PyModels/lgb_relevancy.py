@@ -12,6 +12,9 @@ nn_relevamcy_tripleloss.py)
 
 В чатботе обученная данной программой модель используется классом LGB_RelevancyDetector
 (https://github.com/Koziev/chatbot/blob/master/PyModels/bot/lgb_relevancy_detector.py)
+
+30.12.2018 - добавлен эксперимент с SentencePiece моделью сегментации текста (https://github.com/google/sentencepiece)
+01.01.2019 - добавлен эксперимент с StemPiece моделью сегментации текста
 """
 
 from __future__ import division
@@ -54,6 +57,68 @@ END_WORD = '\n'
 
 def ngrams(s, n):
     return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)])]
+
+
+def str2shingles(s):
+    return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(3)])]
+
+
+def ngrams2(s, n):
+    basic_shingles = str2shingles(s)
+    words = s.split()
+    for iword, word in enumerate(words):
+        word_shingles = str2shingles(word)
+        if iword > 0:
+            prev_word = words[iword - 1]
+            prev_trail = prev_word[0: 3]
+            for word_shingle in word_shingles:
+                new_shingle = u'~{}~+{}'.format(prev_trail, word_shingle)
+                basic_shingles.append(new_shingle)
+
+        if iword < len(words) - 1:
+            next_word = words[iword + 1]
+            next_trail = next_word[0: 3]
+            for word_shingle in word_shingles:
+                new_shingle = u'{}+~{}~'.format(word_shingle, next_trail)
+                basic_shingles.append(new_shingle)
+
+    return basic_shingles
+
+
+if False:
+    # эксперимент с SentencePiece моделью (https://github.com/google/sentencepiece)
+    import sentencepiece as spm
+
+    sp = spm.SentencePieceProcessor()
+    rc = sp.Load("/home/inkoziev/github/sentencepiece/ru_raw.model")
+    print('rc={}'.format(rc))
+
+    from nltk.stem.snowball import RussianStemmer, EnglishStemmer
+
+    # Еще эксперимент - использование стеммера для получения "StemPiece" сегментации текста.
+    stemmer = RussianStemmer()
+
+    def word2pieces(word):
+        if len(word) < 3:
+            return [word]
+
+        stem = stemmer.stem(word)
+        assert(len(stem) > 0)
+        ending = word[len(stem):]
+        if len(ending) > 0:
+            return [stem, '~' + ending]
+        else:
+            return [stem]
+
+
+def str2shingles(s):
+    return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(3)])]
+
+
+def ngrams3(phrase, n):
+    #return list(itertools.chain(stemmer.stem(word) for word in phrase.split(' '))) + str2shingles(phrase)
+    #return str2shingles(phrase)
+    return sp.EncodeAsPieces(phrase)
 
 
 def words2str(words):
@@ -512,6 +577,7 @@ if run_mode == 'query':
         y_pred = lgb_relevancy.predict(X_data)
         print('{}\n\n'.format(y_pred[0]))
 
+
 if run_mode == 'query2':
     # Ручная проверка модели на вводимых в консоли вопросах.
     # Список предпосылок читается из заданного файла.
@@ -544,9 +610,9 @@ if run_mode == 'query2':
                             added_phrases.add(phrase2)
                             premises.append((phrase2, phrase))
     elif task == 'synonymy':
-        # поиск ближайшего приказа
+        # поиск ближайшего приказа или вопроса из списка FAQ
         phrases2 = set()
-        if True:
+        if False:
             with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -565,8 +631,19 @@ if run_mode == 'query2':
                         if phrase2 not in added_phrases:
                             added_phrases.add(phrase2)
                             phrases2.add((phrase2, phrase))
-        if True:
+        if False:
             with codecs.open(os.path.join(data_folder, 'electroshop.txt'), 'r', 'utf-8') as rdr:
+                for line in rdr:
+                    phrase = line.strip()
+                    if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                        phrase = phrase.replace(u'Q:', u'').strip()
+                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                        if phrase2 not in added_phrases:
+                            added_phrases.add(phrase2)
+                            phrases2.add((phrase2, phrase))
+
+        if True:
+            with codecs.open(os.path.join(data_folder, 'faq2.txt'), 'r', 'utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
                     if len(phrase) > 5 and phrase.startswith(u'Q:'):
@@ -604,6 +681,7 @@ if run_mode == 'query2':
         for phrase, sim in phrase_rels[:10]:
             print(u'{:6.4f} {}'.format(sim, phrase))
 
+
 if run_mode == 'evaluate':
     # Оценка качества натренированной модели на специальном наборе вопросов и
     # ожидаемых выборов предпосылок из отдельного тренировочного набора.
@@ -623,6 +701,7 @@ if run_mode == 'evaluate':
 
     # Итоговая точность выбора предпосылок на оценочной задаче.
     print('eval accuracy={}'.format(accuracy))
+
 
 if run_mode == 'clusterize':
     # семантическая кластеризация предложений с использованием

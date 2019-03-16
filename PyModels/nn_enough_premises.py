@@ -177,6 +177,7 @@ weights_path = os.path.join(tmp_folder, 'nn_enough_premises.weights')
 # -------------------------------------------------------------------
 
 tokenizer = Tokenizer()
+tokenizer.load()
 
 if run_mode == 'train':
     logging.info('Start run_mode==train')
@@ -196,6 +197,7 @@ if run_mode == 'train':
     samples = []
     max_nb_premises = 0  # макс. число предпосылок в сэмплах
     tokenizer = Tokenizer()
+    tokenizer.load()
 
     with codecs.open(input_path, 'r', 'utf-8') as rdr:
         lines = []

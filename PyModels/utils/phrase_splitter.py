@@ -11,17 +11,18 @@ class PhraseSplitter(object):
         pass
 
     def tokenize(self, phrase):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     @staticmethod
     def create_splitter(mode):
         if mode == 0:
-            return PhraseTokenizer()
+            t = PhraseTokenizer()
         elif mode == 1:
-            return PhraseLemmatizer()
+            t = PhraseLemmatizer()
         elif mode == 2:
-            return PhraseStemmer();
+            t = PhraseStemmer()
 
+        return t
 
 
 class PhraseTokenizer(PhraseSplitter):
@@ -35,12 +36,13 @@ class PhraseTokenizer(PhraseSplitter):
 class PhraseLemmatizer(PhraseSplitter):
     def __init__(self):
         self.tokenizer = Tokenizer()
+        self.tokenizer.load()
         self.lemmatizer = Mystem()
 
     def tokenize(self, phrase):
         words = self.tokenizer.tokenize(phrase)
         wx = u' '.join(words)
-        return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip())>0]
+        return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip()) > 0]
 
 
 class PhraseStemmer(PhraseSplitter):
@@ -49,6 +51,4 @@ class PhraseStemmer(PhraseSplitter):
         self.stemmer = RussianStemmer()
 
     def tokenize(self, phrase):
-        words = self.tokenizer.tokenize(phrase)
-        wx = u' '.join(words)
-        return [self.stemmer.stem(w) for w in self.tokenizer.tokenize(phrase) if len(w.strip())>0]
+        return [self.stemmer.stem(w) for w in self.tokenizer.tokenize(phrase) if len(w.strip()) > 0]

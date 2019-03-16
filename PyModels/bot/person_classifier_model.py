@@ -3,6 +3,7 @@
 import os
 from model_applicator import ModelApplicator
 
+
 class PersonClassifierModel(ModelApplicator):
     def __init__(self):
         pass

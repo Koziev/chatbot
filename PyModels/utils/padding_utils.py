@@ -12,11 +12,11 @@ def lpad_wordseq(words, n):
     if len(words) >= n:
         return words
     else:
-        return list(itertools.chain(itertools.repeat(PAD_WORD, n-len(words)), words))
+        return list(itertools.chain(itertools.repeat(PAD_WORD, n - len(words)), words))
 
 
 def rpad_wordseq(words, n):
     if len(words) >= n:
         return words
     else:
-        return list(itertools.chain(words, itertools.repeat(PAD_WORD, n-len(words))))
+        return list(itertools.chain(words, itertools.repeat(PAD_WORD, n - len(words))))

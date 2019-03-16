@@ -279,7 +279,7 @@ parser.add_argument('--batch_size', type=int, default=250, help='batch size for 
 #parser.add_argument('--input', type=str, default='../data/pqa_yes_no.dat', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
-parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin', help='path to word2vector model file')
+parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin', help='path to word2vector model file')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 
 args = parser.parse_args()
@@ -315,6 +315,8 @@ if run_mode == 'train':
     # Загружаем датасеты, содержащие сэмплы ПРЕДПОСЫЛКИ-ВОПРОС-ОТВЕТ
 
     tokenizer = Tokenizer()
+    tokenizer.load()
+
     lemmatizer = Lemmatizer()
 
     # это вручную созданные сэмплы.

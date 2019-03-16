@@ -3,6 +3,7 @@
 import logging
 import logging.handlers
 
+
 def init_trainer_logging(logfile_path):
     # настраиваем логирование в файл и эхо-печать в консоль
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(message)s')

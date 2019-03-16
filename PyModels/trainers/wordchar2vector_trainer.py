@@ -539,6 +539,7 @@ class Wordchar2Vector_Trainer(object):
                 for iword, (word, corrupt_word) in enumerate(batch_words):
                     word_vect = y_pred[iword, :]
                     naked_word = unpad_word(word)
+                    assert(len(naked_word) > 0)
                     wrt.write(u'{} {}\n'.format(naked_word, u' '.join([str(x) for x in word_vect])))
 
                 word_index += nw

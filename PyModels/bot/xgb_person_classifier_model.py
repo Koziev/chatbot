@@ -29,6 +29,31 @@ class XGB_PersonClassifierModel(PersonClassifierModel):
     def detect_person(self, sentence_str, text_utils, word_embeddings):
         words = text_utils.tokenize(sentence_str)
 
+        # Ищем глагол в личной форме по результатам частеречной разметки
+        tags = text_utils.tag(words)
+        verb_person = None
+        for tag in tags:
+            if tag[1].startswith('VERB'):
+                tx = tag[1].split('|')
+                num = ''
+                if 'Number=Sing' in tx:
+                    num = 's'
+                elif 'Number=Plur' in tx:
+                    num = 'p'
+
+                if 'Person=1' in tx:
+                    verb_person = '1'+num
+                    break
+                elif 'Person=2' in tx:
+                    verb_person = '2'+num
+                    break
+                elif 'Person=3' in tx:
+                    verb_person = '3'+num
+                    break
+
+        if verb_person:
+            return verb_person
+
         wx = text_utils.words2str(words)
         shingles = text_utils.ngrams(wx, self.xgb_person_classifier_shingle_len)
         X_data = lil_matrix((1, self.xgb_person_classifier_nb_features), dtype='bool')
