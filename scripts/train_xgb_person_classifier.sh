@@ -1,1 +1,0 @@
-python ../PyModels/xgb_person_classifier.py

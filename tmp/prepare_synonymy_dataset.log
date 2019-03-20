@@ -1,9 +1,0 @@
-2018-09-30 10:05:58,467 Start
-2018-09-30 10:06:00,621 81812 pairs loaded from "../data/paraphrases.txt"
-2018-09-30 10:06:00,711 2541 antonyms loaded from "contradictions.txt"
-2018-09-30 10:06:01,532 8029 duplicates with permutations loaded from "SENT*.duplicates.txt"
-2018-09-30 10:06:15,858 79194 negative samples added
-2018-09-30 10:06:16,479 nb_0=100817 nb_1=79194
-2018-09-30 10:06:17,108 max_wordseq_len=23
-2018-09-30 10:06:17,108 Storing result dataset to "../data/synonymy_dataset.csv"
-2018-09-30 10:06:18,368 Finish
