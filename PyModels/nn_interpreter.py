@@ -409,7 +409,7 @@ if run_mode == 'train':
                    }
 
     with open(config_path, 'w') as f:
-        json.dump(model_config, f)
+        json.dump(model_config, f, indent=4)
 
     logging.info('Constructing neural net: {}...'.format(net_arch))
 

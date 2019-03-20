@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+Аппликатор обученой модели классификатора ответов НЕТ/ДА
+Обучение выполняется кодом xgb_yes_no.py
+"""
 
 import os
 import json
@@ -20,6 +24,7 @@ class XGB_YesNoModel(YesNoModel):
         with open(os.path.join(models_folder, 'xgb_yes_no.config'), 'r') as f:
             model_config = json.load(f)
 
+        self.w2v_path = None
         self.xgb_yesno_shingle2id = model_config['shingle2id']
         self.xgb_yesno_shingle_len = model_config['shingle_len']
         self.xgb_yesno_nb_features = model_config['nb_features']
@@ -39,21 +44,21 @@ class XGB_YesNoModel(YesNoModel):
         icol = 0
         for shingle in common_shingles:
             if shingle not in shingle2id:
-                self.logger.error(u'Missing shingle {} in yes_no data'.format(shingle))
+                self.logger.error(u'Missing shingle {} in xgb_yes_no data'.format(shingle))
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
         icol += nb_shingles
         for shingle in notmatched_ps:
             if shingle not in shingle2id:
-                self.logger.error(u'Missing shingle {} in yes_no data'.format(shingle))
+                self.logger.error(u'Missing shingle {} in xgb_yes_no data'.format(shingle))
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
         icol += nb_shingles
         for shingle in notmatched_qs:
             if shingle not in shingle2id:
-                self.logger.error(u'Missing shingle {} in yes_no data'.format(shingle))
+                self.logger.error(u'Missing shingle {} in xgb_yes_no data'.format(shingle))
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
@@ -62,8 +67,8 @@ class XGB_YesNoModel(YesNoModel):
 
         premise_str = premise_str_list[0] if len(premise_str_list) == 1 else u''
 
-        premise_words = text_utils.tokenize(premise_str)
-        question_words = text_utils.tokenize(question_str)
+        premise_words = text_utils.tokenize(premise_str.replace('.', '').strip())
+        question_words = text_utils.tokenize(question_str.replace('?', '').strip())
 
         premise_wx = text_utils.words2str(premise_words)
         question_wx = text_utils.words2str(question_words)

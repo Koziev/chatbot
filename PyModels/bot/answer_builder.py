@@ -9,7 +9,8 @@
 import logging
 import itertools
 
-from nn_yes_no_model import NN_YesNoModel
+#from nn_yes_no_model import NN_YesNoModel
+from xgb_yes_no_model import XGB_YesNoModel
 from nn_model_selector import NN_ModelSelector
 from nn_wordcopy3 import NN_WordCopy3
 from xgb_answer_generator_model import XGB_AnswerGeneratorModel
@@ -24,11 +25,11 @@ class AnswerBuilder(object):
         self.models_folder = models_folder
 
         # Модель для выбора ответов yes|no на базе XGB
-        # self.yes_no_model = XGB_YesNoModel()
-        # self.yes_no_model.load(models_folder)
-
-        self.yes_no_model = NN_YesNoModel()
+        self.yes_no_model = XGB_YesNoModel()
         self.yes_no_model.load(models_folder)
+
+        #self.yes_no_model = NN_YesNoModel()
+        #self.yes_no_model.load(models_folder)
 
         # Модель для выбора способа генерации ответа
         self.model_selector = NN_ModelSelector()
@@ -45,15 +46,19 @@ class AnswerBuilder(object):
         paths = []
 
         if self.word_copy_model.w2v_path is not None:
+            #logging.info('word_copy_model requires {}'.format(self.word_copy_model.get_w2v_path()))
             paths.append(self.word_copy_model.get_w2v_path())
 
         if self.model_selector.w2v_path is not None:
+            #logging.info('model_selector requires {}'.format(self.model_selector.get_w2v_path()))
             paths.append(self.model_selector.get_w2v_path())
 
         if self.yes_no_model.w2v_path is not None:
+            #logging.info('yes_no_model requires {}'.format(self.yes_no_model.get_w2v_path()))
             paths.append(self.yes_no_model.get_w2v_path())
 
         if self.answer_generator.w2v_path is not None:
+            #logging.debug('answer_generator requires {}'.format(self.answer_generator.get_w2v_path()))
             paths.append(self.answer_generator.get_w2v_path())
 
         return paths

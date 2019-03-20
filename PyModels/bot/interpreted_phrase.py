@@ -7,4 +7,4 @@ class InterpretedPhrase:
         self.raw_phrase = raw_phrase
         self.interpretation = raw_phrase
         self.is_question = None
-        self.phrase_person = None
+        #self.phrase_person = None

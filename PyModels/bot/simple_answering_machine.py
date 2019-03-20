@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import itertools
 import operator
+import pickle
 
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -14,8 +15,8 @@ from word_embeddings import WordEmbeddings
 # from xgb_relevancy_detector import XGB_RelevancyDetector
 from lgb_relevancy_detector import LGB_RelevancyDetector
 from nn_relevancy_tripleloss import NN_RelevancyTripleLoss
-from xgb_person_classifier_model import XGB_PersonClassifierModel
-from nn_person_change import NN_PersonChange
+#from xgb_person_classifier_model import XGB_PersonClassifierModel
+#from nn_person_change import NN_PersonChange
 from answer_builder import AnswerBuilder
 from interpreted_phrase import InterpretedPhrase
 from nn_enough_premises_model import NN_EnoughPremisesModel
@@ -100,12 +101,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.answer_builder.load_models(models_folder)
 
         # Классификатор грамматического лица на базе XGB
-        self.person_classifier = XGB_PersonClassifierModel()
-        self.person_classifier.load(models_folder)
+        #self.person_classifier = XGB_PersonClassifierModel()
+        #self.person_classifier.load(models_folder)
 
         # Нейросетевая модель для манипуляции с грамматическим лицом
-        self.person_changer = NN_PersonChange()
-        self.person_changer.load(models_folder)
+        #self.person_changer = NN_PersonChange()
+        #self.person_changer.load(models_folder)
 
         # Модель определения модальности фраз собеседника
         self.modality_model = SimpleModalityDetectorRU()
@@ -144,8 +145,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if phrase is not None:
                 self.say(session, phrase)
 
-    def change_person(self, phrase, target_person):
-        return self.person_changer.change_person(phrase, target_person, self.text_utils, self.word_embeddings)
+    #def change_person(self, phrase, target_person):
+    #    return self.person_changer.change_person(phrase, target_person, self.text_utils, self.word_embeddings)
 
     def get_session_factory(self):
         return self.session_factory
@@ -183,7 +184,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         phrase_is_question = self.is_question(phrase)
 
         # история фраз доступна в session как conversation_history
-        person = None
+        was_interpreted = False
 
         last_phrase = session.conversation_history[-1] if len(session.conversation_history) > 0 else None
         if len(session.conversation_history) > 0\
@@ -203,17 +204,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 context_phrases.append(last_phrase.interpretation)
                 context_phrases.append(raw_phrase)
                 phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
+                was_interpreted = True
 
                 # определим грамматическое лицо получившейся интерпретации
-                person = self.person_classifier.detect_person(phrase, self.text_utils, self.word_embeddings)
-
-                if person == '2s':  # интерпретация "Тебя зовут Илья" получена из "Меня зовут илья"
-                    person = '1s'
-                elif person == '1s':
-                    person = '2s'
-
-                if self.trace_enabled:
-                    self.logger.debug('detected person={}'.format(person))
+                #person = self.person_classifier.detect_person(phrase, self.text_utils, self.word_embeddings)
+                #if person == '2s':  # интерпретация "Тебя зовут Илья" получена из "Меня зовут илья"
+                #    person = '1s'
+                #elif person == '1s':
+                #    person = '2s'
+                #if self.trace_enabled:
+                #    self.logger.debug('detected person={}'.format(person))
 
         if not phrase_is_question and bot.order_templates is not None:
             # попробуем найти шаблон приказа, достаточно похожий на эту фразу
@@ -222,22 +222,24 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 phrase = order_str
                 raw_phrase = order_str
                 phrase_is_question = self.is_question(phrase)
+                was_interpreted = True
 
-        if person is None:
+        if not was_interpreted:  #person is None:
             # определим грамматическое лицо введенного предложения.
-            person = self.person_classifier.detect_person(raw_phrase, self.text_utils, self.word_embeddings)
-            if self.trace_enabled:
-                self.logger.debug('detected person={}'.format(person))
+            #person = self.person_classifier.detect_person(raw_phrase, self.text_utils, self.word_embeddings)
+            #if self.trace_enabled:
+            #    self.logger.debug('detected person={}'.format(person))
 
             # Может потребоваться смена грамматического лица.
-            if person == '1s':
-                phrase = self.change_person(raw_phrase, '2s')
-            elif person == '2s':
-                phrase = self.change_person(raw_phrase, '1s')
+            #if person == '1s':
+            #    phrase = self.change_person(raw_phrase, '2s')
+            #elif person == '2s':
+            #    phrase = self.change_person(raw_phrase, '1s')
+            phrase = self.interpreter.normalize_person(raw_phrase, self.text_utils, self.word_embeddings)
 
         interpreted.interpretation = phrase
         interpreted.is_question = phrase_is_question
-        interpreted.phrase_person = person
+        #interpreted.phrase_person = person
         return interpreted
 
     def say(self, session, answer):
@@ -299,10 +301,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
                 # для текущего собеседника.
                 fact_person = '3'
-                if interpreted_phrase.phrase_person == '1s':
-                    fact_person = '2s'
-                elif interpreted_phrase.phrase_person == '2s':
-                    fact_person = '1s'
+                #if interpreted_phrase.phrase_person == '1s':
+                #    fact_person = '2s'
+                #elif interpreted_phrase.phrase_person == '2s':
+                #    fact_person = '1s'
                 fact = interpreted_phrase.interpretation
                 if self.trace_enabled:
                     print(u'Adding [{}] to knowledge base'.format(fact))

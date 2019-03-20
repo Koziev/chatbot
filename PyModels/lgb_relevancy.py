@@ -480,7 +480,7 @@ if run_mode == 'train':
                     }
 
     with open(os.path.join(tmp_folder, config_filename), 'w') as f:
-        json.dump(model_config, f)
+        json.dump(model_config, f, indent=4)
 
     if use_hyperopt:
         ho_model_config = model_config

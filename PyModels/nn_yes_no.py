@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Тренировка модели классификации yes/no для сэмплов с несколькими (от 0 до n)
 предпосылками и вопросом.
+
 Для вопросно-ответной системы https://github.com/Koziev/chatbot.
-Используется нейросетка (Keras).
-Датасет "pqa_yes_no.dat" должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py)
+
+Используется нейросетка (Keras). Альтернативная реализация на XGBoost в xgb_yes_no.py
+
+Датасет "pqa_yes_no.dat" должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py).
 Также нужна модель встраивания слов (word2vector) и модель посимвольного встраивания (wordchar2vector).
-'''
+"""
 
 from __future__ import division  # for python2 compatibility
 from __future__ import print_function
@@ -18,9 +21,9 @@ import os
 import sys
 import gensim
 import codecs
+import math
 import keras.callbacks
 import numpy as np
-import tqdm
 import argparse
 import logging
 
@@ -144,6 +147,8 @@ def load_samples(input_path, tokenizer):
 
     computed_params = {'max_nb_premises': max_nb_premises,
                        'max_inputseq_len': max_inputseq_len,
+                       'nb_yes': nb_yes,
+                       'nb_no': nb_no
                        }
 
     return samples, computed_params
@@ -208,9 +213,9 @@ def create_model(params, computed_params):
                 conv_layer1 = conv(input)
 
                 if params['pooling'] == 'max':
-                    pooling = keras.layers.MaxPooling1D(pool_size=kernel_size, strides=None, padding='valid')
+                    pooling = keras.layers.MaxPooling1D()
                 elif params['pooling'] == 'average':
-                    pooling = keras.layers.AveragePooling1D(pool_size=kernel_size, strides=None, padding='valid')
+                    pooling = keras.layers.AveragePooling1D()
                 else:
                     raise NotImplementedError()
 
@@ -219,21 +224,44 @@ def create_model(params, computed_params):
                 conv_layer1 = lstm(conv_layer1)
                 layers.append(conv_layer1)
                 encoder_size += rnn_size
+    elif net_arch == 'cnn':
+        nb_filters = params['nb_filters']
+        max_kernel_size = params['max_kernel_size']
+
+        for kernel_size in range(1, max_kernel_size+1):
+            conv = Conv1D(filters=nb_filters,
+                          kernel_size=kernel_size,
+                          padding='valid',
+                          activation='relu',
+                          strides=1,
+                          name='shared_conv_{}'.format(kernel_size))
+
+            for input in inputs:
+                conv_layer1 = conv(input)
+
+                if params['pooling'] == 'max':
+                    pooling = keras.layers.GlobalMaxPooling1D()
+                elif params['pooling'] == 'average':
+                    pooling = keras.layers.GlobalAveragePooling1D()
+                else:
+                    raise NotImplementedError()
+
+                conv_layer1 = pooling(conv_layer1)
+                layers.append(conv_layer1)
     else:
         raise NotImplementedError()
 
     encoder_merged = keras.layers.concatenate(inputs=list(layers))
-    encoder_final = Dense(units=int(encoder_size), activation='relu')(encoder_merged)
-
-    decoder = encoder_final
+    decoder = encoder_merged
 
     if params['units1'] > 0:
-        decoder = Dense(encoder_size//2, activation='relu')(decoder)
+        decoder = Dense(params['units1'], activation='relu')(decoder)
 
         if params['units2'] > 0:
-            decoder = Dense(encoder_size//4, activation='relu')(decoder)
+            decoder = Dense(params['units2'], activation='relu')(decoder)
 
-    #decoder = BatchNormalization()(decoder)
+            if params['units3'] > 0:
+                decoder = Dense(params['units3'], activation='relu')(decoder)
 
     output_dims = 2
     decoder = Dense(output_dims, activation='softmax', name='output')(decoder)
@@ -251,6 +279,7 @@ def generate_rows(params, computed_params, samples, batch_size, mode):
     max_inputseq_len = computed_params['max_inputseq_len']
     word_dims = computed_params['word_dims']
     nb_premises = computed_params['max_nb_premises']
+    w1_weight = params['w1_weight']
 
     Xn_batch = []
     for _ in range(nb_premises + 1):
@@ -283,7 +312,7 @@ def generate_rows(params, computed_params, samples, batch_size, mode):
                 weights[batch_index] = 1.0  #float(nb_no+nb_yes) / nb_yes
             else:
                 y_batch[batch_index, 1] = True
-                weights[batch_index] = 1.0  #float(nb_no+nb_yes) / nb_no
+                weights[batch_index] = w1_weight  #float(nb_no+nb_yes) / nb_no
 
             batch_index += 1
 
@@ -328,9 +357,8 @@ def train_model(model, params, computed_params, train_samples, val_samples):
     model.load_weights(weights_path)
 
 
-def score_model(model, params, computed_params, val_samples, save_report):
+def score_model(model, params, computed_params, val_samples):
     # прогоним валидационные паттерны через модель, чтобы получить f1 score.
-    max_nb_premises = computed_params['max_nb_premises']
     nb_valid_patterns = len(val_samples)
     for v in generate_rows(params, computed_params, val_samples, nb_valid_patterns, 1):
         x = v[0]
@@ -351,34 +379,36 @@ def score_model(model, params, computed_params, val_samples, save_report):
     score = sklearn.metrics.roc_auc_score(y_true=y_val[:, 1], y_score=y_pred0)
     logging.info('score={}'.format(score))
 
-    if save_report:
-        # Сохраним в текстовом файле для визуальной проверки результаты валидации по всем сэмплам
-        for v in generate_rows(params, computed_params, samples, len(samples), 1):
-            x = v[0]
-            break
-
-        y_pred = model.predict(x)[:, 1]
-        y_pred = (y_pred >= 0.5).astype(np.int)
-
-        with codecs.open(os.path.join(tmp_folder, 'nn_yes_no.validation.txt'), 'w', 'utf-8') as wrt:
-            for isample, sample in enumerate(samples):
-                if isample > 0:
-                    wrt.write('\n\n')
-
-                for premise in sample.premises:
-                    wrt.write(u'P: {}\n'.format(premise))
-                wrt.write(u'Q: {}\n'.format(sample.question))
-                wrt.write(u'A: {}\n'.format(sample.answer))
-
-                pred = u'да' if y_pred[isample] else u'нет'
-                wrt.write(u'model: {}\n'.format(pred))
-
-                #if pred == u'нет':
-                #    for ipremise in range(max_nb_premises):
-                #        wrt.write('\nX[{}]={}\n'.format(ipremise, x['premise{}'.format(ipremise)][isample]))
-                #    wrt.write('\n')
-
     return f1, score
+
+
+def report_model(model, params, computed_params, samples):
+    # Сохраним в текстовом файле для визуальной проверки результаты валидации по всем сэмплам
+    for v in generate_rows(params, computed_params, samples, len(samples), 1):
+        x = v[0]
+        break
+
+    y_pred = model.predict(x)[:, 1]
+    y_pred = (y_pred >= 0.5).astype(np.int)
+
+    with codecs.open(os.path.join(tmp_folder, 'nn_yes_no.validation.txt'), 'w', 'utf-8') as wrt:
+        for isample, sample in enumerate(samples):
+            if isample > 0:
+                wrt.write('\n\n')
+
+            for premise in sample.premises:
+                wrt.write(u'P: {}\n'.format(premise))
+            wrt.write(u'Q: {}\n'.format(sample.question))
+            wrt.write(u'A: {}\n'.format(sample.answer))
+
+            pred = u'да' if y_pred[isample] else u'нет'
+            wrt.write(u'model: {}\n'.format(pred))
+
+            #if pred == u'нет':
+            #    for ipremise in range(max_nb_premises):
+            #        wrt.write('\nX[{}]={}\n'.format(ipremise, x['premise{}'.format(ipremise)][isample]))
+            #    wrt.write('\n')
+
 
 # -------------------------------------------------------------------
 
@@ -423,57 +453,77 @@ if run_mode == 'gridsearch':
     best_params = None
     best_score = -np.inf
 
+    n0 = computed_params['nb_no']
+    n1 = computed_params['nb_yes']
+
     params = dict()
     crossval_count = 0
-    for net_arch in ['lstm']:
+    for net_arch in ['cnn']:  #  'lstm' 'cnn' 'lstm(cnn)'
         params['net_arch'] = net_arch
 
-        for rnn_size in [16, 24, 32]:
-            params['rnn_size'] = rnn_size
+        for w1_weight in [(n0/float(n0+n1)), math.sqrt((n0/float(n0+n1))), 1.0]:
+            params['w1_weight'] = w1_weight
 
-            for units1 in [10, 32]:
-                params['units1'] = units1
+            for rnn_size in [32, 48] if net_arch in ['lstm', 'lstm(cnn)'] else [0]:
+                params['rnn_size'] = rnn_size
 
-                for units2 in [0, 5, 10]:
-                    params['units2'] = units2
+                for nb_filters in [160, 180] if net_arch in ['cnn', 'lstm(cnn)'] else [0]:
+                    params['nb_filters'] = nb_filters
 
-                    for batch_size in [250]:
-                        params['batch_size'] = batch_size
+                    for min_kernel_size in [1]:
+                        params['min_kernel_size'] = min_kernel_size
 
-                        for optimizer in ['nadam']:
-                            params['optimizer'] = optimizer
+                        for max_kernel_size in [3] if net_arch in ['cnn', 'lstm(cnn)'] else [0]:
+                            params['max_kernel_size'] = max_kernel_size
 
-                            crossval_count += 1
-                            logging.info('Crossvalidation #{} for {}'.format(crossval_count, get_params_str(params)))
+                            for pooling in ['max'] if net_arch in ['cnn', 'lstm(cnn)'] else ['']:  # , 'average'
+                                params['pooling'] = pooling
 
-                            kf = KFold(n_splits=3)
-                            scores = []
-                            for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
-                                logging.info('KFold[{}]'.format(ifold))
-                                train_samples = [samples[i] for i in train_index]
-                                val12_samples = [samples[i] for i in val_index]
+                                for units1 in [32]:
+                                    params['units1'] = units1
 
-                                SEED = 123456
-                                TEST_SHARE = 0.2
-                                val_samples, finval_samples = train_test_split(val12_samples, test_size=0.5,
-                                                                               random_state=SEED)
+                                    for units2 in [0]:
+                                        params['units2'] = units2
 
-                                model = create_model(params, computed_params)
-                                train_model(model, params, computed_params, train_samples, val_samples)
+                                        for units3 in [0]:
+                                            params['units3'] = units3
 
-                                f1_score, score = score_model(model, params, computed_params, finval_samples, save_report=False)
-                                scores.append(score)
+                                            for batch_size in [80, 100, 120]:
+                                                params['batch_size'] = batch_size
 
-                            score = np.mean(scores)
-                            score_std = np.std(scores)
-                            logging.info('Crossvalidation #{} score={} std={}'.format(crossval_count, score, score_std))
-                            if score > best_score:
-                                best_params = params.copy()
-                                best_score = score
-                                logging.info('!!! NEW BEST score={} params={}'.format(best_score, get_params_str(best_params)))
+                                                for optimizer in ['nadam']:
+                                                    params['optimizer'] = optimizer
+
+                                                    crossval_count += 1
+                                                    logging.info('Crossvalidation #{} for {}'.format(crossval_count, get_params_str(params)))
+
+                                                    kf = KFold(n_splits=3)
+                                                    scores = []
+                                                    for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
+                                                        logging.info('KFold[{}]'.format(ifold))
+                                                        train_samples = [samples[i] for i in train_index]
+                                                        val12_samples = [samples[i] for i in val_index]
+
+                                                        SEED = 123456
+                                                        TEST_SHARE = 0.2
+                                                        val_samples, finval_samples = train_test_split(val12_samples, test_size=0.5,
+                                                                                                       random_state=SEED)
+
+                                                        model = create_model(params, computed_params)
+                                                        train_model(model, params, computed_params, train_samples, val_samples)
+
+                                                        f1_score, score = score_model(model, params, computed_params, finval_samples)
+                                                        scores.append(score)
+
+                                                    score = np.mean(scores)
+                                                    score_std = np.std(scores)
+                                                    logging.info('Crossvalidation #{} score={} std={}'.format(crossval_count, score, score_std))
+                                                    if score > best_score:
+                                                        best_params = params.copy()
+                                                        best_score = score
+                                                        logging.info('!!! NEW BEST score={} params={}'.format(best_score, get_params_str(best_params)))
 
     logging.info('Grid search complete, best_score={} best_params={}'.format(best_score, get_params_str(best_params)))
-
 
 
 if run_mode == 'train':
@@ -501,14 +551,19 @@ if run_mode == 'train':
                    }
 
     with open(config_path, 'w') as f:
-        json.dump(model_config, f)
+        json.dump(model_config, f, indent=4)
 
     params = dict()
-    params['net_arch'] = 'lstm'
-    params['rnn_size'] = 16
-    params['units1'] = 10
+    params['net_arch'] = 'cnn'
+    #params['rnn_size'] = 16
+    params['w1_weight'] = 1.0
+    params['nb_filters'] = 180
+    params['min_kernel_size'] = 1
+    params['max_kernel_size'] = 3
+    params['pooling'] = 'max'
+    params['units1'] = 32
     params['units2'] = 0
-    params['batch_size'] = 250
+    params['batch_size'] = 100
     params['optimizer'] = 'nadam'
 
     model = create_model(params, computed_params)
@@ -516,14 +571,10 @@ if run_mode == 'train':
     with open(arch_filepath, 'w') as f:
         f.write(model.to_json())
 
-    SEED = 123456
-    TEST_SHARE = 0.2
-    train_samples, val_samples = train_test_split(samples, test_size=TEST_SHARE, random_state=SEED)
-
+    train_samples, val_samples = train_test_split(samples, test_size=0.2, random_state=123456)
     train_model(model, params, computed_params, train_samples, val_samples)
-
-    f1_score, logloss = score_model(model, params, computed_params, val_samples, save_report=True)
-
+    f1_score, logloss = score_model(model, params, computed_params, val_samples)
+    report_model(model, params, computed_params, samples)
 
 
 if run_mode == 'query':
@@ -582,7 +633,7 @@ if run_mode == 'query':
         premises = []
         question = None
         for ipremise in range(max_nb_premises):
-            premise = raw_input('premise #{} :> '.format(ipremise)).decode(sys.stdout.encoding).strip().lower()
+            premise = utils.console_helpers.input_kbd('premise #{} :> '.format(ipremise)).strip().lower()
             if len(premise) == 0:
                 break
             if premise[-1] == u'?':
@@ -592,13 +643,15 @@ if run_mode == 'query':
             premises.append(premise)
 
         if question is None:
-            question = raw_input('question:> ').decode(sys.stdout.encoding).strip().lower()
+            question = utils.console_helpers.input_kbd('question:> ').strip().lower()
         if len(question) == 0:
             break
 
+        # Очистим входные тензоры перед заполнением новыми данными
         for i in range(max_nb_premises+1):
             Xn_probe[i].fill(0)
 
+        # Векторизуем входные данные - предпосылки и вопрос
         for ipremise, premise in enumerate(premises):
             words = tokenizer.tokenize(premise)
             words = pad_wordseq(words, max_inputseq_len)

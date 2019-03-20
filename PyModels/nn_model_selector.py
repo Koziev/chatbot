@@ -354,17 +354,17 @@ if run_mode == 'train':
                                        verbose=1,
                                        save_best_only=True,
                                        mode='auto')
-    early_stopping = EarlyStopping(monitor=monitor_metric, patience=10, verbose=1, mode='auto')
+    early_stopping = EarlyStopping(monitor=monitor_metric, patience=5, verbose=1, mode='auto')
 
     callbacks = [model_checkpoint, early_stopping]
 
     hist = model.fit_generator(generator=generate_rows(max_nb_premises, train_samples, batch_size, 1),
-                               steps_per_epoch=nb_train_patterns//batch_size,
+                               steps_per_epoch=nb_train_patterns // batch_size,
                                epochs=200,
                                verbose=1,
                                callbacks=callbacks,
                                validation_data=generate_rows(max_nb_premises, val_samples, batch_size, 1),
-                               validation_steps=nb_valid_patterns//batch_size
+                               validation_steps=nb_valid_patterns // batch_size
                                )
     max_acc = max(hist.history['val_acc'])
     logging.info('max val_acc={}'.format(max_acc))

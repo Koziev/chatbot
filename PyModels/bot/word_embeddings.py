@@ -41,7 +41,7 @@ class WordEmbeddings(object):
             logging.info(u'Loading word2vector from {}'.format(w2v_path))
             w2v = gensim.models.KeyedVectors.load_word2vec_format(w2v_path, binary=not w2v_path.endswith('.txt'))
             # При обучении и при предсказании пути к w2v данным могут отличаться, так как
-            # тренеры и сами боты работают на разных машинах. Поэтому селектируцем по имени файла, без пути.
+            # тренеры и сами боты работают на разных машинах. Поэтому селектируем по имени файла, без пути.
             self.w2v[w2v_filename] = w2v
             self.w2v_dims[w2v_filename] = len(w2v.syn0[0])
 

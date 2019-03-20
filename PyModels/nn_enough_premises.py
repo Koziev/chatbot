@@ -401,7 +401,7 @@ if run_mode == 'train':
                    }
 
     with open(config_path, 'w') as f:
-        json.dump(model_config, f)
+        json.dump(model_config, f, indent=4)
 
     model.load_weights(weights_path)
 

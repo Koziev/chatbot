@@ -10,6 +10,7 @@ import numpy as np
 import logging
 import itertools
 import random
+import pickle
 
 from keras.models import model_from_json
 from base_utterance_interpreter import BaseUtteranceInterpreter
@@ -69,6 +70,30 @@ class NN_Interpreter(BaseUtteranceInterpreter):
     def load(self, models_folder):
         self.logger.info('Loading NN_Interpreter model files')
 
+        # Таблицы для трансляции грамматического лица
+        with open(os.path.join(models_folder, 'person_change_dictionary.pickle'), 'r') as f:
+            self.person_changing_data = pickle.load(f)
+
+        self.w1s = self.person_changing_data['word_1s']
+        self.w2s = self.person_changing_data['word_2s']
+        self.person_change_1s_2s = self.person_changing_data['person_change_1s_2s']
+        self.person_change_2s_1s = self.person_changing_data['person_change_2s_1s']
+
+        self.hard_replacement = {u'я': u'ты',
+                                 u'ты': u'я'}
+
+        self.special_changes_3 = {u'меня': u'тебя',
+                                  u'мне': u'тебе',
+                                  u'мной': u'тобой',
+                                  u'мною': u'тобою',
+                                  u'тебя': u'меня',
+                                  u'тебе': u'мне',
+                                  u'тобой': u'мной',
+                                  u'тобою': u'мною',
+                                  }
+
+
+        # Файлы нейросетевой модели интерпретации
         arch_filepath = os.path.join(models_folder, 'nn_interpreter.arch')
         weights_path = os.path.join(models_folder, 'nn_interpreter.weights')
         with open(arch_filepath, 'r') as f:
@@ -245,3 +270,23 @@ class NN_Interpreter(BaseUtteranceInterpreter):
             return new_phrase
 
         raise NotImplementedError()
+
+    def normalize_person(self, raw_phrase, text_utils, word_embeddings):
+        inwords = text_utils.tokenize(raw_phrase)
+        outwords = []
+        for word in inwords:
+            if word in self.hard_replacement:
+                outwords.append(self.hard_replacement[word])
+            else:
+                if word in self.w1s and word in self.person_change_1s_2s:
+                    outwords.append(self.person_change_1s_2s[word])
+                elif word in self.w2s and word in self.person_change_2s_1s:
+                    outwords.append(self.person_change_2s_1s[word])
+                else:
+                    # немного хардкода.
+                    if word in self.special_changes_3:
+                        outwords.append(self.special_changes_3[word])
+                    else:
+                        outwords.append(word)
+
+        return u' '.join(outwords)

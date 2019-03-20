@@ -20,7 +20,6 @@ class Files3FactsStorage(SimpleFactsStorage):
         :param text_utils: экземпляр класса TextUtils
         :param facts_folder: папка, в которой лежат текстовые файлы с фактами
         """
-
         super(Files3FactsStorage, self).__init__(text_utils)
         self.text_utils = text_utils
         self.facts_folder = facts_folder
@@ -73,7 +72,8 @@ class Files3FactsStorage(SimpleFactsStorage):
             with codecs.open(p, 'r', 'utf-8') as rdr:
                 for line in rdr:
                     line1 = line.strip()
-                    if len(line1) > 2:
+                    # Строки, начинающиеся на #, считаем комментариями и пропускаем.
+                    if not line1.startswith('#') and len(line1) > 2:
                         canonized_line = self.text_utils.canonize_text(line1)
                         memory_phrases.append((canonized_line, ptype, ''))
 

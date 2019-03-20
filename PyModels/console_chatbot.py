@@ -20,7 +20,7 @@ user_id = 'test'
 
 parser = argparse.ArgumentParser(description='Question answering machine')
 parser.add_argument('--data_folder', type=str, default='../data')
-parser.add_argument('--w2v_folder', type=str, default='../data')
+parser.add_argument('--w2v_folder', type=str, default='../tmp')
 parser.add_argument('--facts_folder', type=str, default='../data', help='path to folder containing knowledgebase files')
 parser.add_argument('--models_folder', type=str, default='../tmp', help='path to folder with pretrained models')
 parser.add_argument('--tmp_folder', type=str, default='../tmp', help='path to folder for logfile etc')
@@ -34,7 +34,7 @@ tmp_folder = os.path.expanduser(args.tmp_folder)
 
 init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'))
 
-# Создаем необходимое окружение для бота
+# Создаем необходимое окружение для бота.
 # Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
 text_utils = TextUtils()
 text_utils.load_dictionaries(data_folder)
@@ -45,13 +45,13 @@ machine = SimpleAnsweringMachine(text_utils=text_utils)
 machine.load_models(models_folder, w2v_folder)
 machine.trace_enabled = True  # для отладки
 
-# Конкретная реализация хранилища фактов.
+# Конкретная реализация хранилища фактов - плоские файлы с utf-8, без форматирования.
 facts_storage = Files3FactsStorage(text_utils=text_utils,
                                    facts_folder=facts_folder)
 
 scripting = BotScripting(data_folder)
 
-# Инициализируем бота
+# Инициализируем бота.
 bot = BotPersonality(bot_id='test_bot',
                      engine=machine,
                      facts=facts_storage,

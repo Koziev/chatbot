@@ -1,1 +1,2 @@
 wordchar2vector.dat filter=lfs diff=lfs merge=lfs -text
+w2v.CBOW=1_WIN=5_DIM=64.bin filter=lfs diff=lfs merge=lfs -text
