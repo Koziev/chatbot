@@ -9,11 +9,11 @@ from __future__ import print_function
 import io
 import gzip
 
-inpath = '../data/word2lemma.dat'
-outpath = '../data/ru_word2lemma.tsv.gz'
+inpath = '../../data/word2lemma.dat'
+outpath = '../../data/ru_word2lemma.tsv.gz'
 
 dataset_words = set()
-with io.open('../tmp/dataset_words.txt', 'r', encoding='utf-8') as rdr:
+with io.open('../../tmp/dataset_words.txt', 'r', encoding='utf-8') as rdr:
     for line in rdr:
         dataset_words.add(line.strip())
 

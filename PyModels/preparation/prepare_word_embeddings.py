@@ -11,7 +11,7 @@ import os
 import io
 import gensim
 
-tmp_dir = '../tmp'
+tmp_dir = '../../tmp'
 
 w2v_path = os.path.expanduser('~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin')
 print(u'Loading w2v from {}'.format(w2v_path))

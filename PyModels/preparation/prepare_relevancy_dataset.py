@@ -47,11 +47,11 @@ MAX_NB_AUTOGEN = 1000  # макс. число автоматически сге�
 
 ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
 
-n_negative_per_positive = 20
+n_negative_per_positive = 10
 
-tmp_folder = '../tmp'
-data_folder = '../data'
-paraphrases_paths = ['../data/paraphrases.txt', '../data/contradictions.txt']
+tmp_folder = '../../tmp'
+data_folder = '../../data'
+paraphrases_paths = ['../../data/paraphrases.txt', '../data/contradictions.txt']
 qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT, 10000000)]
 
 if USE_AUTOGEN:
@@ -64,7 +64,7 @@ if USE_AUTOGEN:
                      ('premise_question_answer5_1s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
                      ('premise_question_answer5_2s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN)
                      ])
-questions_path = '../data/questions.txt'
+questions_path = '../../data/questions.txt'
 
 include_repeats = True
 
@@ -114,6 +114,7 @@ def normalize_qline(line):
 # ---------------------------------------------------------------
 
 tokenizer = Tokenizer()
+tokenizer.load()
 random_questions = CorpusSearcher()
 random_facts = CorpusSearcher()
 
@@ -225,7 +226,8 @@ negat_pairs_count = 0
 random_negat_pairs_count = 0
 
 # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
-manual_negatives = dict()
+manual_negatives_pq = dict()
+manual_negatives_qp = dict()
 with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
     for line in rdr:
         line = line.strip()
@@ -234,12 +236,17 @@ with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'),
             if len(tx) == 2:
                 premise = normalize_qline(tx[0])
                 question = normalize_qline(tx[1])
-                if premise not in manual_negatives:
-                    manual_negatives[premise] = [question]
+                if premise not in manual_negatives_pq:
+                    manual_negatives_pq[premise] = [question]
                 else:
-                    manual_negatives[premise].append(question)
+                    manual_negatives_pq[premise].append(question)
 
-for premise, questions in manual_negatives.items():
+                if question not in manual_negatives_qp:
+                    manual_negatives_qp[question] = [premise]
+                else:
+                    manual_negatives_qp[question].append(premise)
+
+for premise, questions in manual_negatives_pq.items():
     for question in questions:
         res_dataset.add_pair(premise, question, 0, 1)
 

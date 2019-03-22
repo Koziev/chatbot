@@ -35,16 +35,16 @@ nb_neg_per_posit = 1
 ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
 
 # Путь к файлу с отобранными вручную синонимичными фразами.
-input_path = '../data/paraphrases.txt'
+input_path = '../../data/paraphrases.txt'
 
 # Путь к создаваемому датасету для модели детектора, использующего пары
-output_filepath = '../data/synonymy_dataset.csv'
+output_filepath = '../../data/synonymy_dataset.csv'
 
 # Путь к создаваемому датасету для модели детектора на базе triplet loss
-output_filepath3 = '../data/synonymy_dataset3.csv'
+output_filepath3 = '../../data/synonymy_dataset3.csv'
 
-tmp_folder = '../tmp'
-data_folder = '../data'
+tmp_folder = '../../tmp'
+data_folder = '../../data'
 
 
 random.seed(123456789)
@@ -139,6 +139,7 @@ def select_most_similar(phrase1, phrases2, topn):
 class PhraseCleaner:
     def __init__(self):
         self.tokenizer = Tokenizer()
+        self.tokenizer.load()
 
     def process(self, phrase):
         return u' '.join(self.tokenizer.tokenize(phrase))
@@ -268,7 +269,7 @@ for p in ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt'
                 group.append(fcleaner.process(phrase))
 
 # оставим кол-во дубликатов, сопоставимое с другими перефразировками
-duplicates = np.random.permutation(duplicates)[:len(samples)//2]
+duplicates = np.random.permutation(duplicates)[:len(samples) // 2]
 logging.info('{} duplicates with permutations loaded from \"SENT*.duplicates.txt\"'.format(len(duplicates)))
 samples.extend(duplicates)
 
@@ -408,7 +409,7 @@ phrase2group = dict()
 igroup = 0
 group = []
 nb_paraphrases1 = 0
-with codecs.open('../data/paraphrases.txt', 'r', 'utf-8') as rdr:
+with codecs.open('../../data/paraphrases.txt', 'r', 'utf-8') as rdr:
     for line in rdr:
         phrase = line.strip()
         if len(phrase) == 0:

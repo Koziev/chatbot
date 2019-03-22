@@ -25,7 +25,7 @@ from preparation.corpus_searcher import CorpusSearcher
 
 
 # Путь к создаваемому датасету для модели детектора на базе triplet loss
-output_filepath3 = '../data/relevancy_dataset3.csv'
+output_filepath3 = '../../data/relevancy_dataset3.csv'
 
 
 USE_AUTOGEN = True  # добавлять ли сэмплы из автоматически сгенерированных датасетов
@@ -44,9 +44,9 @@ ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подби�
 
 n_negative_per_positive = 5
 
-tmp_folder = '../tmp'
-data_folder = '../data'
-paraphrases_paths = ['../data/paraphrases.txt', '../data/contradictions.txt']
+tmp_folder = '../../tmp'
+data_folder = '../../data'
+paraphrases_paths = ['../../data/paraphrases.txt', '../../data/contradictions.txt']
 qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT, 10000000)]
 
 if USE_AUTOGEN:
@@ -59,7 +59,7 @@ if USE_AUTOGEN:
                      ('premise_question_answer5_1s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
                      ('premise_question_answer5_2s.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN)
                      ])
-questions_path = '../data/questions.txt'
+questions_path = '../../data/questions.txt'
 
 stop_words = set(u'не ни ль и или ли что какой же ж какая какие сам сама сами само был были было есть '.split())
 stop_words.update(u'о а в на у к с со по ко мне нам я он она над за из от до'.split())
@@ -107,6 +107,7 @@ def jaccard(shingles1, shingles2):
 # ---------------------------------------------------------------
 
 tokenizer = Tokenizer()
+tokenizer.load()
 
 random_questions = CorpusSearcher()
 random_facts = CorpusSearcher()
@@ -187,7 +188,8 @@ lines = []
 random_questions2 = set()
 
 # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
-manual_negatives = dict()
+manual_negatives_pq = dict()
+manual_negatives_qp = dict()
 with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
     for line in rdr:
         line = line.strip()
@@ -196,10 +198,15 @@ with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'),
             if len(tx) == 2:
                 premise = normalize_qline(tx[0])
                 question = normalize_qline(tx[1])
-                if premise not in manual_negatives:
-                    manual_negatives[premise] = [question]
+                if premise not in manual_negatives_pq:
+                    manual_negatives_pq[premise] = [question]
                 else:
-                    manual_negatives[premise].append(question)
+                    manual_negatives_pq[premise].append(question)
+
+                if question not in manual_negatives_qp:
+                    manual_negatives_qp[question] = [premise]
+                else:
+                    manual_negatives_qp[question].append(premise)
 
 
 # Собираем список релевантных пар предпосылка-вопрос
@@ -251,12 +258,20 @@ samples3 = []
 n3 = 0
 for premise, question in tqdm.tqdm(samples2, desc='Adding negatives', total=len(samples2)):
     # Для предпосылки есть заданные вручную негативные вопросы?
-    if premise in manual_negatives:
-        for nonrelevant_question in manual_negatives[premise]:
+    if premise in manual_negatives_pq:
+        for nonrelevant_question in manual_negatives_pq[premise]:
             pq = premise + u'|' + nonrelevant_question
             if pq not in all_pq:
                 samples3.append(Sample3(premise, question, nonrelevant_question))
                 all_pq.add(pq)
+
+    if question in manual_negatives_qp:
+        for nonrelevant_premise in manual_negatives_qp[question]:
+            pq = nonrelevant_premise + u'|' + question
+            if pq not in all_pq:
+                samples3.append(Sample3(question, premise, nonrelevant_premise))
+                all_pq.add(pq)
+
 
     neg_2_add = n_negative_per_positive
 

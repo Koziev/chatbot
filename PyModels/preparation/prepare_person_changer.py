@@ -17,8 +17,8 @@ from utils.tokenizer import Tokenizer
 
 parser = argparse.ArgumentParser(description='Grammatical dictionary preparation for person changer')
 parser.add_argument('--run_mode', type=str, default='train', choices='train query'.split(), help='what to do')
-parser.add_argument('--output_dir', type=str, default='../tmp', help='directory to store results in')
-parser.add_argument('--data_dir', type=str, default='../data')
+parser.add_argument('--output_dir', type=str, default='../../tmp', help='directory to store results in')
+parser.add_argument('--data_dir', type=str, default='../../data')
 
 args = parser.parse_args()
 run_mode = args.run_mode
@@ -96,12 +96,30 @@ if run_mode == 'train':
     person_change_1s_2s[u'мной'] = u'тобой'
     person_change_1s_2s[u'мною'] = u'тобою'
     person_change_1s_2s[u'я'] = u'ты'
+    person_change_1s_2s[u'мое'] = u'твое'
+    person_change_1s_2s[u'моя'] = u'твоя'
+    person_change_1s_2s[u'мой'] = u'твой'
+    person_change_1s_2s[u'мои'] = u'твои'
+    person_change_1s_2s[u'моего'] = u'твоего'
+    person_change_1s_2s[u'моей'] = u'твоей'
+    person_change_1s_2s[u'моих'] = u'твоих'
+    person_change_1s_2s[u'моим'] = u'твоим'
+    person_change_1s_2s[u'моими'] = u'твоими'
 
     person_change_2s_1s[u'тебя'] = u'меня'
     person_change_2s_1s[u'тебе'] = u'мне'
     person_change_2s_1s[u'тобой'] = u'мной'
     person_change_2s_1s[u'тобою'] = u'мною'
     person_change_2s_1s[u'ты'] = u'я'
+    person_change_2s_1s[u'твое'] = u'мое'
+    person_change_2s_1s[u'твоя'] = u'моя'
+    person_change_2s_1s[u'твой'] = u'мой'
+    person_change_2s_1s[u'твоего'] = u'моего'
+    person_change_2s_1s[u'твоей'] = u'моей'
+    person_change_2s_1s[u'твоих'] = u'моих'
+    person_change_2s_1s[u'твоим'] = u'моим'
+    person_change_2s_1s[u'твоими'] = u'моими'
+
 
     # Сохраним все результаты в файле данных, чтобы чатбот мог воспользоваться ими без разбора
     # исходных словарей.
@@ -111,6 +129,8 @@ if run_mode == 'train':
 
     print(u'test person_change_1s_2s[меня] --> {}'.format(person_change_1s_2s[u'меня']) )
     print(u'test person_change_2s_1s[тебя] --> {}'.format(person_change_2s_1s[u'тебя']) )
+    print(u'test person_change_2s_1s[мое] --> {}'.format(person_change_1s_2s[u'мое']) )
+    print(u'test person_change_2s_1s[твое] --> {}'.format(person_change_2s_1s[u'твое']) )
 
     w1s = set()
     w2s = set()
@@ -121,13 +141,14 @@ if run_mode == 'train':
         for z in word_2s[incl]:
             w2s.add(z[0])
 
-    model['word_1s'] = w1s
-    model['word_2s'] = w2s
+    #model['word_1s'] = w1s
+    #model['word_2s'] = w2s
+
     with open(os.path.join(output_dir, 'person_change_dictionary.pickle'), 'wb') as f:
         pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 if run_mode == 'query':
-    with open('../tmp/person_change_dictionary.pickle', 'rb') as f:
+    with open(os.path.join(output_dir, 'person_change_dictionary.pickle'), 'rb') as f:
         model = pickle.load(f)
 
     w1s = model['word_1s']
@@ -152,6 +173,3 @@ if run_mode == 'query':
                 outwords.append(word)
 
         print(u'{}'.format(u' '.join(outwords)))
-
-
-
