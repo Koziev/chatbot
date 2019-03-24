@@ -1,0 +1,1 @@
+KERAS_BACKEND=tensorflow python ../PyModels/nn_req_interpretation.py --run_mode train --tmp ../tmp --data ../data --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin
