@@ -7,7 +7,6 @@ import logging
 import numpy as np
 import itertools
 import operator
-import pickle
 
 from base_answering_machine import BaseAnsweringMachine
 from simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -145,9 +144,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if phrase is not None:
                 self.say(session, phrase)
 
-    #def change_person(self, phrase, target_person):
-    #    return self.person_changer.change_person(phrase, target_person, self.text_utils, self.word_embeddings)
-
     def get_session_factory(self):
         return self.session_factory
 
@@ -187,11 +183,35 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         was_interpreted = False
 
         last_phrase = session.conversation_history[-1] if len(session.conversation_history) > 0 else None
-        if len(session.conversation_history) > 0\
-           and last_phrase.is_bot_phrase\
-           and last_phrase.is_question\
-           and not phrase_is_question\
-           and self.interpreter is not None:
+
+        # Интерпретация вопроса собеседника (человека):
+        # (H) Ты яблоки любишь?
+        # (B) Да
+        # (H) А виноград? <<----- == Ты виноград любишь?
+        if len(session.conversation_history) > 1 and phrase_is_question:
+            last2_phrase = session.conversation_history[-2]  # это вопрос человека "Ты яблоки любишь?"
+
+            if not last2_phrase.is_bot_phrase\
+                and last2_phrase.is_question\
+                and self.interpreter is not None:
+
+                if self.req_interpretation.require_interpretation(raw_phrase,
+                                                                  self.text_utils,
+                                                                  self.word_embeddings):
+                    context_phrases = list()
+                    # Контекст состоит из двух предыдущих фраз
+                    context_phrases.append(last2_phrase.raw_phrase)
+                    context_phrases.append(last_phrase.raw_phrase)
+                    context_phrases.append(raw_phrase)
+                    phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
+                    was_interpreted = True
+
+        if not was_interpreted\
+                and len(session.conversation_history) > 0\
+                and last_phrase.is_bot_phrase\
+                and last_phrase.is_question\
+                and not phrase_is_question\
+                and self.interpreter is not None:
 
             if self.req_interpretation.require_interpretation(raw_phrase,
                                                               self.text_utils,
@@ -199,21 +219,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # В отдельной ветке обрабатываем ситуацию, когда бот
                 # задал вопрос, на который собеседник дал краткий ответ.
                 # с помощью специальной модели мы попробуем восстановить полный
-                # текст ответа ообеседника.
+                # текст ответа собеседника.
                 context_phrases = list()
                 context_phrases.append(last_phrase.interpretation)
                 context_phrases.append(raw_phrase)
                 phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
                 was_interpreted = True
 
-                # определим грамматическое лицо получившейся интерпретации
-                #person = self.person_classifier.detect_person(phrase, self.text_utils, self.word_embeddings)
-                #if person == '2s':  # интерпретация "Тебя зовут Илья" получена из "Меня зовут илья"
-                #    person = '1s'
-                #elif person == '1s':
-                #    person = '2s'
-                #if self.trace_enabled:
-                #    self.logger.debug('detected person={}'.format(person))
+        if was_interpreted:
+            self.interpreter.normalize_person(phrase, self.text_utils, self.word_embeddings)
 
         if not phrase_is_question and bot.order_templates is not None:
             # попробуем найти шаблон приказа, достаточно похожий на эту фразу
@@ -426,6 +440,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if self.trace_enabled:
             self.logger.debug(u'Question to process={}'.format(interpreted_phrase.interpretation))
 
+        # Проверяем базу FAQ, вдруг там есть развернутый ответ на вопрос.
+        best_faq_answer = None
+        best_faq_rel = 0.0
+        best_faq_question = None
+        if bot.faq:
+            best_faq_answer, best_faq_rel, best_faq_question = bot.faq.get_most_similar(interpreted_phrase.interpretation,
+                                                                                        self.synonymy_detector,
+                                                                                        self.word_embeddings,
+                                                                                        self.text_utils)
+
+        answers = []
+        answer_rels = []
+
         # Нужна ли предпосылка, чтобы ответить на вопрос?
         # Используем модель, которая вернет вероятность того, что
         # пустой список предпосылок достаточен.
@@ -440,10 +467,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                          self.text_utils,
                                                                          self.word_embeddings)
             if len(answers) != 1:
-                self.logger.debug(u'Exactly 1 answer was expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
-
-            return answers, answer_rels
-
+                self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
         else:
             # определяем наиболее релевантную предпосылку
             memory_phrases = list(bot.facts.enumerate_facts(interlocutor))
@@ -456,32 +480,43 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if self.trace_enabled:
                 self.logger.info(u'Best premise is "{}" with relevancy={}'.format(best_premises[0], best_rels[0]))
 
-            if bot.premise_is_answer:
-                # В качестве ответа используется весь текст найденной предпосылки.
-                answers = [best_premises[0]]
-                answer_rels = [best_rels[0]]
-            else:
-                premises2 = []
-                premise_rels2 = []
 
-                # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
-                if True:
-                    premises2 = [best_premises[:1]]
-                    premise_rels2 = best_rels[:1]
+
+            if len(answers) == 0:
+                if bot.premise_is_answer:
+                    # В качестве ответа используется весь текст найденной предпосылки.
+                    answers = [best_premises[0]]
+                    answer_rels = [best_rels[0]]
                 else:
-                    max_rel = max(best_rels)
-                    for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):
-                        if rel >= self.min_premise_relevancy and rel >= 0.4 * max_rel:
-                            premises2.append([premise])
-                            premise_rels2.append(rel)
+                    premises2 = []
+                    premise_rels2 = []
 
-                # генерация ответа на основе выбранной предпосылки.
-                answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
-                                                                             interpreted_phrase.interpretation,
-                                                                             self.text_utils,
-                                                                             self.word_embeddings)
+                    # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
+                    if True:
+                        premises2 = [best_premises[:1]]
+                        premise_rels2 = best_rels[:1]
+                    else:
+                        max_rel = max(best_rels)
+                        for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):
+                            if rel >= self.min_premise_relevancy and rel >= 0.4 * max_rel:
+                                premises2.append([premise])
+                                premise_rels2.append(rel)
 
-            return answers, answer_rels
+                    # генерация ответа на основе выбранной предпосылки.
+                    answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                 interpreted_phrase.interpretation,
+                                                                                 self.text_utils,
+                                                                                 self.word_embeddings)
+
+        if len(best_rels) == 0 or best_faq_rel > best_rels[0]:
+            # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если
+            # генератор ответа вообще ничего не выдал (в базе фактов пусто), то берем
+            # тест ответа из FAQ.
+            answers = [best_faq_answer]
+            answer_rels = [best_faq_rel]
+            self.logger.info(u'FAQ entry provides best answer={} with rel={}'.format(best_faq_answer, best_faq_rel))
+
+        return answers, answer_rels
 
     def build_answers(self, bot, interlocutor, interpreted_phrase):
         answers, answer_confidenses = self.build_answers0(bot, interlocutor, interpreted_phrase)

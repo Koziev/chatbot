@@ -4,7 +4,8 @@ import uuid
 
 
 class BotPersonality:
-    def __init__(self, bot_id, engine, facts, scripting=None,
+    def __init__(self, bot_id, engine, facts,
+                 faq=None, scripting=None,
                  enable_smalltalk=False, enable_scripting=False):
         if bot_id is None or bot_id == '':
             self.bot_id = str(uuid.uuid4())
@@ -13,6 +14,7 @@ class BotPersonality:
 
         self.engine = engine
         self.facts = facts
+        self.faq = faq
         self.scripting = scripting
         self.enable_smalltalk = enable_smalltalk
         self.enable_scripting = enable_scripting

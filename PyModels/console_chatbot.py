@@ -51,10 +51,13 @@ facts_storage = Files3FactsStorage(text_utils=text_utils,
 
 scripting = BotScripting(data_folder)
 
+faq = None  #PlainFileFaqStorage(os.path.join(data_folder. 'faq2.txt')
+
 # Инициализируем бота.
 bot = BotPersonality(bot_id='test_bot',
                      engine=machine,
                      facts=facts_storage,
+                     faq=faq,
                      scripting=scripting,
                      enable_scripting=False,
                      enable_smalltalk=False)

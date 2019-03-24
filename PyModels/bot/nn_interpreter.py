@@ -74,8 +74,8 @@ class NN_Interpreter(BaseUtteranceInterpreter):
         with open(os.path.join(models_folder, 'person_change_dictionary.pickle'), 'r') as f:
             self.person_changing_data = pickle.load(f)
 
-        self.w1s = self.person_changing_data['word_1s']
-        self.w2s = self.person_changing_data['word_2s']
+        #self.w1s = self.person_changing_data['word_1s']
+        #self.w2s = self.person_changing_data['word_2s']
         self.person_change_1s_2s = self.person_changing_data['person_change_1s_2s']
         self.person_change_2s_1s = self.person_changing_data['person_change_2s_1s']
 
@@ -159,7 +159,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
         pass  # todo
 
     def interpret(self, phrases, text_utils, word_embeddings):
-        assert(len(phrases) == 2)
+        assert(0 < len(phrases) <= self.max_nb_inputs)
 
         phrase_words = [text_utils.tokenizer.tokenize(f) for f in phrases]
         phrase_lemmas = [text_utils.lemmatize(f) for f in phrases]
@@ -278,9 +278,9 @@ class NN_Interpreter(BaseUtteranceInterpreter):
             if word in self.hard_replacement:
                 outwords.append(self.hard_replacement[word])
             else:
-                if word in self.w1s and word in self.person_change_1s_2s:
+                if word in self.person_change_1s_2s:
                     outwords.append(self.person_change_1s_2s[word])
-                elif word in self.w2s and word in self.person_change_2s_1s:
+                elif word in self.person_change_2s_1s:
                     outwords.append(self.person_change_2s_1s[word])
                 else:
                     # немного хардкода.
