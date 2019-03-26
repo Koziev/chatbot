@@ -105,7 +105,7 @@ def normalize_qline(line):
     line = line.replace(u'Q:', u'')
     line = line.replace(u'A:', u'')
     line = line.replace(u'\t', u' ')
-    line = line.replace('.', ' ').replace(',', ' ').replace('?', ' ').replace('!', ' ').replace('-', ' ')
+    line = line.replace('.', ' ').replace('?', ' ').replace('!', ' ')
     line = line.replace('  ', ' ').strip().lower()
     line = ru_sanitize(line)
     return line
@@ -127,7 +127,7 @@ with codecs.open(questions_path, 'r', 'utf-8') as rdr:
         if len(line) < 40:
             question = line.strip()
             question = ru_sanitize(u' '.join(tokenizer.tokenize(question)))
-            random_questions.add_phrase(question)
+            random_questions.add_phrase(normalize_qline(question))
 
 # Прочитаем список случайных фактов, чтобы потом генерировать отрицательные паттерны
 for facts_path in ['paraphrases.txt', 'facts4.txt', 'facts5.txt', 'facts6.txt', ]:

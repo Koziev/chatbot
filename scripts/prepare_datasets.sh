@@ -1,13 +1,22 @@
-python ../PyModels/prepare_relevancy_dataset.py
+set -e
 
-python ../PyModels/prepare_relevancy3_dataset.py
+PYTHONPATH=~/polygon/paraphrasing/PyModels
+export PYTHONPATH
 
-python ../PyModels/prepare_qa_dataset.py
+cd ../PyModels/preparation
 
-python ../PyModels/prepare_synonymy_dataset.py
+python prepare_relevancy_dataset.py
 
-python ../PyModels/prepare_wordchar_dataset.py
+python prepare_relevancy3_dataset.py
 
-python ../PyModels/prepare_word_embeddings.py
+python prepare_qa_dataset.py
 
-python ../PyModels/prepare_person_changer.py
+python prepare_synonymy_dataset.py
+
+python prepare_wordchar_dataset.py
+
+python prepare_word2lemmas.py
+
+python prepare_word_embeddings.py
+
+python prepare_person_changer.py

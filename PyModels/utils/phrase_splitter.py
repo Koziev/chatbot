@@ -28,6 +28,7 @@ class PhraseSplitter(object):
 class PhraseTokenizer(PhraseSplitter):
     def __init__(self):
         self.tokenizer = Tokenizer()
+        self.tokenizer.load()
 
     def tokenize(self, phrase):
         return self.tokenizer.tokenize(phrase)

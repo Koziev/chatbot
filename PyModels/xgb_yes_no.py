@@ -97,6 +97,9 @@ def load_samples(input_path):
                         for phrase in lines:
                             words = tokenizer.tokenize(phrase)
                             wx = words2str(words)
+                            #if u'меня ведь кеша зовут да' in wx:
+                            #    pass
+
                             all_shingles.update(ngrams(wx, SHINGLE_LEN))
 
                     lines = []

@@ -227,7 +227,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 was_interpreted = True
 
         if was_interpreted:
-            self.interpreter.normalize_person(phrase, self.text_utils, self.word_embeddings)
+            phrase = self.interpreter.normalize_person(phrase, self.text_utils, self.word_embeddings)
 
         if not phrase_is_question and bot.order_templates is not None:
             # попробуем найти шаблон приказа, достаточно похожий на эту фразу
@@ -452,6 +452,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         answers = []
         answer_rels = []
+        best_rels = None
 
         # Нужна ли предпосылка, чтобы ответить на вопрос?
         # Используем модель, которая вернет вероятность того, что
@@ -468,6 +469,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                          self.word_embeddings)
             if len(answers) != 1:
                 self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
+
+            best_rels = answer_rels
         else:
             # определяем наиболее релевантную предпосылку
             memory_phrases = list(bot.facts.enumerate_facts(interlocutor))

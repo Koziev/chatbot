@@ -405,6 +405,9 @@ if run_mode == 'train':
 
     for i, record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles'):
         for phrase in [record['premise'], record['question']]:
+            #if phrase.startswith(u'как меня зовут'):
+            #    pass
+
             words = tokenizer.tokenize(phrase)
             wx = words2str(words)
             all_shingles.update(ngrams(wx, shingle_len))

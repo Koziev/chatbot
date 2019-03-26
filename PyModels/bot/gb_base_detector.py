@@ -30,15 +30,18 @@ class GB_BaseDetector(object):
         self.xgb_relevancy_nb_features = model_config['nb_features']
         self.xgb_relevancy_lemmatize = model_config['lemmatize']
 
+    def normalize_qline(self, phrase):
+        return phrase.replace(u'?', u' ').replace(u'!', u' ').strip()
+
     def calc_relevancy1(self, premise, question, text_utils, predictor_func):
         X_data = lil_matrix((1, self.xgb_relevancy_nb_features), dtype=self.x_matrix_type)
 
         if self.xgb_relevancy_lemmatize:
-            premise_words = text_utils.tokenize(premise)
-            question_words = text_utils.tokenize(question)
+            premise_words = text_utils.tokenize(self.normalize_qline(premise))
+            question_words = text_utils.tokenize(self.normalize_qline(question))
         else:
-            premise_words = text_utils.lemmatize(premise)
-            question_words = text_utils.lemmatize(question)
+            premise_words = text_utils.lemmatize(self.normalize_qline(premise))
+            question_words = text_utils.lemmatize(self.normalize_qline(question))
 
         premise_wx = text_utils.words2str(premise_words)
         question_wx = text_utils.words2str(question_words)
@@ -69,8 +72,22 @@ class GB_BaseDetector(object):
         релевантности и список соответствующих релевантностей.
         """
 
+        # НАЧАЛО ОТЛАДКИ
+        #phrases = []
+        #phrases.append((u'меня зовут кеша', None, None))
+        # КОНЕЦ ОТЛАДКИ
+
         nb_answers = len(phrases)
         X_data = lil_matrix((nb_answers, self.xgb_relevancy_nb_features), dtype=self.x_matrix_type)
+
+        # Единственный вопрос готовим заранее
+        if self.xgb_relevancy_lemmatize:
+            question_words = text_utils.lemmatize(self.normalize_qline(probe_phrase))
+        else:
+            question_words = text_utils.tokenize(self.normalize_qline(probe_phrase))
+
+        question_wx = text_utils.words2str(question_words)
+        question_shingles = set(text_utils.ngrams(question_wx, self.xgb_relevancy_shingle_len))
 
         # все предпосылки из текущей базы фактов векторизуем в один тензор, чтобы
         # прогнать его через классификатор разом.
@@ -79,17 +96,12 @@ class GB_BaseDetector(object):
                 raise ValueError()
 
             if self.xgb_relevancy_lemmatize:
-                premise_words = text_utils.tokenize(premise)
-                question_words = text_utils.tokenize(probe_phrase)
+                premise_words = text_utils.lemmatize(self.normalize_qline(premise))
             else:
-                premise_words = text_utils.lemmatize(premise)
-                question_words = text_utils.lemmatize(probe_phrase)
+                premise_words = text_utils.tokenize(self.normalize_qline(premise))
 
             premise_wx = text_utils.words2str(premise_words)
-            question_wx = text_utils.words2str(question_words)
-
             premise_shingles = set(text_utils.ngrams(premise_wx, self.xgb_relevancy_shingle_len))
-            question_shingles = set(text_utils.ngrams(question_wx, self.xgb_relevancy_shingle_len))
 
             self.xgb_relevancy_vectorize_sample_x(X_data, ipremise, premise_shingles, question_shingles,
                                                   self.xgb_relevancy_shingle2id)

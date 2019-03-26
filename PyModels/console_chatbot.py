@@ -13,6 +13,7 @@ from bot.console_utils import input_kbd, print_answer, print_tech_banner
 from bot.bot_scripting import BotScripting
 from bot.bot_personality import BotPersonality
 from bot.order_comprehension_table import OrderComprehensionTable
+from bot.plain_file_faq_storage import PlainFileFaqStorage
 from utils.logging_helpers import init_trainer_logging
 
 
@@ -51,7 +52,7 @@ facts_storage = Files3FactsStorage(text_utils=text_utils,
 
 scripting = BotScripting(data_folder)
 
-faq = None  #PlainFileFaqStorage(os.path.join(data_folder. 'faq2.txt')
+faq = PlainFileFaqStorage(os.path.join(data_folder, 'faq2.txt'))
 
 # Инициализируем бота.
 bot = BotPersonality(bot_id='test_bot',

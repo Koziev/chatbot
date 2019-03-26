@@ -52,16 +52,18 @@ class NN_RelevancyTripleLoss(RelevancyDetector):
 
         self.w2v_filename = os.path.basename(self.w2v_path)
 
+    def normalize_qline(self, phrase):
+        return phrase.replace(u'?', u' ').replace(u'!', u' ').strip()
 
     def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
-        all_phrases = list(itertools.chain(map(operator.itemgetter(0), phrases), [probe_phrase]))
+        all_phrases = list(itertools.chain(map(operator.itemgetter(0), phrases), [self.normalize_qline(probe_phrase)]))
         nb_phrases = len(all_phrases)
 
         pad_func = text_utils.lpad_wordseq if self.padding == 'left' else text_utils.rpad_wordseq
 
         X_data = np.zeros((nb_phrases, self.max_wordseq_len, self.word_dims), dtype=np.float32)
         for iphrase, phrase in enumerate(all_phrases):
-            words = pad_func(text_utils.tokenize(phrase), self.max_wordseq_len)
+            words = pad_func(text_utils.tokenize(self.normalize_qline(phrase)), self.max_wordseq_len)
             word_embeddings.vectorize_words(self.w2v_filename, words, X_data, iphrase)
 
         y_pred = self.model.predict(x=X_data, verbose=0)

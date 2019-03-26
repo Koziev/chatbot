@@ -47,7 +47,7 @@ def normalize_qline(line):
     line = line.replace(u'Q:', u'')
     line = line.replace(u'A:', u'')
     line = line.replace(u'\t', u' ')
-    line = line.replace('.', ' ').replace(',', ' ').replace('?', ' ').replace('!', ' ').replace('-', ' ')
+    line = line.replace('.', ' ').replace('?', ' ').replace('!', ' ')
     line = line.replace('  ', ' ').strip().lower()
     line = ru_sanitize(line)
     return line
