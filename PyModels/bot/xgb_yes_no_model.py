@@ -62,13 +62,18 @@ class XGB_YesNoModel(YesNoModel):
             else:
                 X_data[idata, icol + shingle2id[shingle]] = True
 
+    def remove_ending(self, s):
+        if s.endswith(u'.'):
+            s = s[:-1]
+        return s.replace('?', '').replace('!', '').strip()
+
     def calc_yes_no(self, premise_str_list, question_str, text_utils, word_embeddings):
         assert(len(premise_str_list) <= 1)
 
         premise_str = premise_str_list[0] if len(premise_str_list) == 1 else u''
 
-        premise_words = text_utils.tokenize(premise_str.replace('.', '').strip())
-        question_words = text_utils.tokenize(question_str.replace('?', '').strip())
+        premise_words = text_utils.tokenize(self.remove_ending(premise_str))
+        question_words = text_utils.tokenize(self.remove_ending(question_str))
 
         premise_wx = text_utils.words2str(premise_words)
         question_wx = text_utils.words2str(question_words)

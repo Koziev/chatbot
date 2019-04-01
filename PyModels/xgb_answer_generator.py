@@ -53,7 +53,7 @@ BEG_LEN = 10  # длина в символах начального фрагме
 END_LEN = 10  # длина в символах конечного фрагмента фраз, который дает отдельные фичи
 
 NB_TREES = 10000
-MAX_DEPTH = 8  # макс. глубина для градиентного бустинга
+MAX_DEPTH = 6  #8  # макс. глубина для градиентного бустинга
 
 
 # -------------------------------------------------------------------
@@ -338,6 +338,7 @@ if run_mode == 'train':
     samples0 = []
     max_nb_premises = 0  # макс. число предпосылок в сэмплах
     tokenizer = Tokenizer()
+    tokenizer.load()
 
     with codecs.open(input_path, 'r', 'utf-8') as rdr:
         lines = []
@@ -578,15 +579,6 @@ if run_mode == 'train':
         print(u'Missing in y_test: {}'.format(c))
 
 
-    # DEBUG BEGIN
-    if False:
-        with codecs.open('../tmp/cy.txt', 'w', 'utf-8') as wrt:
-            cy = Counter()
-            cy.update(y_test)
-            for y, n in cy.most_common():
-                wrt.write(u'{:3d} {:2s} {}\n'.format(y, encode_char(id2outchar[y]), n))
-    # DEBUG END
-
     D_train = xgboost.DMatrix(X_train, y_train, silent=0)
     D_val = xgboost.DMatrix(X_test, y_test, silent=0)
 
@@ -596,7 +588,7 @@ if run_mode == 'train':
         'max_depth': MAX_DEPTH,
         'seed': 123456,
         'min_child_weight': 1,
-        'eta': 0.45,
+        'eta': 0.35,
         'gamma': 0.01,
         'colsample_bytree': 1.0,
         'colsample_bylevel': 1.0,

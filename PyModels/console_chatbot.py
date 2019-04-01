@@ -43,7 +43,7 @@ text_utils.load_dictionaries(data_folder)
 # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
 # ботов, хотя тут у нас будет работать только один.
 machine = SimpleAnsweringMachine(text_utils=text_utils)
-machine.load_models(models_folder, w2v_folder)
+machine.load_models(data_folder, models_folder, w2v_folder)
 machine.trace_enabled = True  # для отладки
 
 # Конкретная реализация хранилища фактов - плоские файлы с utf-8, без форматирования.

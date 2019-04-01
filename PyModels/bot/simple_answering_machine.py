@@ -27,6 +27,7 @@ from nn_interpreter import NN_Interpreter
 from nn_req_interpretation import NN_ReqInterpretation
 from modality_detector import ModalityDetector
 from simple_modality_detector import SimpleModalityDetectorRU
+from no_information_model import NoInformationModel
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -44,6 +45,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
         self.min_premise_relevancy = 0.6
+        self.min_faq_relevancy = 0.7
 
     def get_model_filepath(self, models_folder, old_filepath):
         """
@@ -53,9 +55,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         _, tail = os.path.split(old_filepath)
         return os.path.join(models_folder, tail)
 
-    def load_models(self, models_folder, w2v_folder):
+    def load_models(self, data_folder, models_folder, w2v_folder):
         self.logger.info(u'Loading models from {}'.format(models_folder))
         self.models_folder = models_folder
+
+        self.premise_not_found = NoInformationModel()
+        self.premise_not_found.load(models_folder, data_folder)
 
         # Загружаем общие параметры для сеточных моделей
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
@@ -122,6 +127,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         w2v_path = self.relevancy_detector.get_w2v_path()
         if w2v_path is not None:
             self.word_embeddings.load_w2v_model(w2v_path)
+
+        if self.premise_not_found.get_w2v_path():
+            self.word_embeddings.load_w2v_model(self.premise_not_found.get_w2v_path())
 
         self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
         self.logger.debug('All models loaded')
@@ -238,22 +246,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 phrase_is_question = self.is_question(phrase)
                 was_interpreted = True
 
-        if not was_interpreted:  #person is None:
-            # определим грамматическое лицо введенного предложения.
-            #person = self.person_classifier.detect_person(raw_phrase, self.text_utils, self.word_embeddings)
-            #if self.trace_enabled:
-            #    self.logger.debug('detected person={}'.format(person))
-
-            # Может потребоваться смена грамматического лица.
-            #if person == '1s':
-            #    phrase = self.change_person(raw_phrase, '2s')
-            #elif person == '2s':
-            #    phrase = self.change_person(raw_phrase, '1s')
+        if not was_interpreted:
             phrase = self.interpreter.normalize_person(raw_phrase, self.text_utils, self.word_embeddings)
 
         interpreted.interpretation = phrase
         interpreted.is_question = phrase_is_question
-        #interpreted.phrase_person = person
         return interpreted
 
     def say(self, session, answer):
@@ -436,6 +433,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.info(u'Process order \"{}\"'.format(interpreted_phrase.interpretation))
         bot.process_order(session, interpreted_phrase)
 
+    def premise_not_found(self, phrase, bot, text_utils, word_embeddings):
+        return self.premise_not_found_model.generate_answer(phrase, bot, text_utils, word_embeddings)
+
     def build_answers0(self, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
             self.logger.debug(u'Question to process={}'.format(interpreted_phrase.interpretation))
@@ -487,17 +487,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             if len(answers) == 0:
                 if bot.premise_is_answer:
-                    # В качестве ответа используется весь текст найденной предпосылки.
-                    answers = [best_premises[0]]
-                    answer_rels = [best_rels[0]]
+                    if best_rels[0] >= self.min_premise_relevancy:
+                        # В качестве ответа используется весь текст найденной предпосылки.
+                        answers = [best_premises[:1]]
+                        answer_rels = [best_rels[:1]]
                 else:
                     premises2 = []
                     premise_rels2 = []
 
                     # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
                     if True:
-                        premises2 = [best_premises[:1]]
-                        premise_rels2 = best_rels[:1]
+                        if best_rels[0] >= self.min_premise_relevancy:
+                            premises2 = [best_premises[:1]]
+                            premise_rels2 = best_rels[:1]
                     else:
                         max_rel = max(best_rels)
                         for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):
@@ -505,19 +507,29 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 premises2.append([premise])
                                 premise_rels2.append(rel)
 
-                    # генерация ответа на основе выбранной предпосылки.
-                    answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
-                                                                                 interpreted_phrase.interpretation,
-                                                                                 self.text_utils,
-                                                                                 self.word_embeddings)
+                    if len(premises2) > 0:
+                        # генерация ответа на основе выбранной предпосылки.
+                        answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                     interpreted_phrase.interpretation,
+                                                                                     self.text_utils,
+                                                                                     self.word_embeddings)
 
-        if len(best_rels) == 0 or best_faq_rel > best_rels[0]:
+        if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если
             # генератор ответа вообще ничего не выдал (в базе фактов пусто), то берем
             # тест ответа из FAQ.
             answers = [best_faq_answer]
             answer_rels = [best_faq_rel]
             self.logger.info(u'FAQ entry provides best answer={} with rel={}'.format(best_faq_answer, best_faq_rel))
+
+        if len(answers) == 0:
+            # Не удалось найти предпосылку для формирования ответа.
+            answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
+                                                            bot,
+                                                            self.text_utils,
+                                                            self.word_embeddings)
+            answers.append(answer)
+            answer_rels.append(1.0)
 
         return answers, answer_rels
 

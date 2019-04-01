@@ -8,6 +8,7 @@
 Датасет должен быть сгенерирован и находится в папке ../data (см. prepare_qa_dataset.py)
 
 19.03.2019 Добавлен gridsearch, в том числе подбор весов классов (scale_pos_weight)
+31.03.2019 Добавлены композитные шинглы из соседних слов и отсечение по частоте употребления
 """
 
 from __future__ import division  # for python2 compatibility
@@ -20,6 +21,7 @@ import os
 import argparse
 import logging
 import math
+import collections
 
 import numpy as np
 import sklearn.metrics
@@ -61,7 +63,25 @@ def words2str(words):
     return u' '.join(itertools.chain([BEG_WORD], words, [END_WORD]))
 
 
-def load_samples(input_path):
+def get_ngrams(phrase, tokenizer, params):
+    words = tokenizer.tokenize(phrase)
+    shingles1 = ngrams(words2str(words), SHINGLE_LEN)
+    if params['shingles2']:
+        shingles2 = []
+        for w1, w2 in zip(words, words[1:]):
+            sx1 = ngrams(BEG_WORD+w1+END_WORD, 3)
+            sx2 = ngrams(BEG_WORD+w2+END_WORD, 3)
+            for s1 in sx1:
+                for s2 in sx2:
+                    shingles2.append(s1+u'+++'+s2)
+        return shingles1 + shingles2
+    else:
+        return shingles1
+
+
+
+
+def load_samples(input_path, params):
     tokenizer = Tokenizer()
     tokenizer.load()
 
@@ -73,6 +93,7 @@ def load_samples(input_path):
     nb_yes = 0  # кол-во ответов "да"
     nb_no = 0  # кол-во ответов "нет"
     max_nb_premises = 0  # макс. число предпосылок в сэмплах
+    shingle2freq = collections.Counter()
 
     with codecs.open(input_path, 'r', 'utf-8') as rdr:
         lines = []
@@ -95,12 +116,9 @@ def load_samples(input_path):
                             nb_no += 1
 
                         for phrase in lines:
-                            words = tokenizer.tokenize(phrase)
-                            wx = words2str(words)
-                            #if u'меня ведь кеша зовут да' in wx:
-                            #    pass
-
-                            all_shingles.update(ngrams(wx, SHINGLE_LEN))
+                            shingles = get_ngrams(phrase, tokenizer, params)
+                            all_shingles.update(shingles)
+                            shingle2freq.update(shingles)
 
                     lines = []
 
@@ -109,6 +127,10 @@ def load_samples(input_path):
 
     logging.info('samples.count={}'.format(len(samples0)))
     logging.info('max_nb_premises={}'.format(max_nb_premises))
+
+    if params['min_shingle_freq'] > 1:
+        # Исключаем малочастотные фичи
+        all_shingles = [shingle for shingle in all_shingles if shingle2freq[shingle] >= params['min_shingle_freq']]
 
     nb_shingles = len(all_shingles)
     logging.info('nb_shingles={}'.format(nb_shingles))
@@ -176,17 +198,18 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shing
 
     icol = 0
     for shingle in common_shingles:
-        X_data[idata, icol+shingle2id[shingle]] = True
+        if shingle in shingle2id:
+            X_data[idata, icol+shingle2id[shingle]] = True
 
     icol += nb_shingles
     for shingle in notmatched_ps:
-        if shingle not in shingle2id:
-            pass
-        X_data[idata, icol+shingle2id[shingle]] = True
+        if shingle in shingle2id:
+            X_data[idata, icol+shingle2id[shingle]] = True
 
     icol += nb_shingles
     for shingle in notmatched_qs:
-        X_data[idata, icol+shingle2id[shingle]] = True
+        if shingle in shingle2id:
+            X_data[idata, icol+shingle2id[shingle]] = True
 
 
 def train_model(params, X_train, y_train, X_val, y_val):
@@ -269,8 +292,6 @@ if __name__ == '__main__':
 
     utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'xgb_yes_no.log'))
 
-    samples, X_data, y_data, computed_params = load_samples(input_path)
-
     if run_mode == 'gridsearch':
         params = dict()
 
@@ -280,62 +301,70 @@ if __name__ == '__main__':
         best_score = -np.inf
         crossval_count = 0
 
-        for subsample in [1.0, 0.9, 0.8]:
-            params['subsample'] = subsample
+        for min_shingle_freq in [10, 2, 1]:
+            params['min_shingle_freq'] = min_shingle_freq
 
-            for max_depth in [3, 4, 5]:
-                params['max_depth'] = max_depth
+            for shingles2 in [True, False]:
+                params['shingles2'] = shingles2
 
-                for min_child_weight in [1.0]:
-                    params['min_child_weight'] = min_child_weight
+                samples, X_data, y_data, computed_params = load_samples(input_path, params)
 
-                    for eta in [0.1, 0.2, 0.3]:
-                        params['eta'] = eta
+                for subsample in [1.0, 0.9, 0.8]:
+                    params['subsample'] = subsample
 
-                        for gamma in [0.01, 0.1]:
-                            params['gamma'] = gamma
+                    for max_depth in [3, 4, 5]:
+                        params['max_depth'] = max_depth
 
-                            for colsample_bytree in [1.0, 0.8]:
-                                params['colsample_bytree'] = colsample_bytree
+                        for min_child_weight in [1.0]:
+                            params['min_child_weight'] = min_child_weight
 
-                                for colsample_bylevel in [1.0, 0.8]:
-                                    params['colsample_bylevel'] = colsample_bylevel
+                            for eta in [0.1, 0.2, 0.3]:
+                                params['eta'] = eta
 
-                                    n0 = computed_params['nb_no']
-                                    n1 = computed_params['nb_yes']
-                                    for scale_pos_weight in [1.0, (n0/float(n1+n0)), math.sqrt((n0/float(n0+n1)))]:
-                                        params['scale_pos_weight'] = scale_pos_weight
+                                for gamma in [0.01, 0.1]:
+                                    params['gamma'] = gamma
 
-                                        crossval_count += 1
-                                        logging.info('Start crossvalidation #{} for params={}'.format(crossval_count, get_params_str(params)))
+                                    for colsample_bytree in [1.0, 0.8]:
+                                        params['colsample_bytree'] = colsample_bytree
 
-                                        kf = StratifiedKFold(n_splits=3)
-                                        scores = []
-                                        for ifold, (train_index, val_index) in enumerate(kf.split(X_data, y_data)):
-                                            logging.info('KFold[{}]'.format(ifold))
+                                        for colsample_bylevel in [1.0, 0.8]:
+                                            params['colsample_bylevel'] = colsample_bylevel
 
-                                            X_train = X_data[train_index]
-                                            y_train = y_data[train_index]
-                                            X_val12 = X_data[val_index]
-                                            y_val12 = y_data[val_index]
+                                            n0 = computed_params['nb_no']
+                                            n1 = computed_params['nb_yes']
+                                            for scale_pos_weight in [1.0, (n0/float(n1+n0)), math.sqrt((n0/float(n0+n1)))]:
+                                                params['scale_pos_weight'] = scale_pos_weight
 
-                                            X_val, X_finval, y_val, y_finval = train_test_split(X_val12,
-                                                                                                y_val12,
-                                                                                                test_size=0.5,
-                                                                                                random_state=123456)
+                                                crossval_count += 1
+                                                logging.info('Start crossvalidation #{} for params={}'.format(crossval_count, get_params_str(params)))
 
-                                            cl = train_model(params, X_train, y_train, X_val, y_val)
-                                            f1 = score_model(cl, X_finval, y_finval)
-                                            logging.info('KFold[{}] f1={}'.format(ifold, f1))
-                                            scores.append(f1)
+                                                kf = StratifiedKFold(n_splits=3)
+                                                scores = []
+                                                for ifold, (train_index, val_index) in enumerate(kf.split(X_data, y_data)):
+                                                    logging.info('KFold[{}]'.format(ifold))
 
-                                        score = np.mean(scores)
-                                        score_std = np.std(scores)
-                                        logging.info('Crossvalidation #{} score={} std={}'.format(crossval_count, score, score_std))
-                                        if score > best_score:
-                                            best_params = params.copy()
-                                            best_score = score
-                                            logging.info('!!! NEW BEST score={} params={}'.format(best_score, get_params_str(best_params)))
+                                                    X_train = X_data[train_index]
+                                                    y_train = y_data[train_index]
+                                                    X_val12 = X_data[val_index]
+                                                    y_val12 = y_data[val_index]
+
+                                                    X_val, X_finval, y_val, y_finval = train_test_split(X_val12,
+                                                                                                        y_val12,
+                                                                                                        test_size=0.5,
+                                                                                                        random_state=123456)
+
+                                                    cl = train_model(params, X_train, y_train, X_val, y_val)
+                                                    f1 = score_model(cl, X_finval, y_finval)
+                                                    logging.info('KFold[{}] f1={}'.format(ifold, f1))
+                                                    scores.append(f1)
+
+                                                score = np.mean(scores)
+                                                score_std = np.std(scores)
+                                                logging.info('Crossvalidation #{} score={} std={}'.format(crossval_count, score, score_std))
+                                                if score > best_score:
+                                                    best_params = params.copy()
+                                                    best_score = score
+                                                    logging.info('!!! NEW BEST score={} params={}'.format(best_score, get_params_str(best_params)))
 
         logging.info('Grid search complete, best_score={} best_params={}'.format(best_score, get_params_str(best_params)))
 
@@ -343,16 +372,18 @@ if __name__ == '__main__':
         logging.info('Train')
 
         params = dict()
-        samples, X_data, y_data, computed_params = load_samples(input_path)
-
+        params['shingles2'] = False
+        params['min_shingle_freq'] = 2
         params['subsample'] = 1.0
-        params['max_depth'] = 5
+        params['max_depth'] = 7
         params['min_child_weight'] = 1.0
         params['eta'] = 0.30
         params['gamma'] = 0.1
         params['colsample_bytree'] = 1.0
         params['colsample_bylevel'] = 1.0
         params['scale_pos_weight'] = 1.0
+
+        samples, X_data, y_data, computed_params = load_samples(input_path, params)
 
         samples_train, samples_val, X_train, X_val, y_train, y_val = train_test_split(samples,
                                                                                       X_data,
@@ -369,7 +400,8 @@ if __name__ == '__main__':
                         'model_filename': model_filename,
                         'shingle_len': SHINGLE_LEN,
                         'nb_features': computed_params['nb_features'],
-                        'feature_names': computed_params['feature_names']
+                        'feature_names': computed_params['feature_names'],
+                        'shingles2': params['shingles2']
                        }
 
         with open(os.path.join(tmp_folder, 'xgb_yes_no.config'), 'w') as f:
