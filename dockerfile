@@ -1,0 +1,48 @@
+FROM nitincypher/docker-ubuntu-python-pip
+
+RUN apt-get update
+RUN apt-get -y install git-core
+RUN pip install --upgrade pip
+RUN pip install git+https://github.com/Koziev/rutokenizer
+RUN pip install git+https://github.com/Koziev/rupostagger
+RUN pip install git+https://github.com/Koziev/ruword2tags
+RUN pip install xgboost
+RUN pip install lightgbm
+RUN pip install keras
+RUN pip install sklearn
+RUN pip install pymystem3
+RUN pip install gensim
+RUN pip install pathlib
+RUN pip install python-crfsuite
+RUN pip install git+https://github.com/Koziev/rusyllab
+RUN pip install tensorflow
+RUN pip install colorama
+
+WORKDIR /chatbot/PyModels/bot
+COPY ./PyModels/bot/*.py ./
+
+WORKDIR /chatbot/PyModels/bot_service
+COPY ./PyModels/bot_service/*.py ./
+
+WORKDIR /chatbot/PyModels/order_translator
+COPY ./PyModels/order_translator/*.py ./
+
+WORKDIR /chatbot/PyModels/trainers
+COPY ./PyModels/trainers/*.py ./
+
+WORKDIR /chatbot/PyModels/utils
+COPY ./PyModels/utils/*.py ./
+
+WORKDIR /chatbot/PyModels
+COPY ./PyModels/console_chatbot.py ./
+
+WORKDIR /chatbot/data
+COPY ./data/*.* ./
+
+WORKDIR /chatbot/tmp
+COPY ./tmp/*.* ./
+
+WORKDIR /chatbot/scripts
+COPY ./scripts/console_bot.sh ./
+
+CMD "/chatbot/scripts/console_bot.sh"
