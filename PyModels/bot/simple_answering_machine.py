@@ -379,23 +379,24 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                     # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
                     # максимально близкие к вопросам в smalltalk базе.
-                    smalltalk_utterances = set()
-                    for item in smalltalk_phrases:
-                        smalltalk_utterances.update(item.answers)
+                    if False:
+                        smalltalk_utterances = set()
+                        for item in smalltalk_phrases:
+                            smalltalk_utterances.update(item.answers)
 
-                    interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=False)
-                    for phrase, timegap in interlocutor_phrases:
-                        # Ищем ближайшие реплики для данной реплики человека phrase
-                        similar_items = self.synonymy_detector.get_most_similar(phrase,
-                                                                                [(s, -1, -1) for s in smalltalk_utterances],
-                                                                                self.text_utils,
-                                                                                self.word_embeddings,
-                                                                                nb_results=5
-                                                                                )
-                        for replica, rel in similar_items:
-                            if session.count_bot_phrase(replica) == 0:
-                                time_decay = math.exp(-timegap)
-                                generated_replicas.append((replica, rel * 0.9 * time_decay, 'debug3'))
+                        interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=False)
+                        for phrase, timegap in interlocutor_phrases:
+                            # Ищем ближайшие реплики для данной реплики человека phrase
+                            similar_items = self.synonymy_detector.get_most_similar(phrase,
+                                                                                    [(s, -1, -1) for s in smalltalk_utterances],
+                                                                                    self.text_utils,
+                                                                                    self.word_embeddings,
+                                                                                    nb_results=5
+                                                                                    )
+                            for replica, rel in similar_items:
+                                if session.count_bot_phrase(replica) == 0:
+                                    time_decay = math.exp(-timegap)
+                                    generated_replicas.append((replica, rel * 0.9 * time_decay, 'debug3'))
 
                     # Теперь среди подобранных реплик бота в generated_replicas выбираем
                     # одну, учитывая их вес.
@@ -420,7 +421,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
             # Например, для смены темы разговора.
             if len(answers) > 0:
-                if bot.has_scripting():
+                if False:  #bot.has_scripting():
                     additional_speech = bot.scripting.generate_after_answer(bot,
                                                                             self,
                                                                             interlocutor,
@@ -539,7 +540,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # тут нужен алгоритм генерации ответа в условиях, когда
             # у бота нет нужных фактов. Это может быть как ответ "не знаю",
             # так и вариант "нет" для определенных категорий вопросов.
-            if bot.has_scripting():
+            if False:  #bot.has_scripting():
                 answer = bot.scripting.buid_answer(self, interlocutor, interpreted_phrase)
                 answers = [answer]
 

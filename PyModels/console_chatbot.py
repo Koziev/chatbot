@@ -60,8 +60,8 @@ bot = BotPersonality(bot_id='test_bot',
                      facts=facts_storage,
                      faq=faq,
                      scripting=scripting,
-                     enable_scripting=False,
-                     enable_smalltalk=False)
+                     enable_scripting=True,
+                     enable_smalltalk=True)
 
 oct = OrderComprehensionTable()
 oct.load_file(os.path.join(data_folder, 'orders.txt'))  # загружаем таблицу интерпретации приказов

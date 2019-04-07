@@ -38,7 +38,7 @@ def load_samples(input_path):
     samples1 = set()  # не нуждаются в интерпретации
     with io.open(input_path, 'r', encoding='utf-8') as rdr:
         phrases = []
-        for line in rdr:
+        for iline, line in enumerate(rdr):
             line = line.strip()
             if len(line) == 0:
                 if len(phrases) > 0:
@@ -46,9 +46,21 @@ def load_samples(input_path):
                         if '|' in phrase:
                             px = phrase.lower().split('|')
                             if px[0] != px[1]:
-                                samples1.add(px[0])
+                                left = px[0].strip()
+                                if not left:
+                                    print(u'Empty left part in line #{}'.format(iline))
+                                    exit(0)
+                                else:
+                                    samples1.add(left)
 
-                            samples0.add(px[1])  # правая часть интерпретации не нуждается в переинтерпретации!
+                            right = px[1].strip()
+                            if not right:
+                                print(u'Empty left part in line #{}'.format(iline))
+                                exit(0)
+                            else:
+                                # правая часть интерпретации не нуждается в переинтерпретации,
+                                # так как совпадает с левой.
+                                samples0.add(right)
 
                 phrases = []
             else:

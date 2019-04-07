@@ -45,7 +45,7 @@ class WordEmbeddings(object):
           вектор встраивания для слова.
         """
 
-        logging.info('Loading the wordchar2vector model {} '.format(wordchar2vector_path), end='')
+        logging.info('Loading the wordchar2vector model {} '.format(wordchar2vector_path))
         # Грузим заранее подготовленные векторы слов для модели
         # встраивания wordchar2vector (см. wordchar2vector.py)
         wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
@@ -53,14 +53,14 @@ class WordEmbeddings(object):
         logging.debug('wc2v_dims={0}'.format(wc2v_dims))
 
         if os.path.basename(word2vector_path).startswith('fasttext'):
-            logging.info('Loading FastText model {} '.format(word2vector_path), end='')
+            logging.info('Loading FastText model {} '.format(word2vector_path))
             WordEmbeddings._flush_print()
             w2v = FastText.load_fasttext_format(word2vector_path)
             w2v_dims = w2v.vector_size
             print('w2v_dims={0}'.format(w2v_dims))
             return WordEmbeddings_FastText(wc2v, wc2v_dims, w2v, w2v_dims)
         else:
-            logging.info('Loading w2v model {} '.format(word2vector_path), end='')
+            logging.info('Loading w2v model {} '.format(word2vector_path))
             WordEmbeddings._flush_print()
             w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
             w2v_dims = len(w2v.syn0[0])

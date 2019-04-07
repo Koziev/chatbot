@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Подготовка датасетов для тренировки моделей, определяющих СИНОНИМИЮ - семантическую
+Подготовка датасетов для тренировки моделей, определяющих СИНОНИМИЧНОСТЬ - семантическую
 эквивалентность двух фраз, включая позиционные и синтаксические перефразировки,
 лексические и фразовые синонимы. В отличие от модели для РЕЛЕВАНТНОСТИ предпосылки
 и вопроса (см. nn_relevancy.py и lgb_relevancy.py), в этой модели предполагается,
@@ -8,11 +8,14 @@
 "черная кошка сладко спит" не считаются полными синонимами.
 
 Для проекта чатбота https://github.com/Koziev/chatbot
+
+01.04.2019 Добавляем негативные примеры из файла nonrelevant_premise_questions.txt
 """
 
 from __future__ import division
 from __future__ import print_function
 
+import io
 import codecs
 import itertools
 import operator
@@ -97,9 +100,9 @@ class Sample3:
     def __init__(self, anchor, positive, negative):
         assert(len(anchor) > 0)
         assert(len(positive) > 0)
-        self.anchor = anchor
-        self.positive = positive
-        self.negative = negative
+        self.anchor = anchor.strip()
+        self.positive = positive.strip()
+        self.negative = negative.strip()
 
     def key(self):
         return self.anchor + u'|' + self.positive + u'|' + self.negative
@@ -148,7 +151,7 @@ class PhraseCleaner:
 # настраиваем логирование в файл
 utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_synonymy_dataset.log'))
 
-logging.info('Start')
+logging.info('Start "{}"'.format(os.path.basename(__file__)))
 
 fcleaner = PhraseCleaner()
 
@@ -201,7 +204,7 @@ with codecs.open(input_path, 'r', 'utf-8') as rdr:
         else:
             group.append(phrase)
 
-logging.info('[[[OK]]] {} pairs (positive and negative ones) have been loaded from "{}"'.format(len(samples), input_path))
+logging.info('{} pairs (positive and negative ones) have been loaded from "{}"'.format(len(samples), input_path))
 
 # Из датасета для "антонимов" берем обязательные негативные примеры.
 group = []
@@ -234,6 +237,22 @@ with codecs.open(os.path.join(data_folder, 'contradictions.txt'), 'r', 'utf-8') 
             group.append(phrase)
 
 logging.info('{} antonyms loaded from "contradictions.txt"'.format(nb_antonyms))
+
+
+# Из датасета "нерелевантные пары" берем пары фраз, которые гарантированно не являются синонимами
+nb_nonrelevants = 0
+with io.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', encoding='utf-8') as rdr:
+    for line in rdr:
+        parts = line.strip().split(u'|')
+        if len(parts) == 2:
+            phrase1 = fcleaner.process(parts[0])
+            phrase2 = fcleaner.process(parts[1])
+            samples.append(Sample(phrase1, phrase2, 0))
+            phrase2group[phrase1] = -1
+            phrase2group[phrase2] = -1
+            nb_nonrelevants += 1
+logging.info('{} nonrelevant pairs loaded from "nonrelevant_premise_questions.txt"'.format(nb_nonrelevants))
+
 
 # добавим некоторое кол-во идентичных пар.
 all_phrases = set()
@@ -296,7 +315,7 @@ neg_samples = NegSamples()
 # Добавим негативные сэмплы, похожие на фразы в позитивных.
 # Это должно обучить модель не полагаться просто на наличие одинаковых слов.
 if ADD_SIMILAR_NEGATIVES:
-    for phrase1 in tqdm.tqdm(all_phrases, total=len(all_phrases), desc='Adding similar negatives'):
+    for phrase1 in all_phrases:
         similar_phrases2 = collections.Counter()
         group1 = phrase2group[phrase1]
         for word1 in phrase1.split(u' '):
@@ -354,7 +373,7 @@ for sample in samples:
 logging.info('max_wordseq_len={}'.format(max_wordseq_len))
 
 # сохраним получившийся датасет в CSV
-logging.info(u'Storing result dataset to "{}"'.format(output_filepath))
+logging.info(u'Storing result dataset with {} rows to "{}"'.format(len(samples), output_filepath))
 with codecs.open(output_filepath, 'w', 'utf-8') as wrt:
     # Заголовки делаем как у датасета relevancy моделей, чтобы их можно было использовать без переделок.
     wrt.write(u'premise\tquestion\trelevance\tweight\n')
@@ -492,7 +511,7 @@ with codecs.open('../../data/paraphrases.txt', 'r', 'utf-8') as rdr:
         else:
             group.append(phrase)
 
-logging.info('[[[OK]]] {} positive pairs have been loaded from "{}"'.format(nb_paraphrases1, input_path))
+logging.info('{} positive pairs have been loaded from "{}"'.format(nb_paraphrases1, input_path))
 
 # добавим некоторое кол-во идентичных пар.
 all_phrases = set()
@@ -550,7 +569,7 @@ for phrase in all_phrases:
             word2phrases[word].append(phrase)
 
 # Идем по накопленным сэмплам и добавляем для каждого негативную фразу
-for sample in tqdm.tqdm(samples2, total=len(samples2), desc='Adding negative phrases'):
+for sample in samples2:
     phrase1 = sample.anchor
     group1 = phrase2group[phrase1]
     if ADD_SIMILAR_NEGATIVES:
@@ -597,4 +616,5 @@ with codecs.open(output_filepath3, 'w', 'utf-8') as wrt:
     for sample in samples3:
         wrt.write(u'{}\t{}\t{}\n'.format(sample.anchor, sample.positive, sample.negative))
 
-logging.info('Finish')
+logging.info('Finish "{}"'.format(os.path.basename(__file__)))
+
