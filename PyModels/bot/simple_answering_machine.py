@@ -214,10 +214,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
                     was_interpreted = True
 
+        # and last_phrase.is_question\
         if not was_interpreted\
                 and len(session.conversation_history) > 0\
                 and last_phrase.is_bot_phrase\
-                and last_phrase.is_question\
                 and not phrase_is_question\
                 and self.interpreter is not None:
 
@@ -225,7 +225,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                               self.text_utils,
                                                               self.word_embeddings):
                 # В отдельной ветке обрабатываем ситуацию, когда бот
-                # задал вопрос, на который собеседник дал краткий ответ.
+                # задал вопрос или квази-вопрос типа "А давай xxx", на который собеседник дал краткий ответ.
                 # с помощью специальной модели мы попробуем восстановить полный
                 # текст ответа собеседника.
                 context_phrases = list()
