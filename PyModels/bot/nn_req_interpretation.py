@@ -47,7 +47,11 @@ class NN_ReqInterpretation(BaseUtteranceInterpreter):
         else:
             return rpad_wordseq(words, n)
 
-    def require_interpretation(self, phrase, text_utils, word_embeddings):
+    def require_interpretation(self, phrase0, text_utils, word_embeddings):
+        phrase = phrase0.strip()
+        if phrase[-1] in u'?.!':
+            phrase = phrase[:-1].strip()
+
         phrase_words = text_utils.tokenizer.tokenize(phrase)
 
         X_batch  = np.zeros((1, self.max_wordseq_len, self.word_dims), dtype=np.float32)
