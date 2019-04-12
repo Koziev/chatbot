@@ -58,6 +58,25 @@ pip install git+https://github.com/Koziev/rusyllab
 
 Затем запустить .../script/console_bot.sh
 
+
+## Кастомизация чатбота
+
+Следующие текстовые файлы читаются чатботом при старте и могут использоваться для настройки ответов.
+
+[data/faq2.txt](https://github.com/Koziev/chatbot/blob/master/data/faq2.txt) - развернутые ответы на вопросы типа "Как возникает молния?".
+
+[data/premises*.txt](https://github.com/Koziev/chatbot/blob/master/data/premises_1s.txt) - факты относительно себя и окружающего мира, на основе которых чатбот делает логические выводы и строит ответы.
+В частности, именно тут содержится имя чатбота.
+
+[data/smalltalk.txt](https://github.com/Koziev/chatbot/blob/master/data/smalltalk.txt) - всевозможные типовые реплики чатбота, например отклик на приветствие и т.д.
+
+[data/smalltalk_opening.txt](https://github.com/Koziev/chatbot/blob/master/data/smalltalk_opening.txt) - фразы приветствия при запуске чатбота.
+
+При добавлении новых фраз в вышеуказанные файлы следует по возможности воздерживаться от использования лексики, неизвестной языковым моделям чатбота.
+С определенными оговорками, список слов в файле [tmp/dataset_words.txt](https://github.com/Koziev/chatbot/blob/master/tmp/dataset_words.txt)
+известен чатботу и модет использоваться.
+
+
 ## Основные особенности чатбота
 
 1) Новая информация (факты), сообщаемые пользователем, могут немедленно добавляться
@@ -150,7 +169,6 @@ B:> 5
 Определение достаточности набора предпосылок для генерации ответа [nn_enough_premises_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_enough_premises_model.py)  
 Генерация ответов yes/no [nn_yes_no_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_yes_no_model.py)  
 Посимвольная генерация ответа [xgb_answer_generator_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_answer_generator_model.py)  
-Определение грамматического лица фразы [xgb_person_classifier_model.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/xgb_person_classifier_model.py)  
 Определение релевантности предпосылки и вопроса [lgb_relevancy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/lgb_relevancy_detector.py)  
 Интерпретация реплики собеседника (раскрытие анафоры, дополнение ответа etc) [nn_interpreter.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_interpreter.py)  
 Определение синонимии фраз [nn_synonymy_detector.py](https://github.com/Koziev/chatbot/tree/master/PyModels/bot/nn_synonymy_detector.py)  
