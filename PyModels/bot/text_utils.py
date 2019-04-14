@@ -32,7 +32,9 @@ class TextUtils(object):
     def load_dictionaries(self, data_folder):
         word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
         self.lexicon.load(word2lemmas_path)
-        self.postagger.load()
+
+        word2tags_path = os.path.join(data_folder, 'chatbot_word2tags.dat')
+        self.postagger.load(word2tags_path)
 
     def tag(self, words):
         """ Частеречная разметка для цепочки слов words """
@@ -42,6 +44,10 @@ class TextUtils(object):
         """ Удаляем два и более пробелов подряд, заменяя на один """
         s = re.sub("(\\s{2,})", ' ', s.strip())
         return s
+
+    def remove_terminators(self, s):
+        """ Убираем финальные пунктуаторы ! ? ."""
+        return s[:-1].strip() if s[-1] in u'?!.' else s
 
     def wordize_text(self, s):
         return u' '.join(self.tokenize(s))

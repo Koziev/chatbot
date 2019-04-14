@@ -126,7 +126,6 @@ def create_model(params, computed_params):
     return model
 
 
-
 def vectorize_words(words, X_batch, irow, word2vec):
     for iword, word in enumerate(words):
         if word != PAD_WORD:
@@ -224,7 +223,7 @@ def score_model(model, val_samples, params, computed_params):
     return f1
 
 
-def report_model(model, eval_samples, params, computed_params, output_path):
+def report_model(model, samples, params, computed_params, output_path):
     # Для отладки - прогоним весь набор данных через модель и сохраним
     # результаты классификации в файл для визуальной проверки.
     with io.open(output_path, 'w', encoding='utf-8') as wrt:
@@ -235,7 +234,7 @@ def report_model(model, eval_samples, params, computed_params, output_path):
                 y_pred = model.predict(x=x, verbose=0)
                 y_true2 = y[0][1]
                 y_pred2 = y_pred[0][1] > y_pred[0][0]
-                wrt.write(u'{:<80s} y_true={} y_pred={}\n'.format(sample.phrase, y_true2, y_pred2))
+                wrt.write(u'{:<80s} y_true={} y_pred[0]={} y_pred[1]={} --> {}\n'.format(sample.phrase, y_true2, y_pred[0][0], y_pred[0][1], y_pred2))
                 break
 
 
@@ -243,7 +242,7 @@ def report_model(model, eval_samples, params, computed_params, output_path):
 
 # Разбор параметров тренировки в командной строке
 parser = argparse.ArgumentParser(description='Neural model for interpretation requirement classifier')
-parser.add_argument('--run_mode', type=str, default='train', choices='train gridsearch'.split(), help='what to do: train | gridsearch')
+parser.add_argument('--run_mode', type=str, default='train', choices='train gridsearch query'.split(), help='what to do: train | gridsearch | query')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
 parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin', help='path to word2vector model file')
@@ -404,7 +403,7 @@ if run_mode == 'train':
 
     # Для отладки - прогоним весь набор данных через модель и сохраним
     # результаты классификации в файл для визуальной проверки.
-    report_model(model, eval_samples, params, computed_params,
+    report_model(model, samples, params, computed_params,
                  os.path.join(tmp_folder, 'nn_req_interpretation.validation.txt'))
 
 
@@ -419,6 +418,13 @@ if run_mode == 'query':
         weights_path = model_config['weights_path']
         word_dims = model_config['word_dims']
         net_arch = model_config['net_arch']
+        padding = model_config['padding']
+
+    computed_params = {'max_wordseq_len': max_wordseq_len}
+
+    embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+    computed_params['embeddings'] = embeddings
+    computed_params['word_dims'] = embeddings.vector_size
 
     print('Restoring model architecture from {}'.format(arch_filepath))
     with open(arch_filepath, 'r') as f:
@@ -427,4 +433,22 @@ if run_mode == 'query':
     print('Loading model weights from {}'.format(weights_path))
     model.load_weights(weights_path)
 
-    # TODO ...
+    tokenizer = Tokenizer()
+    tokenizer.load()
+
+    while True:
+        phrase = utils.console_helpers.input_kbd(':> ').strip()
+        sample1 = Sample(phrase, 0)
+        sample1.words = tokenizer.tokenize(phrase)
+
+        if padding == 'left':
+            sample1.words = lpad_wordseq(sample1.words, max_wordseq_len)
+        else:
+            sample1.words = rpad_wordseq(sample1.words, max_wordseq_len)
+
+        for istep, xy in enumerate(generate_rows([sample1], 2, computed_params, 1)):
+            x = xy[0]
+            y_pred = model.predict(x=x, verbose=0)[0]
+            print('y==0 --> {}'.format(y_pred[0]))
+            print('y==1 --> {}'.format(y_pred[1]))
+            break
