@@ -6,6 +6,7 @@ RUN apt-get install -y python python-pip
 RUN apt-get -y install git-core
 #RUN apt-get install python-pip
 RUN apt-get install -y liblzma-dev
+
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
 RUN pip install git+https://github.com/Koziev/rutokenizer
@@ -22,6 +23,8 @@ RUN pip install python-crfsuite
 RUN pip install git+https://github.com/Koziev/rusyllab
 RUN pip install tensorflow
 RUN pip install colorama
+
+RUN apt-get clean 
 
 WORKDIR /chatbot/PyModels/bot
 COPY ./PyModels/bot/*.py ./
