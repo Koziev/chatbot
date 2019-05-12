@@ -37,7 +37,7 @@ def init_chatbot():
                                            facts_folder=facts_folder)
 
         machine = SimpleAnsweringMachine(text_utils=text_utils)
-        machine.load_models(models_folder, w2v_folder)
+        machine.load_models(data_folder, models_folder, w2v_folder)
 
         scripting = BotScripting(data_folder)
         bot = BotPersonality(bot_id='flask_bot',
