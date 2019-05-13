@@ -9,7 +9,9 @@ import json
 import numpy as np
 import logging
 from keras.models import model_from_json
-from model_selector import ModelSelector
+from bot.model_selector import ModelSelector
+
+import tensorflow as tf  # 13-05-2019
 
 
 class NN_ModelSelector(ModelSelector):
@@ -27,6 +29,8 @@ class NN_ModelSelector(ModelSelector):
 
         m.load_weights(weights_path)
         self.model = m
+
+        self.graph = tf.get_default_graph() # эксперимент с багом 13-05-2019
 
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
             self.model_config = json.load(f)
@@ -73,7 +77,8 @@ class NN_ModelSelector(ModelSelector):
             words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
         word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
 
-        y_probe = self.model.predict(x=self.inputs)
+        with self.graph.as_default():
+            y_probe = self.model.predict(x=self.inputs)
 
         model_selector = np.argmax(y_probe[0])
         return model_selector

@@ -5,8 +5,12 @@ import json
 import logging
 import numpy as np
 from keras.models import model_from_json
+from keras import backend as K
 
-from enough_premises_model import EnoughPremisesModel
+import tensorflow as tf  # 13-05-2019
+
+
+from bot.enough_premises_model import EnoughPremisesModel
 
 
 class NN_EnoughPremisesModel(EnoughPremisesModel):
@@ -39,6 +43,13 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
 
         m.load_weights(self.weights_filepath)
         self.model = m
+
+        self.graph = tf.get_default_graph() # эксперимент с багом 13-05-2019
+
+        # начало отладки
+        #self.model.summary()
+        # конец отладки
+
 
         self.w2v_filename = os.path.basename(self.w2v_path)
 
@@ -74,6 +85,8 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
             words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
         word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
 
-        y = self.model.predict(x=self.inputs)[0]
+        with self.graph.as_default():
+            y = self.model.predict(x=self.inputs)[0]
+
         p_enough = y[0]
         return p_enough

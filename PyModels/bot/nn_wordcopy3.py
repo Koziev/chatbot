@@ -10,7 +10,9 @@ import json
 import numpy as np
 import logging
 from keras.models import model_from_json
-from word_copy_model import WordCopyModel
+from bot.word_copy_model import WordCopyModel
+
+import tensorflow as tf  # 13-05-2019
 
 
 class NN_WordCopy3(WordCopyModel):
@@ -30,6 +32,8 @@ class NN_WordCopy3(WordCopyModel):
 
         m.load_weights(weights_path)
         self.model = m
+
+        self.graph = tf.get_default_graph() # эксперимент с багом 13-05-2019
 
         with open(os.path.join(models_folder, 'nn_wordcopy3.config'), 'r') as f:
             self.model_config = json.load(f)
@@ -61,7 +65,9 @@ class NN_WordCopy3(WordCopyModel):
         #    if len(word1)>0:
         #        print(u'{} {} ==> {}'.format(i1, word1, self.X1_probe[0, i1, :]))
 
-        (y1_probe, y2_probe) = self.model.predict({'input_words1': self.X1_probe, 'input_words2': self.X2_probe})
+        with self.graph.as_default():
+            (y1_probe, y2_probe) = self.model.predict({'input_words1': self.X1_probe, 'input_words2': self.X2_probe})
+
         beg_pos = np.argmax(y1_probe[0])
         end_pos = np.argmax(y2_probe[0])
         words = premise_words[beg_pos:end_pos + 1]
