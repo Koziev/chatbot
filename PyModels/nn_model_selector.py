@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Тренировка и ручная валидация модели классификатора, определяющего
 способ генерации ответа в чат-боте (https://github.com/Koziev/chatbot).
 
 Датасет должен быть предварительно сгенерирован скриптом prepare_qa_dataset.py
-'''
+Также должны быть подготовлены векторы слов в посимвольной модели встраивания
+с помощью vectorize_wordchar2vector.sh
+"""
 
 from __future__ import division  # for python2 compatibility
 from __future__ import print_function
@@ -125,17 +127,18 @@ def generate_rows(nb_premises, samples, batch_size, mode):
 
 # --------------------------------------------------------------------------------------
 
+
 run_mode = ''
 TRAIN_MODEL = 'model_selector'
 
 parser = argparse.ArgumentParser(description='Neural model for answer generation model selector')
 parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | query')
-parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn) | lstm+cnn')
+parser.add_argument('--arch', type=str, default='lstm(cnn)', help='neural model architecture: lstm | lstm(cnn)')
 parser.add_argument('--batch_size', type=int, default=150, help='batch size for neural model training')
 parser.add_argument('--input', type=str, default='../data/pqa_all.dat', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
-parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.model', help='path to word2vector model file')
+parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.model', help='path to word2vector model file')
 
 args = parser.parse_args()
 input_path = args.input
@@ -325,9 +328,9 @@ if run_mode == 'train':
     # 4) ответ посимвольно генерируется сеткой и содержит одни цифры
     output_dims = 4
 
-    classifier = Dense(encoder_size, activation='relu')(classifier)
-    classifier = Dense(encoder_size//2, activation='relu')(classifier)
-    classifier = Dense(encoder_size//3, activation='relu')(classifier)
+    classifier = Dense(encoder_size, activation='sigmoid')(classifier)
+    #classifier = Dense(encoder_size//2, activation='relu')(classifier)
+    #classifier = Dense(encoder_size//3, activation='relu')(classifier)
     classifier = Dense(output_dims, activation='softmax', name='output')(classifier)
 
     model = Model(inputs=inputs, outputs=classifier)
@@ -371,6 +374,7 @@ if run_mode == 'train':
 
 
 if run_mode == 'query':
+    # Ручное тестирование предварительно натренированной модели.
     with open(arch_filepath, 'r') as f:
         model = model_from_json(f.read())
 

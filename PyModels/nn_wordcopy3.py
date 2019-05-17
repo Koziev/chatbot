@@ -664,7 +664,7 @@ if run_mode == 'train':
     params['net_arch'] = 'lstm'
     params['classifier_arch'] = 'merge'
 
-    params['rnn_size'] = 64
+    params['rnn_size'] = 100  #64
 
     if params['net_arch'] == 'lstm(cnn)':
         params['pooling'] = 'max'
@@ -673,7 +673,7 @@ if run_mode == 'train':
         params['max_kernel_size'] = 3
 
     params['units1'] = 64
-    params['units2'] = 32
+    params['units2'] = 0  #32
     params['units3'] = 0
     params['batch_size'] = 250
     params['optimizer'] = 'nadam'

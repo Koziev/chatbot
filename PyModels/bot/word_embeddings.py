@@ -3,9 +3,10 @@
 import os
 import gensim
 import logging
+import numpy as np
 
-from wordchar2vector_model import Wordchar2VectorModel
-from text_utils import PAD_WORD
+from bot.wordchar2vector_model import Wordchar2VectorModel
+from bot.text_utils import PAD_WORD
 
 
 class WordEmbeddings(object):
@@ -56,3 +57,16 @@ class WordEmbeddings(object):
                     X_batch[irow, iword, w2v_dims:] = self.wc2v[word]
                 else:
                     X_batch[irow, iword, w2v_dims:] = self.wordchar2vector_model.build_vector(word)
+
+    def vectorize_word1(self, w2v_filename, word):
+        w2v = self.w2v[w2v_filename]
+        w2v_dims = self.w2v_dims[w2v_filename]
+        v = np.zeros((self.wc2v_dims+w2v_dims), dtype=np.float32)
+        if word in w2v:
+            v[:w2v_dims] = w2v[word]
+        if word in self.wc2v:
+            v[w2v_dims:] = self.wc2v[word]
+        else:
+            v[w2v_dims:] = self.wordchar2vector_model.build_vector(word)
+
+        return v

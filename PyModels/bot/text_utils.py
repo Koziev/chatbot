@@ -11,8 +11,8 @@ import os
 from pymystem3 import Mystem
 import rupostagger
 from utils.tokenizer import Tokenizer
-from word2lemmas import Word2Lemmas
-from language_resources import LanguageResources
+from bot.word2lemmas import Word2Lemmas
+from bot.language_resources import LanguageResources
 
 
 BEG_WORD = u'\b'
@@ -79,3 +79,10 @@ class TextUtils(object):
 
     def is_question_word(self, word):
         return word in u'кто что почему отууда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда'.split()
+
+    def build_output_phrase(self, words):
+        s = u' '.join(words)
+        s = s.replace(u' ?', u'?').replace(u' !', u'!').replace(u' ,', u',').replace(u' :', u',') \
+            .replace(u' .', u'.').replace(u'( ', u'(').replace(u' )', u')')
+        s = s[0].upper() + s[1:]
+        return s

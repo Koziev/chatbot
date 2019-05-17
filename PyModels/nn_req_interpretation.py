@@ -21,6 +21,7 @@ import pandas as pd
 import tqdm
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import Input
 from keras.layers import recurrent
 from keras.layers.core import Dense
@@ -95,6 +96,7 @@ def load_dataset(params):
 def create_model(params, computed_params):
     logging.info('Constructing the NN model arch={}...'.format(params['net_arch']))
     max_wordseq_len = computed_params['max_wordseq_len']
+    word_dims = computed_params['word_dims']
 
     input_words = Input(shape=(max_wordseq_len, word_dims,), dtype='float32', name='input_words')
 
@@ -110,6 +112,60 @@ def create_model(params, computed_params):
 
         encoder_rnn = words_rnn(input_words)
         layers.append(encoder_rnn)
+    elif params['net_arch'] == 'rnn(cnn)':
+        rnn_size = params['rnn_size']
+        nb_filters = params['nb_filters']
+        max_kernel_size = params['max_kernel_size']
+
+        for kernel_size in range(1, max_kernel_size+1):
+            # сначала идут сверточные слои, образующие детекторы словосочетаний
+            # и синтаксических конструкций
+            conv = Conv1D(filters=nb_filters,
+                          kernel_size=kernel_size,
+                          padding='valid',
+                          activation='relu',
+                          strides=1,
+                          name='shared_conv_{}'.format(kernel_size))
+
+            lstm = recurrent.LSTM(rnn_size, return_sequences=False)
+
+            conv_layer1 = conv(input_words)
+
+            if params['pooling'] == 'max':
+                pooling = keras.layers.MaxPooling1D()
+            elif params['pooling'] == 'average':
+                pooling = keras.layers.AveragePooling1D()
+            else:
+                raise NotImplementedError()
+
+            conv_layer1 = pooling(conv_layer1)
+
+            conv_layer1 = lstm(conv_layer1)
+            layers.append(conv_layer1)
+
+    elif params['net_arch'] == 'cnn':
+        nb_filters = params['nb_filters']
+        max_kernel_size = params['max_kernel_size']
+
+        for kernel_size in range(1, max_kernel_size+1):
+            conv = Conv1D(filters=nb_filters,
+                          kernel_size=kernel_size,
+                          padding='valid',
+                          activation='relu',
+                          strides=1,
+                          name='shared_conv_{}'.format(kernel_size))
+
+            conv_layer1 = conv(input_words)
+
+            if params['pooling'] == 'max':
+                pooling = keras.layers.GlobalMaxPooling1D()
+            elif params['pooling'] == 'average':
+                pooling = keras.layers.GlobalAveragePooling1D()
+            else:
+                raise NotImplementedError()
+
+            conv_layer1 = pooling(conv_layer1)
+            layers.append(conv_layer1)
     else:
         raise NotImplementedError()
 
@@ -118,7 +174,9 @@ def create_model(params, computed_params):
     else:
         classif = keras.layers.concatenate(inputs=layers)
 
-    classif = Dense(units=params['units1'], activation=params['activation1'])(classif)
+    if params['units1'] > 0:
+        classif = Dense(units=params['units1'], activation=params['activation1'])(classif)
+
     classif = Dense(units=2, activation='softmax', name='output')(classif)
     model = Model(inputs=input_words, outputs=classif)
     model.compile(loss='categorical_crossentropy', optimizer=params['optimizer'], metrics=['accuracy'])
@@ -142,6 +200,7 @@ def generate_rows(samples, batch_size, computed_params, mode):
 
     w2v = computed_params['embeddings']
     max_wordseq_len = computed_params['max_wordseq_len']
+    word_dims = computed_params['word_dims']
 
     X_batch = np.zeros((batch_size, max_wordseq_len, word_dims), dtype=np.float32)
     y_batch = np.zeros((batch_size, 2), dtype=np.bool)
@@ -238,6 +297,98 @@ def report_model(model, samples, params, computed_params, output_path):
                 break
 
 
+class GridGenerator(object):
+    def __init__(self):
+        pass
+
+    def generate(self):
+        for padding in ['left']:
+            params = dict()
+            params['padding'] = padding
+
+            samples, computed_params = load_dataset(params)
+            embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
+            word_dims = embeddings.vector_size
+            computed_params['embeddings'] = embeddings
+            computed_params['word_dims'] = word_dims
+
+            for net_arch in ['rnn(cnn)']:  # 'rnn', 'cnn'
+                params['net_arch'] = net_arch
+
+                if net_arch == 'rnn':
+                    for rnn_size in [150, 200, 256]:
+                        params['rnn_size'] = rnn_size
+
+                        for units1 in [16]:
+                            params['units1'] = units1
+
+                            for activation1 in ['relu']:
+                                params['activation1'] = activation1
+
+                                for optimizer in ['nadam']:
+                                    params['optimizer'] = optimizer
+
+                                    for batch_size in [150]:
+                                        params['batch_size'] = batch_size
+
+                                        yield params, computed_params, samples
+
+                if net_arch == 'rnn(cnn)':
+                    for rnn_size in [450, 500, 550]:
+                        params['rnn_size'] = rnn_size
+
+                        for nb_filters in [130, 140, 150]:
+                            params['nb_filters'] = nb_filters
+
+                            for min_kernel_size in [1]:
+                                params['min_kernel_size'] = min_kernel_size
+
+                                for max_kernel_size in [2]:
+                                    params['max_kernel_size'] = max_kernel_size
+
+                                    for pooling in ['max']:
+                                        params['pooling'] = pooling
+
+                                        for units1 in [15, 20, 25]:
+                                            params['units1'] = units1
+
+                                            for activation1 in ['relu']:
+                                                params['activation1'] = activation1
+
+                                                for optimizer in ['nadam']:
+                                                    params['optimizer'] = optimizer
+
+                                                    for batch_size in [150]:
+                                                        params['batch_size'] = batch_size
+
+                                                        yield params, computed_params, samples
+                if net_arch == 'cnn':
+                    for nb_filters in [100]:
+                        params['nb_filters'] = nb_filters
+
+                        for min_kernel_size in [1]:
+                            params['min_kernel_size'] = min_kernel_size
+
+                            for max_kernel_size in [2]:
+                                params['max_kernel_size'] = max_kernel_size
+
+                                for pooling in ['max']:
+                                    params['pooling'] = pooling
+
+                                    for units1 in [16]:
+                                        params['units1'] = units1
+
+                                        for activation1 in ['relu']:
+                                            params['activation1'] = activation1
+
+                                            for optimizer in ['nadam']:
+                                                params['optimizer'] = optimizer
+
+                                                for batch_size in [150]:
+                                                    params['batch_size'] = batch_size
+
+                                                    yield params, computed_params, samples
+
 # -------------------------------------------------------------------
 
 # Разбор параметров тренировки в командной строке
@@ -267,79 +418,52 @@ weights_path = os.path.join(tmp_folder, 'nn_req_interpretation.weights')
 if run_mode == 'gridsearch':
     logging.info('Start gridsearch')
 
-    params = dict()
     best_params = None
     best_score = -np.inf
     crossval_count = 0
 
     best_score_wrt = open(os.path.join(tmp_folder, 'nn_req_interpretation.best_score.txt'), 'w')
 
-    for padding in ['left']:
-        params['padding'] = padding
+    grid = GridGenerator()
+    for params, computed_params, samples in grid.generate():
+        crossval_count += 1
+        logging.info('Start crossvalidation #{} for params={}'.format(crossval_count,
+                                                                      get_params_str(params)))
 
-        samples, computed_params = load_dataset(params)
-        embeddings = WordEmbeddings.load_word_vectors(wordchar2vector_path, word2vector_path)
-        word_dims = embeddings.vector_size
-        computed_params['embeddings'] = embeddings
-        computed_params['word_dims'] = word_dims
+        kf = KFold(n_splits=3)
+        scores = []
+        for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
+            logging.info('KFold[{}]'.format(ifold))
 
-        for net_arch in ['rnn']:
-            params['net_arch'] = net_arch
+            train_samples = [samples[i] for i in train_index]
+            val12_samples = [samples[i] for i in val_index]
+            val_samples, eval_samples = train_test_split(val12_samples,
+                                                         test_size=0.5,
+                                                         random_state=123456)
+            model = create_model(params, computed_params)
 
-            for rnn_size in [256]:
-                params['rnn_size'] = rnn_size
+            logging.info('train_samples.count={}'.format(len(train_samples)))
+            logging.info('val_samples.count={}'.format(len(val_samples)))
+            logging.info('eval_samples.count={}'.format(len(eval_samples)))
+            train_model(model, train_samples, val_samples, params, computed_params)
 
-                for units1 in [16]:
-                    params['units1'] = units1
+            # получим оценку F1 на валидационных данных
+            logging.info('Estimating final f1 score...')
+            score = score_model(model, eval_samples, params, computed_params)
+            logging.info('eval score={}'.format(score))
 
-                    for activation1 in ['sigmoid', 'relu']:
-                        params['activation1'] = activation1
+            logging.info('KFold[{}] score={}'.format(ifold, score))
+            scores.append(score)
 
-                        for optimizer in ['nadam']:
-                            params['optimizer'] = optimizer
-
-                            for batch_size in [150]:
-                                params['batch_size'] = batch_size
-
-                                crossval_count += 1
-                                logging.info('Start crossvalidation #{} for params={}'.format(crossval_count,
-                                                                                              get_params_str(params)))
-
-                                kf = KFold(n_splits=3)
-                                scores = []
-                                for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
-                                    logging.info('KFold[{}]'.format(ifold))
-
-                                    train_samples = [samples[i] for i in train_index]
-                                    val12_samples = [samples[i] for i in val_index]
-                                    val_samples, eval_samples = train_test_split(val12_samples,
-                                                                                 test_size=0.5,
-                                                                                 random_state=123456)
-                                    model = create_model(params, computed_params)
-
-                                    logging.info('train_samples.count={}'.format(len(train_samples)))
-                                    logging.info('val_samples.count={}'.format(len(val_samples)))
-                                    logging.info('eval_samples.count={}'.format(len(eval_samples)))
-                                    train_model(model, train_samples, val_samples, params, computed_params)
-
-                                    # получим оценку F1 на валидационных данных
-                                    logging.info('Estimating final f1 score...')
-                                    score = score_model(model, eval_samples, params, computed_params)
-                                    logging.info('eval score={}'.format(score))
-
-                                    logging.info('KFold[{}] score={}'.format(ifold, score))
-                                    scores.append(score)
-
-                                score = np.mean(scores)
-                                score_std = np.std(scores)
-                                logging.info('Crossvalidation #{} score={} std={}'.format(crossval_count, score, score_std))
-                                if score > best_score:
-                                    best_params = params.copy()
-                                    best_score = score
-                                    logging.info(
-                                        '!!! NEW BEST score={} params={}'.format(best_score, get_params_str(best_params)))
-                                    best_score_wrt.write('best score={}\nparams={}\n\n'.format(best_score, get_params_str(best_params)))
-                                    best_score_wrt.flush()
+        score = np.mean(scores)
+        score_std = np.std(scores)
+        logging.info('Crossvalidation #{} score={} std={}'.format(crossval_count, score, score_std))
+        if score > best_score:
+            best_params = params.copy()
+            best_score = score
+            logging.info('!!! NEW BEST score={} params={}'.format(best_score, get_params_str(best_params)))
+            best_score_wrt.write('best score={}\nparams={}\n\n'.format(best_score, get_params_str(best_params)))
+            best_score_wrt.flush()
 
     logging.info('Grid search complete, best_score={} best_params={}'.format(best_score, get_params_str(best_params)))
     best_score_wrt.close()
@@ -359,10 +483,14 @@ if run_mode == 'train':
     computed_params['embeddings'] = embeddings
     computed_params['word_dims'] = word_dims
 
-    params['net_arch'] = 'rnn'
-    params['rnn_size'] = word_dims*2
-    params['units1'] = 32
+    params['net_arch'] = 'rnn(cnn)'
+    params['rnn_size'] = 500
+    params['units1'] = 15
     params['activation1'] = 'relu'
+    params['nb_filters'] = 150
+    params['min_kernel_size'] = 1
+    params['max_kernel_size'] = 2
+    params['pooling'] = 'max'
     params['optimizer'] = 'nadam'
     params['batch_size'] = 150
 

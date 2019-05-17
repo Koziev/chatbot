@@ -22,11 +22,11 @@ import sys
 import gensim
 import codecs
 import math
-import keras.callbacks
 import numpy as np
 import argparse
 import logging
 
+import keras.callbacks
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.layers import Conv1D, GlobalMaxPooling1D
 from keras.layers import Input
@@ -71,7 +71,7 @@ def rpad_wordseq(words, n):
     return list(itertools.chain(words, itertools.repeat(PAD_WORD, n-len(words))))
 
 
-def load_embeddings(tmp_folder, word2vector_path):
+def load_embeddings(tmp_folder, word2vector_path, computed_params):
     wordchar2vector_path = os.path.join(tmp_folder, 'wordchar2vector.dat')
     logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path) )
     wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
@@ -448,7 +448,7 @@ if run_mode == 'gridsearch':
     tokenizer.load()
     samples, computed_params = load_samples(input_path, tokenizer)
 
-    word2vec, word_dims, wordchar2vector_path = load_embeddings(tmp_folder, word2vector_path)
+    word2vec, word_dims, wordchar2vector_path = load_embeddings(tmp_folder, word2vector_path, computed_params)
 
     best_params = None
     best_score = -np.inf
@@ -533,7 +533,7 @@ if run_mode == 'train':
     tokenizer.load()
     samples, computed_params = load_samples(input_path, tokenizer)
 
-    word2vec, word_dims, wordchar2vector_path = load_embeddings(tmp_folder, word2vector_path)
+    word2vec, word_dims, wordchar2vector_path = load_embeddings(tmp_folder, word2vector_path, computed_params)
 
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {
