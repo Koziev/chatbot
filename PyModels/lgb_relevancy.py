@@ -24,6 +24,7 @@ import gc
 import itertools
 import json
 import os
+import io
 import argparse
 import codecs
 import logging
@@ -602,20 +603,33 @@ if run_mode == 'query2':
 
     added_phrases = set()
     if task == 'relevancy':
-        # Поиск лучшей предпосылки
-        for fname in ['test_premises.txt']:
-            with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
-                for line in rdr:
-                    phrase = line.strip()
-                    if len(phrase) > 5:
-                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                        if phrase2 not in added_phrases:
-                            added_phrases.add(phrase2)
-                            premises.append((phrase2, phrase))
+        # Поиск лучшей предпосылки, релевантной введенному вопросу
+
+        if True:
+            for fname in ['premises_1s.txt', 'premises_2s.txt']:
+                with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
+                    for line in rdr:
+                        phrase = line.strip()
+                        if phrase.startswith('#'):
+                            continue
+
+                        if len(phrase) > 5:
+                            phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                            if phrase2 not in added_phrases:
+                                added_phrases.add(phrase2)
+                                premises.append((phrase2, phrase))
+
+        if True:
+            # Для hard negative mining берем все предпосылки из датасета PQA
+            df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
+            all_premises = df['premise'].unique()
+            print('{} premises loaded from {}'.format(len(all_premises), input_path))
+            premises.extend((premise, premise) for premise in all_premises)
+
     elif task == 'synonymy':
         # поиск ближайшего приказа или вопроса из списка FAQ
         phrases2 = set()
-        if False:
+        if True:
             with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -625,21 +639,12 @@ if run_mode == 'query2':
                         if phrase2 not in added_phrases:
                             added_phrases.add(phrase2)
                             phrases2.add((phrase2, phrase))
+
         if True:
-            with codecs.open(os.path.join(data_folder, 'test_orders.txt'), 'r', 'utf-8') as rdr:
+            with codecs.open(os.path.join(data_folder, 'orders.txt'), 'r', 'utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
                     if len(phrase) > 5:
-                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                        if phrase2 not in added_phrases:
-                            added_phrases.add(phrase2)
-                            phrases2.add((phrase2, phrase))
-        if False:
-            with codecs.open(os.path.join(data_folder, 'electroshop.txt'), 'r', 'utf-8') as rdr:
-                for line in rdr:
-                    phrase = line.strip()
-                    if len(phrase) > 5 and phrase.startswith(u'Q:'):
-                        phrase = phrase.replace(u'Q:', u'').strip()
                         phrase2 = u' '.join(tokenizer.tokenize(phrase))
                         if phrase2 not in added_phrases:
                             added_phrases.add(phrase2)
@@ -681,7 +686,7 @@ if run_mode == 'query2':
         y_pred = lgb_relevancy.predict(X_data)
         phrase_rels = [(premises[i][1], y_pred[i]) for i in range(nb_premises)]
         phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
-        for phrase, sim in phrase_rels[:10]:
+        for phrase, sim in phrase_rels[:20]:  # выводим топ ближайших фраз
             print(u'{:6.4f} {}'.format(sim, phrase))
 
 
