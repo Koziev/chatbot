@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from model_applicator import ModelApplicator
+from abc import abstractmethod
+
+from bot.model_applicator import ModelApplicator
 
 
 class ModalityDetector(ModelApplicator):
@@ -16,5 +18,6 @@ class ModalityDetector(ModelApplicator):
     def __init__(self):
         pass
 
+    @abstractmethod
     def get_modality(self, phrase, text_utils, word_embeddings):
         raise NotImplementedError()

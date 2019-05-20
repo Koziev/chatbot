@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from abc import abstractmethod
 import os
 
 
@@ -14,6 +15,7 @@ class ModelApplicator(object):
     def get_w2v_path(self):
         return self.w2v_path
 
+    @abstractmethod
     def load(self, models_folder):
         """
         Производный класс должен загрузить в этом методе все свои файлы

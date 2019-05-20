@@ -4,13 +4,16 @@
 ответа чат-бота.
 """
 
-from model_applicator import ModelApplicator
+from abc import abstractmethod
+
+from bot.model_applicator import ModelApplicator
 
 
 class ModelSelector(ModelApplicator):
     def __init__(self):
         pass
 
+    @abstractmethod
     def select_model(self, premise_str_list, question_str, text_utils, word_embeddings):
         """
         Данный метод должен быть перегружен в производном классе, реализуя конкретный

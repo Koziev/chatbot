@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from model_applicator import ModelApplicator
+from abc import abstractmethod
+
+from bot.model_applicator import ModelApplicator
 
 
 class RelevancyDetector(ModelApplicator):
@@ -11,9 +13,11 @@ class RelevancyDetector(ModelApplicator):
     def __init__(self):
         pass
 
+    @abstractmethod
     def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         raise NotImplemented()
 
+    @abstractmethod
     def calc_relevancy1(self, premise, question, text_utils, word_embeddings):
         raise NotImplemented()
 

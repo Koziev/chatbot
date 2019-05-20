@@ -201,7 +201,7 @@ class AnswerBuilder(object):
                             if all((word in tokenized_premises[0]) for word, p in best_words):  # все выбранные слова находятся в предпосылке
                                 # сортируем выбранные слова так, как они идут в предпосылке
                                 word2index = dict(enumerate(tokenized_premises[0]))
-                                sorted_best_words = [word for word, p in sorted(best_words, key=lambda wp: word2index[wp[0]])]
+                                sorted_best_words = [word for word, p in sorted(best_words, key=lambda wp: word2index.get(wp[0], -1))]
                                 answer2 = text_utils.build_output_phrase(sorted_best_words)
                                 answer2_rel = self.answer_relevancy.score_answer(tokenized_premises, tokenized_question,
                                                                                  sorted_best_words, word_embeddings)
@@ -218,25 +218,37 @@ class AnswerBuilder(object):
                     if self.trace_enabled:
                         self.logger.debug('Start generating answers via Chomsky machine')
 
+                    # Оптимизация от 20-05-2019:
+                    # 1) отбрасываем слишком малозначимые слова
+                    p_threshold = max(p for word, p in word_p) * 0.02
+                    word_p = [(word, p) for word, p in word_p if p > p_threshold]
+                    # 2) если слов все равно осталось много, то оставим максимальную длину + 1
+                    if len(word_p) > (best_len + 1):
+                        word_p = sorted(word_p, key=lambda z: -z[1])[best_len + 1]
+
                     all_generated_phrases = self.grammar.generate2(word_p, self.known_words)
 
                     if self.trace_enabled:
                         self.logger.debug('Ranking {} answers'.format(len(all_generated_phrases)))
 
-                    scored_answers = self.answer_relevancy.score_answers(tokenized_premises, tokenized_question,
-                                                                  all_generated_phrases, word_embeddings,
-                                                                  text_utils, len2proba)
+                    if len(all_generated_phrases) > 0:
+                        scored_answers = self.answer_relevancy.score_answers(tokenized_premises, tokenized_question,
+                                                                      all_generated_phrases, word_embeddings,
+                                                                      text_utils, len2proba)
 
-                    sorted_answers = sorted(scored_answers, key=lambda z: -z.get_rank())
+                        sorted_answers = sorted(scored_answers, key=lambda z: -z.get_rank())
 
-                    if self.trace_enabled:
-                        self.logger.debug(u'Best generated answer is {} p={}'.format(sorted_answers[0].get_str(),
-                                                                                     sorted_answers[0].get_rank()))
-                    #    for phrase in sorted_answers[:10]:
-                    #        print(u'{:6f}\t{}'.format(phrase.get_rank(), phrase.get_str()))
+                        if self.trace_enabled:
+                            self.logger.debug(u'Best generated answer is {} p={}'.format(sorted_answers[0].get_str(),
+                                                                                         sorted_answers[0].get_rank()))
+                        #    for phrase in sorted_answers[:10]:
+                        #        print(u'{:6f}\t{}'.format(phrase.get_rank(), phrase.get_str()))
 
-                    answer3 = sorted_answers[0].get_str()
-                    answer3_rel = sorted_answers[0].get_rank()
+                        answer3 = sorted_answers[0].get_str()
+                        answer3_rel = sorted_answers[0].get_rank()
+                    else:
+                        answer3 = None
+                        answer3_rel = 0.0
 
                     # Теперь посимвольная генерация
                     answer4 = self.answer_generator.generate_answer(premise,

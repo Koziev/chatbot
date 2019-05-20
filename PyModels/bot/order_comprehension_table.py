@@ -33,6 +33,10 @@ class OrderComprehensionTable(object):
             group_lines = []
             for line in rdr:
                 line = line.strip()
+                if line.startswith('#'):
+                    # Строки комментариев пропускаем
+                    continue
+
                 if line:
                     group_lines.append(line)
                 else:
