@@ -1,0 +1,1 @@
+KERAS_BACKEND=tensorflow python ../PyModels/nn_answer_relevancy.py --run_mode train --data_dir ../data --tmp ../tmp --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin

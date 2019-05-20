@@ -1,1 +1,1 @@
-KERAS_BACKEND=tensorflow python ../PyModels/nn_wordcopy3.py --input ../data/premise_question_answer.csv --run_mode train --batch_size 200 --tmp ../tmp --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin
+KERAS_BACKEND=tensorflow python ../PyModels/nn_wordcopy3.py --input ../data/premise_question_answer.csv --run_mode train --batch_size 100 --tmp ../tmp --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin
