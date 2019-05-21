@@ -41,6 +41,9 @@ COPY ./PyModels/trainers/*.py ./
 WORKDIR /chatbot/PyModels/utils
 COPY ./PyModels/utils/*.py ./
 
+WORKDIR /chatbot/PyModels/generative_grammar
+COPY ./PyModels/generative_grammar/*.py ./
+
 WORKDIR /chatbot/PyModels
 COPY ./PyModels/console_chatbot.py ./
 

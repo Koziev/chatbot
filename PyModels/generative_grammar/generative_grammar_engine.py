@@ -11,16 +11,12 @@ import os
 import pickle
 import codecs
 import io
-import sys
 import itertools
-import numpy as np
 import collections
 import operator
 import random
-import json
 import six
 import logging
-import tqdm
 import re
 
 import rutokenizer
@@ -1204,7 +1200,7 @@ class GenerativeTemplates(object):
                                     topic_words, grdict, all_ngrams)
         else:
             # Перебор всех шаблонов
-            for template in tqdm.tqdm(self.templates, total=len(self.templates)):
+            for template in self.templates:
                 generated_phrases = template.generate(topic_words, grdict, all_ngrams)
                 all_generated_phrases.update(generated_phrases)
 
