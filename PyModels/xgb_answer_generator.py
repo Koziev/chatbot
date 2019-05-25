@@ -52,7 +52,7 @@ MIN_SHINGLE_FREQ = 2
 BEG_LEN = 10  # длина в символах начального фрагмента фраз, который дает отдельные фичи
 END_LEN = 10  # длина в символах конечного фрагмента фраз, который дает отдельные фичи
 
-NB_TREES = 10000
+NB_TREES = 1000
 MAX_DEPTH = 6  #8  # макс. глубина для градиентного бустинга
 
 
@@ -603,9 +603,9 @@ if run_mode == 'train':
     cl = xgboost.train(xgb_params,
                        D_train,
                        evals=[(D_val, 'val')],
-                       num_boost_round=5000,  #NB_TREES,
+                       num_boost_round=1000,  #NB_TREES,
                        verbose_eval=10,
-                       early_stopping_rounds=20)
+                       early_stopping_rounds=10)
 
     print('Training is finished')
 
