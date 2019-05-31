@@ -7,6 +7,8 @@
 import itertools
 import re
 import os
+import io
+import yaml
 
 from pymystem3 import Mystem
 import rupostagger
@@ -35,6 +37,16 @@ class TextUtils(object):
 
         word2tags_path = os.path.join(data_folder, 'chatbot_word2tags.dat')
         self.postagger.load(word2tags_path)
+
+        rules_path = os.path.join(data_folder, 'rules.yaml')
+        with io.open(rules_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+            self.no_info_replicas = data['no_relevant_information']
+            self.unknown_order = data['unknown_order']
+
+            self.language_resources.key2phrase[u'yes'] = data[u'answers'][u'yes']
+            self.language_resources.key2phrase[u'not'] = data[u'answers'][u'not']
+
 
     def tag(self, words):
         """ Частеречная разметка для цепочки слов words """
@@ -78,7 +90,7 @@ class TextUtils(object):
         return self.lexicon
 
     def is_question_word(self, word):
-        return word in u'кто что почему отууда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда'.split()
+        return word in u'кто что почему откуда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда какой какая какое какие какого какую каких каким какими какому какой'.split()
 
     def build_output_phrase(self, words):
         s = u' '.join(words)

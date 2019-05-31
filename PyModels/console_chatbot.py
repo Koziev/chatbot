@@ -12,7 +12,6 @@ from bot.simple_answering_machine import SimpleAnsweringMachine
 from bot.console_utils import input_kbd, print_answer, print_tech_banner
 from bot.bot_scripting import BotScripting
 from bot.bot_personality import BotPersonality
-from bot.order_comprehension_table import OrderComprehensionTable
 from bot.plain_file_faq_storage import PlainFileFaqStorage
 from utils.logging_helpers import init_trainer_logging
 
@@ -35,6 +34,11 @@ tmp_folder = os.path.expanduser(args.tmp_folder)
 
 init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'))
 
+
+scripting = BotScripting(data_folder)
+scripting.load_rules(os.path.join(data_folder, 'rules.yaml'))
+
+
 # Создаем необходимое окружение для бота.
 # Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
 text_utils = TextUtils()
@@ -50,11 +54,10 @@ machine.trace_enabled = True  # для отладки
 facts_storage = Files3FactsStorage(text_utils=text_utils,
                                    facts_folder=facts_folder)
 
-scripting = BotScripting(data_folder)
-
+# Правила для FAQ-режима бота
 faq = PlainFileFaqStorage(os.path.join(data_folder, 'faq2.txt'))
 
-# Инициализируем бота.
+# Инициализируем бота, загружаем правила (файл data/rules.yaml).
 bot = BotPersonality(bot_id='test_bot',
                      engine=machine,
                      facts=facts_storage,
@@ -63,16 +66,23 @@ bot = BotPersonality(bot_id='test_bot',
                      enable_scripting=True,
                      enable_smalltalk=True)
 
-oct = OrderComprehensionTable()
-oct.load_file(os.path.join(data_folder, 'orders.txt'))  # загружаем таблицу интерпретации приказов
-bot.set_order_templates(oct)
-
 
 def on_order(order_anchor_str, bot, session):
     bot.say(session, u'Выполняю команду \"{}\"'.format(order_anchor_str))
+    # Всегда возвращаем True, как будто можем выполнить любой приказ.
+    # В реальных сценариях нужно вернуть False, если приказ не опознан
+    return True
 
 
 bot.on_process_order = on_order
+
+
+def on_weather_forecast(bot, session, user_id, interpreted_phrase):
+    return u'Прогноз погоды сгенерирован в функции on_weather_forecast для демонстрации'
+
+
+bot.add_event_handler(u'weather_forecast', on_weather_forecast)
+
 
 print_tech_banner()
 

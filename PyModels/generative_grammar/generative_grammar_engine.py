@@ -149,7 +149,7 @@ class CorpusWords:
 
 class Associations:
     def __init__(self):
-        pass
+        self.word2assocs = dict()
 
     def load(self, path, grdict):
         logging.info(u'Loading associations from {}'.format(path))
@@ -228,7 +228,6 @@ class Associations:
 
         # оставим для каждого слова не более nbest ассоциаций
         nbest = 50
-        self.word2assocs = dict()
         for word, assocs in six.iteritems(word2assocs):
             if len(assocs) > nbest:
                 assocs = sorted(assocs, key=operator.itemgetter(1), reverse=True)[:nbest]
@@ -282,18 +281,15 @@ class NGrams(object):
                     s = line.strip().replace(u'Q: ', u'').replace(u'A: ', u'').replace(u'T: ', u'')
                     s = s.replace(u'(+)', u'').replace(u'(-)', u'').strip()
 
-                    # НАЧАЛО ОТЛАДКИ
-                    #if s.lower() == u'кого ловит лиса?':
-                    #    print(words)
-                    # КОНЕЦ ОТЛАДКИ
+                    s2 = s.split(u'|')
+                    for s in s2:
+                        words = tokenizer.tokenize(s)
+                        for gap in range(max_gap):
+                            ngrams = list(zip(words, words[1+gap:]))
+                            self.all_2grams.update(ngrams)
 
-                    words = tokenizer.tokenize(s)
-                    for gap in range(max_gap):
-                        ngrams = list(zip(words, words[1+gap:]))
-                        self.all_2grams.update(ngrams)
-
-                        ngrams = list(zip(words, words[1+gap:], words[2+gap:]))
-                        self.all_3grams.update(ngrams)
+                            ngrams = list(zip(words, words[1+gap:], words[2+gap:]))
+                            self.all_3grams.update(ngrams)
 
                     if len(self.all_2grams) > max_2grams and len(self.all_3grams) > max_3grams:
                         break
@@ -323,24 +319,22 @@ class NGrams(object):
 
 class Word2Lemmas(object):
     def __init__(self):
-        pass
-
-    def load(self, path):  #, all_words):
-        logging.info(u'Loading lexicon from {}'.format(path))
         self.lemmas = dict()
         self.forms = dict()  # для каждой формы - список лемм с пометками части речи
         self.verbs = set()
         self.nouns = set()
         self.adjs = set()
         self.advs = set()
-        #with gzip.open(path, 'r') as rdr:
+
+    def load(self, path, all_words):
+        logging.info(u'Loading lexicon from {}'.format(path))
         with open(path, 'r') as rdr:
             for line in rdr:
                 tx = line.strip().decode('utf8').split('\t')
                 if len(tx) == 4:
                     if int(tx[3]) >= 0:
                         form = tx[0].replace(u' - ', u'-').lower()
-                        if True:  #form in all_words:
+                        if all_words is None or form in all_words:
                             lemma = tx[1].replace(u' - ', u'-').lower()
                             pos = decode_pos(tx[2])
 
@@ -394,6 +388,10 @@ class Word2Lemmas(object):
                         forms.update(self.lemmas[k])
             return forms
         else:
+            k = word+ u'|' + part_of_speech
+            if k in self.lemmas:
+                return list(self.lemmas[k])
+
             return [word]
 
     def get_random_verb(self, valid_words):
@@ -475,37 +473,13 @@ class GrammarDict:
         # они обычно омонимичны с более употребимыми наречиями.
         return u'КРАТКИЙ:1 ПАДЕЖ:ИМ РОД:СР' not in tags_str
 
-    def load(self, path):  #, all_words):
-        #self.nouns = set()
-        #self.adjs = set()
-        #self.adverbs = set()
-        #self.verbs = set()
+    def load(self, path, allowed_words):
         self.word2pos = dict()
         self.word2tags = dict()
         self.word_pos2tags = dict()
         self.tagstr2id = dict()
         self.tagsid2list = dict()
         logging.info(u'Loading morphology information from {}'.format(path))
-
-        # первый проход нужен, чтобы собрать список слов, которые будут неоднозначно распознаваться.
-        ambiguous_words = set()
-        if False:
-            with codecs.open(path, 'r', 'utf-8') as rdr:
-                for line in rdr:
-                    tx = line.strip().split('\t')
-                    if len(tx) == 5:
-                        word = tx[0].replace(u' - ', u'-')
-                        lemma = tx[2]
-                        tags_str = tx[3]
-                        if self.is_good(tags_str):
-                            if word in all_words:
-                                pos0 = tx[1]
-                                pos = decode_pos(pos0)
-                                key = pos+u'|'+lemma
-                                if word in self.word2pos and self.word2pos[word] != key:
-                                    ambiguous_words.add(word)
-                                elif word not in ambiguous_words:
-                                    self.word2pos[word] = key
 
         self.word2pos = dict()
 
@@ -532,7 +506,7 @@ class GrammarDict:
 
                     tags_str = tx[3]
                     if self.is_good(tags_str):
-                        if word in ambiguous_words:
+                        if allowed_words is not None and word not in allowed_words:
                             continue
 
                         tags_str = tags_str.replace(u'ПЕРЕЧИСЛИМОСТЬ:ДА', u'')\
@@ -1156,9 +1130,9 @@ class GenerativeTemplates(object):
                 for term in term_sequence:
                     if len(term) > 3 and term[0] == u'[' and term[-1] == u']':
                         template.items.append(GT_Replaceable(term[1:-1]))
-                    elif len(term) > 3 and term[0] == u'{' and term[-1] == u'}':
+                    elif len(term) >= 3 and term[0] == u'{' and term[-1] == u'}':
                         template.items.append(GT_RandomWord(term))
-                    elif len(term) > 3 and term[0] == u'(' and term[-1] == u')':
+                    elif len(term) >= 3 and term[0] == u'(' and term[-1] == u')':
                         template.items.append(GT_RegexWordFilter(term))
                     else:
                         template.items.append(GT_Word(term))
@@ -1349,26 +1323,31 @@ class GenerativeGrammarEngine(object):
     def set_max_rule_length(self, max_len):
         self.max_rule_len = max_len
 
-    def get_pickle_path(self, tmp_folder):
-        return os.path.join(tmp_folder, 'generative_gramma1.dictionaries.pickle')
+    def get_pickle_path(self, tmp_folder, custom_filename):
+        return os.path.join(tmp_folder, custom_filename)
 
-    def prepare_dictionaries(self, data_folder, max_ngram_gap):
+    def prepare_dictionaries(self, data_folder, max_ngram_gap, use_thesaurus=True, use_assocs=True,
+                             corpora_paths=None, lexicon_words=None):
         self.max_ngram_gap = max_ngram_gap
 
         # Соберем словари и сохраним их на диск, чтобы следующий запуск
         # не делать это снова.
-        corpora = [os.path.join(data_folder, 'pqa_all.dat'),
-                   os.path.join(data_folder, 'smalltalk.txt'),
-                   os.path.join(data_folder, 'paraphrases.txt'),
-                   # r'/media/inkoziev/corpora/Corpus/word2vector/ru/w2v.ru.corpus.txt'
-                   ]
+        if corpora_paths is None:
+            corpora = [os.path.join(data_folder, 'pqa_all.dat'),
+                       #os.path.join(data_folder, 'smalltalk.txt'),
+                       os.path.join(data_folder, 'paraphrases.txt'),
+                       # r'/media/inkoziev/corpora/Corpus/word2vector/ru/w2v.ru.corpus.txt'
+                       ]
+        else:
+            corpora = corpora_paths
 
         self.all_ngrams = NGrams()
         self.all_ngrams.collect(corpora, max_gap=max_ngram_gap, max_2grams=5000000, max_3grams=5000000)
 
         self.assocs = Associations()
         # self.assocs.load(os.path.join(data_folder, 'dict/mutual_info_2_ru.dat'), grdict)
-        self.assocs.collect_from_corpus(corpora, 5000000)
+        if use_assocs:
+            self.assocs.collect_from_corpus(corpora, 5000000)
 
         # Большой текстовый корпус, в котором текст уже токенизирован и нормализован.
         #corpus = CorpusWords()
@@ -1378,22 +1357,23 @@ class GenerativeGrammarEngine(object):
         #corpus.save()
 
         self.thesaurus = Thesaurus()
-        self.thesaurus.load(os.path.join(data_folder, 'dict/links.csv'))  # , corpus)
+        if use_thesaurus:
+            self.thesaurus.load(os.path.join(data_folder, 'dict/links.csv'))  # , corpus)
 
         self.lexicon = Word2Lemmas()
-        self.lexicon.load(os.path.join(data_folder, 'dict/word2lemma.dat'))  # , corpus)
+        self.lexicon.load(os.path.join(data_folder, 'dict/word2lemma.dat'), lexicon_words)
 
         self.grdict = GrammarDict()
-        self.grdict.load(os.path.join(data_folder, 'word2tags.dat'))  # , corpus)
+        self.grdict.load(os.path.join(data_folder, 'word2tags.dat'), lexicon_words)
 
-    def save(self, tmp_folder):
+    def save(self, tmp_folder, filename='generative_gramma1.dictionaries.pickle'):
         logging.info(u'Storing dictionaries...')
-        with open(self.get_pickle_path(tmp_folder), 'wb') as f:
+        with open(self.get_pickle_path(tmp_folder, filename), 'wb') as f:
             data = (self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap, self.templates)
             pickle.dump(data, f)
 
-    def load(self, tmp_folder):
-        with open(self.get_pickle_path(tmp_folder), 'rb') as f:
+    def load(self, tmp_folder, filename='generative_gramma1.dictionaries.pickle'):
+        with open(self.get_pickle_path(tmp_folder, filename), 'rb') as f:
             self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap, self.templates = pickle.load(f)
 
     def add_macro(self, macro_str):
@@ -1411,7 +1391,8 @@ class GenerativeGrammarEngine(object):
     def generate2(self, words_p_bag, known_words):
         topic_words = list()
         for word, proba in words_p_bag:
-            topic_word = construct_topic_word(word, proba, known_words, self.thesaurus, self.lexicon,
+            topic_word = construct_topic_word(word, proba, known_words,
+                                              self.thesaurus, self.lexicon,
                                               self.grdict, self.assocs)
             topic_words.append(topic_word)
 

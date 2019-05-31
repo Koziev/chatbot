@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from abc import abstractmethod
 
 class BaseFaqStorage(object):
     """Интерфейс доступа к FAQ базе"""
@@ -7,6 +8,7 @@ class BaseFaqStorage(object):
     def __init__(self):
         pass
 
+    @abstractmethod
     def get_most_similar(self, question_str, similarity_detector, word_embeddings, text_utils):
         """
         Ищем наиболее близкий вопрос в FAQ списке и возвращаем привязанный к

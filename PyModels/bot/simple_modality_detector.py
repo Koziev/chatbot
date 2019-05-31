@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from modality_detector import ModalityDetector
+from bot.modality_detector import ModalityDetector
 
 
 class SimpleModalityDetectorRU(ModalityDetector):
@@ -25,6 +25,12 @@ class SimpleModalityDetectorRU(ModalityDetector):
 
         if len(words) > 1 and text_utils.is_question_word(words[1]):
             return ModalityDetector.question
+
+        # Определение императивных форм глаголов требует проведения частеречной
+        # разметки, чтобы снять неоднозначности типа МОЙ/МЫТЬ
+        tags = text_utils.tag(words)
+        if any((u'Mood=Imp' in tag) for (word, tag) in tags):
+            return ModalityDetector.imperative
 
         return ModalityDetector.assertion
 

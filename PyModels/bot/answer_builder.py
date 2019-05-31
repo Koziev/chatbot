@@ -125,9 +125,9 @@ class AnswerBuilder(object):
                 # Ответ генерируется через классификацию на 2 варианта yes|no
                 y = self.yes_no_model.calc_yes_no(premises, question, text_utils, word_embeddings)
                 if y < 0.5:
-                    answer = text_utils.language_resources[u'нет']
+                    answer = text_utils.language_resources[u'not']
                 else:
-                    answer = text_utils.language_resources[u'да']
+                    answer = text_utils.language_resources[u'yes']
                 answers.append(answer)
                 answer_rels.append(premise_rel)
                 break  # ответ да/нет всегда единственный
@@ -224,7 +224,7 @@ class AnswerBuilder(object):
                     word_p = [(word, p) for word, p in word_p if p > p_threshold]
                     # 2) если слов все равно осталось много, то оставим максимальную длину + 1
                     if len(word_p) > (best_len + 1):
-                        word_p = sorted(word_p, key=lambda z: -z[1])[best_len + 1]
+                        word_p = sorted(word_p, key=lambda z: -z[1])[:best_len + 1]
 
                     all_generated_phrases = self.grammar.generate2(word_p, self.known_words)
 

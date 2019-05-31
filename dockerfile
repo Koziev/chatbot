@@ -9,20 +9,20 @@ RUN apt-get install -y liblzma-dev
 
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
-RUN pip install git+https://github.com/Koziev/rutokenizer
-RUN pip install git+https://github.com/Koziev/rupostagger
-RUN pip install git+https://github.com/Koziev/ruword2tags
 RUN pip install xgboost
 RUN pip install lightgbm
 RUN pip install keras
-RUN pip install sklearn
+RUN pip install --upgrade scikit-learn
 RUN pip install pymystem3
 RUN pip install gensim
 RUN pip install pathlib
 RUN pip install python-crfsuite
-RUN pip install git+https://github.com/Koziev/rusyllab
 RUN pip install tensorflow
 RUN pip install colorama
+RUN pip install git+https://github.com/Koziev/rutokenizer
+RUN pip install git+https://github.com/Koziev/rupostagger
+RUN pip install git+https://github.com/Koziev/ruword2tags
+RUN pip install git+https://github.com/Koziev/rusyllab
 
 RUN apt-get clean 
 

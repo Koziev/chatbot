@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from base_facts_storage import BaseFactsStorage
+from bot.base_facts_storage import BaseFactsStorage
 
 import datetime
 import itertools
@@ -21,9 +21,6 @@ class SimpleFactsStorage(BaseFactsStorage):
         """
         super(SimpleFactsStorage, self).__init__()
         self.text_utils = text_utils
-
-    def enumerate_smalltalk_replicas(self):
-        return []
 
     def enumerate_facts(self, interlocutor):
         memory_phrases = []
@@ -62,12 +59,16 @@ class SimpleFactsStorage(BaseFactsStorage):
             current_time += u' часов '
 
         current_time += str(current_minute)
-        if current_minute > 11 and (current_minute % 10) == 1:
-            current_time += u' минута '
-        elif current_minute > 4 and (current_minute % 10) in [2, 3, 4]:
-            current_time += u' минуты '
+        if current_minute == 1:
+            current_time += u' минута '  # 1 минута
+        elif current_minute <= 4 and (current_minute % 10) in [2, 3, 4]:
+            current_time += u' минуты '  # 2 минуты, 3 минуты, 4 минуты
+        elif current_time > 20 and (current_minute % 10) == 1:
+            current_time += u' минута '  # 21 минута, 31 минута, etc.
+        elif current_time > 20 and (current_minute % 10) in [2, 3, 4]:
+            current_time += u' минуты '  # 22 минуты, 23 минуты, etc.
         else:
-            current_time += u' минут '
+            current_time += u' минут '  # 6 минут, 27 минут etc
 
         memory_phrases.append((current_time, '3', 'current_time'))
 

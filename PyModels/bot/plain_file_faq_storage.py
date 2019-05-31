@@ -7,7 +7,10 @@ from base_faq_storage import BaseFaqStorage
 
 
 class PlainFileFaqStorage(BaseFaqStorage):
-    """Реализация хранилища FAQ на базе простого текстового файла без разметки"""
+    """
+    Реализация хранилища FAQ на базе простого текстового файла без разметки.
+    См. пример https://github.com/Koziev/chatbot/blob/master/data/faq2.txt
+    """
     def __init__(self, path):
         self.path = path
         self.loaded = False
@@ -82,4 +85,3 @@ class PlainFileFaqStorage(BaseFaqStorage):
         question_index = self.questions.index(best_question)
         best_answer = self.answers[question_index]
         return best_answer, best_rel, best_question
-
