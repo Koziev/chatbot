@@ -5,9 +5,12 @@ import logging
 #import parser
 import yaml
 import io
+import pickle
 
 from bot.interpreted_phrase import InterpretedPhrase
-from smalltalk_replicas import SmalltalkReplicas
+from bot.smalltalk_rules import SmalltalkSayingRule
+from bot.smalltalk_rules import SmalltalkGeneratorRule
+from generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 from comprehension_table import ComprehensionTable
 
 
@@ -58,7 +61,7 @@ class BotScripting(object):
         else:
             return [node]
 
-    def load_rules(self, yaml_path):
+    def load_rules(self, yaml_path, compiled_grammars_path, text_utils):
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
             if 'greeting' in data:
@@ -74,21 +77,50 @@ class BotScripting(object):
 
                 # Простые правила, которые задают срабатывание по тексту фразы, добавляем в отдельный
                 # список, чтобы обрабатывать в модели синонимичности одним пакетом.
-                if 'text' in condition and 'say' in action:
+                rule = ScriptingRule(condition, action)
+                self.rules.append(rule)
+
+            # Smalltalk-правила
+            # Для них нужны скомпилированные генеративные грамматики.
+            smalltalk_rule2grammar = dict()
+            with open(compiled_grammars_path, 'rb') as f:
+                n_rules = pickle.load(f)
+                for _ in range(n_rules):
+                    key = pickle.load(f)
+                    grammar = GenerativeGrammarEngine.unpickle_from(f)
+                    grammar.set_dictionaries(text_utils.gg_dictionaries)
+                    smalltalk_rule2grammar[key] = grammar
+
+            for rule in data['smalltalk_rules']:
+                # Пока делаем самый простой формат правил - с одним условием и одним актором.
+                condition = rule['rule']['if']
+                action = rule['rule']['then']
+
+                # Простые правила, которые задают срабатывание по тексту фразы, добавляем в отдельный
+                # список, чтобы обрабатывать в модели синонимичности одним пакетом.
+                if 'text' in condition:
                     for condition1 in BotScripting.__get_node_list(condition['text']):
-                        rule11 = SmalltalkReplicas(condition1)
-                        for answer1 in BotScripting.__get_node_list(action['say']):
-                            rule11.add_answer(answer1)
-                        self.smalltalk_rules.append(rule11)
+                        if 'say' in action:
+                            rule = SmalltalkSayingRule(condition1)
+                            for answer1 in BotScripting.__get_node_list(action['say']):
+                                rule.add_answer(answer1)
+                            self.smalltalk_rules.append(rule)
+                        elif 'generate' in action:
+                            generative_templates = list(BotScripting.__get_node_list(action['generate']))
+                            rule = SmalltalkGeneratorRule(condition1, generative_templates)
+                            key = u'text' + u'|' + condition1
+                            if key in smalltalk_rule2grammar:
+                                rule.compiled_grammar = smalltalk_rule2grammar[key]
+                            self.smalltalk_rules.append(rule)
+                        else:
+                            raise NotImplementedError()
                 else:
-                    rule = ScriptingRule(condition, action)
-                    self.rules.append(rule)
+                    raise NotImplementedError()
 
             self.comprehension_rules = ComprehensionTable()
             self.comprehension_rules.load_yaml_data(data)
 
-
-    def enumerate_smalltalk_replicas(self):
+    def enumerate_smalltalk_rules(self):
         return self.smalltalk_rules
 
     def buid_answer(self, answering_machine, interlocutor, interpreted_phrase):

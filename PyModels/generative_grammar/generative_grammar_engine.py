@@ -645,7 +645,7 @@ class GT_RandomWord(GT_Item):
     def __init__(self, words_str):
         super(GT_RandomWord, self).__init__()
         words = words_str[1:-1].split('|')
-        assert(len(words) > 2)
+        assert(len(words) >= 2)
         self.words = words
 
     def generate(self, topic_words, gren):
@@ -1255,6 +1255,11 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
                     # буквальный повтор слова запрещаем безусловно
                     continue
 
+                # НАЧАЛО ОТЛАДКИ
+                #if cur_item.word == u'играешь' and word == u'на':
+                #    print('DEBUG@1260')
+                # КОНЕЦ ОТЛАДКИ
+
                 # За повтор леммы - штрафуем.
                 trans_proba1 = 0.5 if same_stem(cur_item.word, word) and lexicon.same_lemma(cur_item.word, word) else 1.0
 
@@ -1314,24 +1319,19 @@ def calc_phrase_score(phrase, topic_words, ngrams, assocs, max_gap):
 
 
 
-class GenerativeGrammarEngine(object):
+
+class GenerativeGrammarDictionaries(object):
     def __init__(self):
-        self.macros = Macros()
-        self.templates = GenerativeTemplates()
-        self.max_rule_len = 10
+        self.all_ngrams = None
+        self.assocs = None
+        self.thesaurus = None
+        self.lexicon = None
+        self.grdict = None
 
-    def set_max_rule_length(self, max_len):
-        self.max_rule_len = max_len
-
-    def get_pickle_path(self, tmp_folder, custom_filename):
-        return os.path.join(tmp_folder, custom_filename)
-
-    def prepare_dictionaries(self, data_folder, max_ngram_gap, use_thesaurus=True, use_assocs=True,
-                             corpora_paths=None, lexicon_words=None):
+    def prepare(self, data_folder, max_ngram_gap, use_thesaurus=True, use_assocs=True,
+                corpora_paths=None, lexicon_words=None):
         self.max_ngram_gap = max_ngram_gap
 
-        # Соберем словари и сохраним их на диск, чтобы следующий запуск
-        # не делать это снова.
         if corpora_paths is None:
             corpora = [os.path.join(data_folder, 'pqa_all.dat'),
                        #os.path.join(data_folder, 'smalltalk.txt'),
@@ -1366,15 +1366,51 @@ class GenerativeGrammarEngine(object):
         self.grdict = GrammarDict()
         self.grdict.load(os.path.join(data_folder, 'word2tags.dat'), lexicon_words)
 
-    def save(self, tmp_folder, filename='generative_gramma1.dictionaries.pickle'):
-        logging.info(u'Storing dictionaries...')
-        with open(self.get_pickle_path(tmp_folder, filename), 'wb') as f:
-            data = (self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap, self.templates)
-            pickle.dump(data, f)
+    def save(self, filepath):
+        logging.info(u'Storing generative grammar dictionaries to "{}"'.format(filepath))
+        with open(filepath, 'wb') as f:
+            self.pickle_to(f)
 
-    def load(self, tmp_folder, filename='generative_gramma1.dictionaries.pickle'):
-        with open(self.get_pickle_path(tmp_folder, filename), 'rb') as f:
-            self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap, self.templates = pickle.load(f)
+    def pickle_to(self, file):
+        data = (self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap)
+        pickle.dump(data, file)
+
+    def load(self, filepath):
+        logging.info(u'Loading generative grammar dictionaries from "{}"'.format(filepath))
+        with open(filepath, 'rb') as f:
+            self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap = pickle.load(f)
+
+
+class GenerativeGrammarEngine(object):
+    def __init__(self):
+        self.macros = Macros()
+        self.templates = GenerativeTemplates()
+        self.max_rule_len = 8
+        self.dictionaries = None
+
+    def set_max_rule_length(self, max_len):
+        self.max_rule_len = max_len
+
+    def set_dictionaries(self, dictionaries):
+        self.dictionaries = dictionaries
+
+    def save(self, filepath):
+        logging.info(u'Storing grammar to "{}"'.format(filepath))
+        with open(filepath, 'wb') as f:
+            self.pickle_to(f)
+
+    def pickle_to(self, file):
+        pickle.dump(self.templates, file)
+
+    @staticmethod
+    def unpickle_from(file):
+        grammar = GenerativeGrammarEngine()
+        grammar.templates = pickle.load(file)
+        return grammar
+
+    def load(self, filepath):
+        with open(filepath, 'rb') as f:
+            self.templates = pickle.load(f)
 
     def add_macro(self, macro_str):
         self.macros.parse(macro_str)
@@ -1392,12 +1428,17 @@ class GenerativeGrammarEngine(object):
         topic_words = list()
         for word, proba in words_p_bag:
             topic_word = construct_topic_word(word, proba, known_words,
-                                              self.thesaurus, self.lexicon,
-                                              self.grdict, self.assocs)
+                                              self.dictionaries.thesaurus,
+                                              self.dictionaries.lexicon,
+                                              self.dictionaries.grdict,
+                                              self.dictionaries.assocs)
             topic_words.append(topic_word)
 
-        all_generated_phrases = self.templates.generate_phrases(topic_words, self.grdict, self.thesaurus,
-                                                                self.lexicon, self.all_ngrams)
+        all_generated_phrases = self.templates.generate_phrases(topic_words,
+                                                                self.dictionaries.grdict,
+                                                                self.dictionaries.thesaurus,
+                                                                self.dictionaries.lexicon,
+                                                                self.dictionaries.all_ngrams)
 
         weighted_phrases = []
         for phrase in all_generated_phrases:
@@ -1406,24 +1447,26 @@ class GenerativeGrammarEngine(object):
             #    print('DEBUG@1331')
             # КОНЕЦ ОТЛАДКИ
 
-            p2 = calc_phrase_score(phrase, topic_words, self.all_ngrams, self.assocs, self.max_ngram_gap)
+            p2 = calc_phrase_score(phrase, topic_words, self.dictionaries.all_ngrams,
+                                   self.dictionaries.assocs,
+                                   self.dictionaries.max_ngram_gap)
             p2 = normalize_proba(p2) * phrase.get_proba0()
             phrase.set_rank(p2)
             weighted_phrases.append(phrase)
 
         return weighted_phrases
 
-    def get_random_verb(self, known_words):
-        return self.lexicon.get_random_verb(known_words)
+    #def get_random_verb(self, known_words):
+    #    return self.lexicon.get_random_verb(known_words)
 
-    def get_random_noun(self, known_words):
-        return self.lexicon.get_random_noun(known_words)
+    #def get_random_noun(self, known_words):
+    #    return self.lexicon.get_random_noun(known_words)
 
-    def get_random_adj(self, known_words):
-        return self.lexicon.get_random_adj(known_words)
+    #def get_random_adj(self, known_words):
+    #    return self.lexicon.get_random_adj(known_words)
 
-    def get_random_adv(self, known_words):
-        return self.lexicon.get_random_adv(known_words)
+    #def get_random_adv(self, known_words):
+    #    return self.lexicon.get_random_adv(known_words)
 
 
 if __name__ == "__main__":
@@ -1432,6 +1475,6 @@ if __name__ == "__main__":
     data_folder = '../../../data'
     tmp_folder = '../../../tmp'
 
-    MAX_NGRAM_GAP = 1
-    grammar = GenerativeGrammarEngine()
-    grammar.prepare_dictionaries(data_folder, tmp_folder, MAX_NGRAM_GAP)
+    dictionaries = GenerativeGrammarDictionaries()
+    dictionaries.prepare(data_folder, tmp_folder)
+    dictionaries.save(os.path.join(tmp_folder, 'generative_grammar_dictionaries.bin'))

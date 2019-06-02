@@ -29,6 +29,7 @@ from bot.modality_detector import ModalityDetector
 from bot.simple_modality_detector import SimpleModalityDetectorRU
 from bot.no_information_model import NoInformationModel
 from bot.intent_detector import IntentDetector
+from generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -103,7 +104,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Комплексная модель (группа моделей) для генерации текста ответа
         self.answer_builder = AnswerBuilder()
-        self.answer_builder.load_models(models_folder)
+        self.answer_builder.load_models(models_folder, self.text_utils)
 
         # Классификатор грамматического лица на базе XGB
         #self.person_classifier = XGB_PersonClassifierModel()
@@ -385,35 +386,57 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if bot.enable_smalltalk and bot.has_scripting():
                 # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
                 # ответ на наш вопрос, заданный ранее).
-                smalltalk_phrases = bot.get_scripting().enumerate_smalltalk_replicas()
+                smalltalk_rules = bot.get_scripting().enumerate_smalltalk_rules()
 
                 interlocutor_phrases = session.get_interlocutor_phrases(questions=False, assertions=True)
                 for phrase, timegap in interlocutor_phrases:
                     best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase,
-                                                                                     [(item.query, -1, -1) for item in smalltalk_phrases],
+                                                                                     [(item.get_condition_text(), -1, -1) for item in smalltalk_rules],
                                                                                      self.text_utils,
                                                                                      self.word_embeddings)
 
                     time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
 
-                    for item in smalltalk_phrases:
-                        if item.query == best_premise:
-                            # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-                            # поэтому их следует сначала нормализовать.
-                            for replica in item.answers:
-                                # Такой вопрос не задавался недавно?
-                                if session.count_bot_phrase(replica) == 0:
-                                    # нужно учесть соответствие этой реплики replica текущему дискурсу
-                                    # беседы... Например, можно учесть максимальную похожесть на N последних
-                                    # реплик...
-                                    discourse_rel = self.calc_discourse_relevance(replica, session)
+                    for item in smalltalk_rules:
+                        if item.get_condition_text() == best_premise:
 
-                                    if self.is_question(replica):
-                                        # бот не должен задавать вопрос, если он уже знает на него ответ.
-                                        if not self.does_bot_know_answer(replica, session):
-                                            generated_replicas.append((replica, best_rel * discourse_rel * time_decay, 'debug1'))
-                                    else:
-                                        generated_replicas.append((replica, best_rel * discourse_rel * time_decay, 'debug2'))
+                            # Используем это правило для генерации реплики.
+                            # Правило может быть простым, с явно указанной фразой, либо
+                            # содержать набор шаблонов генерации.
+
+                            if item.is_generator():
+                                # Используем скомпилированную грамматику для генерации фраз..
+                                words = phrase.split()
+                                all_generated_phrases = item.compiled_grammar.generate(words, self.text_utils.known_words)
+                                if len(all_generated_phrases) > 0:
+                                    #best = sorted(all_generated_phrases, key=lambda z: -z.get_rank())[0]
+                                    px = [z.get_rank() for z in all_generated_phrases]
+                                    px /= sum(px)
+                                    best = np.random.choice(all_generated_phrases, 1, p=px)
+
+                                    generated_replicas.append((best.get_str(), best.get_rank(), 'debug3'))
+
+                            else:
+                                # Текст формируемой реплики указан буквально.
+                                # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+                                # поэтому их следует сначала нормализовать.
+                                for replica in item.answers:
+                                    # Такой вопрос не задавался недавно?
+                                    if session.count_bot_phrase(replica) == 0:
+                                        # нужно учесть соответствие этой реплики replica текущему дискурсу
+                                        # беседы... Например, можно учесть максимальную похожесть на N последних
+                                        # реплик...
+                                        discourse_rel = self.calc_discourse_relevance(replica, session)
+
+                                        if self.is_question(replica):
+                                            # бот не должен задавать вопрос, если он уже знает на него ответ.
+                                            if not self.does_bot_know_answer(replica, session):
+                                                generated_replicas.append(
+                                                    (replica, best_rel * discourse_rel * time_decay, 'debug1'))
+                                        else:
+                                            generated_replicas.append(
+                                                (replica, best_rel * discourse_rel * time_decay, 'debug2'))
+
                             break
 
                 # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,

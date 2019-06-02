@@ -2,6 +2,7 @@
 """
 Код для выполнения операций с текстом на русском языке (или другом целевом),
 в частности - токенизация, лемматизация, частеречная разметка.
+Загрузка различных словарных баз.
 """
 
 import itertools
@@ -15,6 +16,7 @@ import rupostagger
 from utils.tokenizer import Tokenizer
 from bot.word2lemmas import Word2Lemmas
 from bot.language_resources import LanguageResources
+from generative_grammar.generative_grammar_engine import GenerativeGrammarDictionaries
 
 
 BEG_WORD = u'\b'
@@ -30,8 +32,13 @@ class TextUtils(object):
         self.lexicon = Word2Lemmas()
         self.language_resources = LanguageResources()
         self.postagger = rupostagger.RuPosTagger()
+        self.gg_dictionaries = GenerativeGrammarDictionaries()
+        self.known_words = set()
 
-    def load_dictionaries(self, data_folder):
+    def load_dictionaries(self, data_folder, models_folder):
+        # Общий словарь для генеративных грамматик
+        self.gg_dictionaries.load(os.path.join(models_folder, 'generative_grammar_dictionaries.bin'))
+
         word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
         self.lexicon.load(word2lemmas_path)
 
@@ -46,6 +53,13 @@ class TextUtils(object):
 
             self.language_resources.key2phrase[u'yes'] = data[u'answers'][u'yes']
             self.language_resources.key2phrase[u'not'] = data[u'answers'][u'not']
+
+        # Список "хороших слов" для генеративной грамматики
+        with io.open(os.path.join(models_folder, 'dataset_words.txt'), 'r', encoding='utf-8') as rdr:
+            for line in rdr:
+                word = line.strip()
+                self.known_words.add(word)
+
 
 
     def tag(self, words):

@@ -35,7 +35,7 @@ class AnswerBuilder(object):
         self.answer_relevancy = None  # :AnswerRelevancy  релевантность сгенерированного ответа
         self.known_words = None  # set
 
-    def load_models(self, models_folder):
+    def load_models(self, models_folder, text_utils):
         self.models_folder = models_folder
 
         # Модель для выбора ответов yes|no на базе XGB
@@ -57,7 +57,8 @@ class AnswerBuilder(object):
         self.answer_generator.load(models_folder)
 
         self.grammar = GenerativeGrammarEngine()
-        self.grammar.load(models_folder)
+        self.grammar.set_dictionaries(text_utils.gg_dictionaries)
+        self.grammar.load(os.path.join(models_folder, 'answer_generative_grammar.bin'))
 
         self.word_selector = WordSelector()
         self.word_selector.load(models_folder)

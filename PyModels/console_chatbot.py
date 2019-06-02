@@ -35,17 +35,21 @@ tmp_folder = os.path.expanduser(args.tmp_folder)
 init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'))
 
 
-scripting = BotScripting(data_folder)
-scripting.load_rules(os.path.join(data_folder, 'rules.yaml'))
-
-
 # Создаем необходимое окружение для бота.
 # Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
 text_utils = TextUtils()
-text_utils.load_dictionaries(data_folder)
+text_utils.load_dictionaries(data_folder, models_folder)
+
+scripting = BotScripting(data_folder)
+scripting.load_rules(os.path.join(data_folder, 'rules.yaml'),
+                     os.path.join(models_folder, 'smalltalk_generative_grammars.bin'),
+                     text_utils
+                     )
+
+
 
 # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
-# ботов, хотя тут у нас будет работать только один.
+# ботов с разными базами фактов и правил, хотя тут у нас будет работать только один.
 machine = SimpleAnsweringMachine(text_utils=text_utils)
 machine.load_models(data_folder, models_folder, w2v_folder)
 machine.trace_enabled = True  # для отладки
@@ -54,7 +58,10 @@ machine.trace_enabled = True  # для отладки
 facts_storage = Files3FactsStorage(text_utils=text_utils,
                                    facts_folder=facts_folder)
 
-# Правила для FAQ-режима бота
+# Подключем простое файловое хранилище с FAQ-правилами бота.
+# Движок бота сопоставляет вопрос пользователя с опорными вопросами в FAQ базе,
+# и если нашел хорошее соответствие (синонимичность выше порога), то
+# выдает ответную часть найденной записи.
 faq = PlainFileFaqStorage(os.path.join(data_folder, 'faq2.txt'))
 
 # Инициализируем бота, загружаем правила (файл data/rules.yaml).
