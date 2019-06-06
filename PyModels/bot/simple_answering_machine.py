@@ -30,6 +30,7 @@ from bot.simple_modality_detector import SimpleModalityDetectorRU
 from bot.no_information_model import NoInformationModel
 from bot.intent_detector import IntentDetector
 from generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
+from entity_extractor import EntityExtractor
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -121,6 +122,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.intent_detector = IntentDetector()
         self.intent_detector.load(models_folder)
 
+        self.entity_extractor = EntityExtractor()
+        self.entity_extractor.load(models_folder)
+
         # Загрузка векторных словарей
         self.word_embeddings = WordEmbeddings()
         self.word_embeddings.load_models(models_folder)
@@ -138,6 +142,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
         self.logger.debug('All models loaded')
+
+    def extract_entity(self, entity_name, phrase_str):
+        return self.entity_extractor.extract_entity(entity_name, phrase_str, self.text_utils, self.word_embeddings)
 
     def start_conversation(self, bot, interlocutor):
         """
@@ -170,7 +177,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         phrases2 = list((self.text_utils.wordize_text(order), None, None) for (anchor, order) in rules)
         canonized2raw = dict((f2[0], f1) for (f1, f2) in itertools.izip(phrases, phrases2))
 
-        best_order, best_sim = self.synonymy_detector.get_most_similar(self.text_utils.wordize_text(raw_phrase),
+        raw_phrase2 = self.text_utils.wordize_text(raw_phrase)
+        best_order, best_sim = self.synonymy_detector.get_most_similar(raw_phrase2,
                                                                        phrases2,
                                                                        self.text_utils,
                                                                        self.word_embeddings,
@@ -185,13 +193,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     u'Closest comprehension phrase is "{}" with similarity={} above threshold={}'.format(best_order, best_sim, comprehension_threshold))
 
             interpreted_order = order2anchor[canonized2raw[best_order]]
-            if self.trace_enabled:
-                self.logger.info(u'Phrase "{}" is interpreted as "{}"'.format(raw_phrase, interpreted_order))
-            return interpreted_order
+            if raw_phrase2 != interpreted_order:
+                if self.trace_enabled:
+                    self.logger.info(u'Phrase "{}" is interpreted as "{}"'.format(raw_phrase, interpreted_order))
+                return interpreted_order
+            else:
+                return None
         else:
             return None
 
-    def interpret_phrase(self, bot, session, raw_phrase):
+    def interpret_phrase(self, bot, session, raw_phrase, internal_issuer):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
         phrase_modality = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
@@ -202,52 +213,53 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         last_phrase = session.conversation_history[-1] if len(session.conversation_history) > 0 else None
 
-        # Интерпретация вопроса собеседника (человека):
-        # (H) Ты яблоки любишь?
-        # (B) Да
-        # (H) А виноград? <<----- == Ты виноград любишь?
-        if len(session.conversation_history) > 1 and phrase_is_question:
-            last2_phrase = session.conversation_history[-2]  # это вопрос человека "Ты яблоки любишь?"
+        if not internal_issuer:
+            # Интерпретация вопроса собеседника (человека):
+            # (H) Ты яблоки любишь?
+            # (B) Да
+            # (H) А виноград? <<----- == Ты виноград любишь?
+            if len(session.conversation_history) > 1 and phrase_is_question:
+                last2_phrase = session.conversation_history[-2]  # это вопрос человека "Ты яблоки любишь?"
 
-            if not last2_phrase.is_bot_phrase\
-                and last2_phrase.is_question\
-                and self.interpreter is not None:
+                if not last2_phrase.is_bot_phrase\
+                    and last2_phrase.is_question\
+                    and self.interpreter is not None:
+
+                    if self.req_interpretation.require_interpretation(raw_phrase,
+                                                                      self.text_utils,
+                                                                      self.word_embeddings):
+                        context_phrases = list()
+                        # Контекст состоит из двух предыдущих фраз
+                        context_phrases.append(last2_phrase.raw_phrase)
+                        context_phrases.append(last_phrase.raw_phrase)
+                        context_phrases.append(raw_phrase)
+                        phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
+                        was_interpreted = True
+
+            # and last_phrase.is_question\
+            if not was_interpreted\
+                    and len(session.conversation_history) > 0\
+                    and last_phrase.is_bot_phrase\
+                    and not phrase_is_question\
+                    and self.interpreter is not None:
 
                 if self.req_interpretation.require_interpretation(raw_phrase,
                                                                   self.text_utils,
                                                                   self.word_embeddings):
+                    # В отдельной ветке обрабатываем ситуацию, когда бот
+                    # задал вопрос или квази-вопрос типа "А давай xxx", на который собеседник дал краткий ответ.
+                    # с помощью специальной модели мы попробуем восстановить полный
+                    # текст ответа собеседника.
                     context_phrases = list()
-                    # Контекст состоит из двух предыдущих фраз
-                    context_phrases.append(last2_phrase.raw_phrase)
-                    context_phrases.append(last_phrase.raw_phrase)
+                    context_phrases.append(last_phrase.interpretation)
                     context_phrases.append(raw_phrase)
                     phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
                     was_interpreted = True
 
-        # and last_phrase.is_question\
-        if not was_interpreted\
-                and len(session.conversation_history) > 0\
-                and last_phrase.is_bot_phrase\
-                and not phrase_is_question\
-                and self.interpreter is not None:
-
-            if self.req_interpretation.require_interpretation(raw_phrase,
-                                                              self.text_utils,
-                                                              self.word_embeddings):
-                # В отдельной ветке обрабатываем ситуацию, когда бот
-                # задал вопрос или квази-вопрос типа "А давай xxx", на который собеседник дал краткий ответ.
-                # с помощью специальной модели мы попробуем восстановить полный
-                # текст ответа собеседника.
-                context_phrases = list()
-                context_phrases.append(last_phrase.interpretation)
-                context_phrases.append(raw_phrase)
-                phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
-                was_interpreted = True
-
         if was_interpreted:
             phrase = self.interpreter.normalize_person(phrase, self.text_utils, self.word_embeddings)
 
-        if True:  #not phrase_is_question:
+        if not internal_issuer:
             # Попробуем найти шаблон трансляции, достаточно похожий на эту фразу.
             # Может получиться так, что введенная императивная фраза станет обычным вопросом:
             # "назови свое имя!" ==> "Как тебя зовут?"
@@ -286,7 +298,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # TODO
         return 1.0
 
-    def push_phrase(self, bot, interlocutor, phrase):
+    def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False):
         question = self.text_utils.canonize_text(phrase)
         if question == u'#traceon':
             self.trace_enabled = True
@@ -304,7 +316,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
         # так что мы можем раскрыть анафору, подставить в явном виде опущенные составляющие и т.д.,
         # определить, является ли фраза вопросом, фактом или императивным высказыванием.
-        interpreted_phrase = self.interpret_phrase(bot, session, question)
+        interpreted_phrase = self.interpret_phrase(bot, session, question, internal_issuer)
 
         # Интерпретация фраз и в общем случае реакция на них зависит и от истории
         # общения, поэтому результат интерпретации сразу добавляем в историю.
@@ -389,55 +401,70 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 smalltalk_rules = bot.get_scripting().enumerate_smalltalk_rules()
 
                 interlocutor_phrases = session.get_interlocutor_phrases(questions=False, assertions=True)
-                for phrase, timegap in interlocutor_phrases:
+                for phrase, timegap in interlocutor_phrases[:1]:  # 05.06.2019 берем одну последнюю фразу
                     best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase,
                                                                                      [(item.get_condition_text(), -1, -1) for item in smalltalk_rules],
                                                                                      self.text_utils,
                                                                                      self.word_embeddings)
+                    if best_rel > 0.7:
+                        time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
 
-                    time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
+                        for item in smalltalk_rules:
+                            if item.get_condition_text() == best_premise:
 
-                    for item in smalltalk_rules:
-                        if item.get_condition_text() == best_premise:
+                                # Используем это правило для генерации реплики.
+                                # Правило может быть простым, с явно указанной фразой, либо
+                                # содержать набор шаблонов генерации.
 
-                            # Используем это правило для генерации реплики.
-                            # Правило может быть простым, с явно указанной фразой, либо
-                            # содержать набор шаблонов генерации.
+                                if item.is_generator():
+                                    # Используем скомпилированную грамматику для генерации фраз..
+                                    words = phrase.split()
+                                    all_generated_phrases = item.compiled_grammar.generate(words, self.text_utils.known_words)
+                                    if len(all_generated_phrases) > 0:
+                                        # Уберем вопросы, которые мы уже задавали, оставим top
+                                        top = sorted(all_generated_phrases, key=lambda z: -z.get_rank())[:50]
+                                        top = filter(lambda z: session.count_bot_phrase(z.get_str()) == 0, top)
 
-                            if item.is_generator():
-                                # Используем скомпилированную грамматику для генерации фраз..
-                                words = phrase.split()
-                                all_generated_phrases = item.compiled_grammar.generate(words, self.text_utils.known_words)
-                                if len(all_generated_phrases) > 0:
-                                    #best = sorted(all_generated_phrases, key=lambda z: -z.get_rank())[0]
-                                    px = [z.get_rank() for z in all_generated_phrases]
-                                    px /= sum(px)
-                                    best = np.random.choice(all_generated_phrases, 1, p=px)
+                                        # Выберем рандомно одну из фраз
+                                        px = [z.get_rank() for z in top]
+                                        sum_p = sum(px)
+                                        px = [p/sum_p for p in px]
+                                        best = np.random.choice(top, 1, p=px)[0]
+                                        replica = best.get_str()
 
-                                    generated_replicas.append((best.get_str(), best.get_rank(), 'debug3'))
-
-                            else:
-                                # Текст формируемой реплики указан буквально.
-                                # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-                                # поэтому их следует сначала нормализовать.
-                                for replica in item.answers:
-                                    # Такой вопрос не задавался недавно?
-                                    if session.count_bot_phrase(replica) == 0:
-                                        # нужно учесть соответствие этой реплики replica текущему дискурсу
-                                        # беседы... Например, можно учесть максимальную похожесть на N последних
-                                        # реплик...
                                         discourse_rel = self.calc_discourse_relevance(replica, session)
 
                                         if self.is_question(replica):
                                             # бот не должен задавать вопрос, если он уже знает на него ответ.
                                             if not self.does_bot_know_answer(replica, session):
                                                 generated_replicas.append(
-                                                    (replica, best_rel * discourse_rel * time_decay, 'debug1'))
+                                                    (replica, best.get_rank() * discourse_rel * time_decay, 'debug3'))
                                         else:
                                             generated_replicas.append(
-                                                (replica, best_rel * discourse_rel * time_decay, 'debug2'))
+                                                (replica, best.get_rank() * discourse_rel * time_decay, 'debug4'))
 
-                            break
+                                else:
+                                    # Текст формируемой реплики указан буквально.
+                                    # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+                                    # поэтому их следует сначала нормализовать.
+                                    for replica in item.answers:
+                                        # Такой вопрос не задавался недавно?
+                                        if session.count_bot_phrase(replica) == 0:
+                                            # нужно учесть соответствие этой реплики replica текущему дискурсу
+                                            # беседы... Например, можно учесть максимальную похожесть на N последних
+                                            # реплик...
+                                            discourse_rel = self.calc_discourse_relevance(replica, session)
+
+                                            if self.is_question(replica):
+                                                # бот не должен задавать вопрос, если он уже знает на него ответ.
+                                                if not self.does_bot_know_answer(replica, session):
+                                                    generated_replicas.append(
+                                                        (replica, best_rel * discourse_rel * time_decay, 'debug1'))
+                                            else:
+                                                generated_replicas.append(
+                                                    (replica, best_rel * discourse_rel * time_decay, 'debug2'))
+
+                                break
 
                 # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
                 # максимально близкие к вопросам в smalltalk базе.

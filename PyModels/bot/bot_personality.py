@@ -32,6 +32,9 @@ class BotPersonality:
     def get_scripting(self):
         return self.scripting
 
+    def extract_entity(self, entity_name, phrase):
+        return self.engine.extract_entity(entity_name, phrase.interpretation)
+
     def get_comprehension_templates(self):
         return self.scripting.comprehension_rules
 

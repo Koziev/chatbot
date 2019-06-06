@@ -34,9 +34,9 @@ class ScriptingRule(object):
                 bot.say(session, self.action[u'say'])
         elif u'answer' in self.action:
             if isinstance(self.action[u'answer'], list):
-                bot.push_phrase(user_id, random.choice(self.action[u'answer']))
+                bot.push_phrase(user_id, random.choice(self.action[u'answer']), True)
             else:
-                bot.push_phrase(user_id, self.action[u'answer'])
+                bot.push_phrase(user_id, self.action[u'answer'], True)
         elif u'callback' in self.action:
             resp = bot.invoke_callback(self.action[u'callback'], session, user_id, interpreted_phrase)
             if resp:
@@ -74,9 +74,6 @@ class BotScripting(object):
                 # Пока делаем самый простой формат правил - с одним условием и одним актором.
                 condition = rule['rule']['if']
                 action = rule['rule']['then']
-
-                # Простые правила, которые задают срабатывание по тексту фразы, добавляем в отдельный
-                # список, чтобы обрабатывать в модели синонимичности одним пакетом.
                 rule = ScriptingRule(condition, action)
                 self.rules.append(rule)
 
