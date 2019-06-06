@@ -85,7 +85,8 @@ bot.on_process_order = on_order
 
 
 def on_weather_forecast(bot, session, user_id, interpreted_phrase):
-    return u'Прогноз погоды сгенерирован в функции on_weather_forecast для демонстрации'
+    when_arg = bot.extract_entity(u'когда', interpreted_phrase)
+    return u'Прогноз погоды на момент времени "{}" сгенерирован в функции on_weather_forecast для демонстрации'.format(when_arg)
 
 
 bot.add_event_handler(u'weather_forecast', on_weather_forecast)
