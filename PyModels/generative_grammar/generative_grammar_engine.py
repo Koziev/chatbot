@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Движок генеративной грамматики.
+Движок генеративной грамматики для вопросно-ответной системы.
 """
 
 from __future__ import division
@@ -24,6 +24,7 @@ import rutokenizer
 
 def decode_pos(pos):
     if pos in [u'ДЕЕПРИЧАСТИЕ', u'ГЛАГОЛ', u'ИНФИНИТИВ']:
+        # Объединяем глагольные части речи.
         return u'ГЛАГОЛ'
     else:
         return pos
@@ -36,28 +37,8 @@ def clean_output(s):
     return s
 
 
-# Эти слова не подставляем
-stop_words2 = set(u'один одна одно одни одного одну одних'.split(u' ')) | \
-              set(u'свой своя свое свои своего свою своих своим своими своей своему своем'.split()) | \
-              set(u'твой твоя твое твои твоего твоей твоих твоим твоими твоему твоем'.split()) | \
-              set(u'эти этот эту это этого этим этой этими этих совсем'.split(u' ')) | \
-              set(u'какой какая какое какие какого какой каких каким какими каком'.split(u' ')) | \
-              set(u'все весь вся всех всю всего всем всеми всей'.split(u' ')) | \
-              set(u'очень крайне даже уже весьма мало много тут там где когда почему зачем откуда'.split(u' ')) | \
-              set(u'как так чуть точно словно будто вроде'.split(u' ')) | \
-              set(u'налево направо слева справа сверху снизу везде нигде'.split(u' ')) | \
-              set(u'все больше меньше чьей чья чьи чьих чьими чью чье чей'.split(u' ')) | \
-              set(u'буду будешь будем будут будете была был было были будь будьте'.split(u' ')) | \
-              set(u'стал стала стало стали стану станем станешь станете станут стал стань станьте'.split(u' ')) | \
-              set(u'никогда иногда всегда временами потому еще столь насколько насколько намного'.split(u' '))
-
-
-def is_stop_word2(word):
-    return word in stop_words2
-
-
 class CorpusWords:
-    """Анализ большого текстового корпуса и сбор самых частотных слов"""
+    """ Анализ большого текстового корпуса и сбор самых частотных слов """
     def __init__(self, min_freq=5):
         self.min_freq = min_freq
         self.storage_path = '../../tmp/all_words.dat'
@@ -1334,7 +1315,7 @@ class GenerativeGrammarDictionaries(object):
 
         if corpora_paths is None:
             corpora = [os.path.join(data_folder, 'pqa_all.dat'),
-                       #os.path.join(data_folder, 'smalltalk.txt'),
+                       os.path.join(data_folder, 'ngrams_corpus.txt'),
                        os.path.join(data_folder, 'paraphrases.txt'),
                        # r'/media/inkoziev/corpora/Corpus/word2vector/ru/w2v.ru.corpus.txt'
                        ]
@@ -1380,12 +1361,24 @@ class GenerativeGrammarDictionaries(object):
         with open(filepath, 'rb') as f:
             self.thesaurus, self.lexicon, self.grdict, self.assocs, self.all_ngrams, self.max_ngram_gap = pickle.load(f)
 
+    def get_random_verb(self, known_words):
+        return self.lexicon.get_random_verb(known_words)
+
+    def get_random_noun(self, known_words):
+        return self.lexicon.get_random_noun(known_words)
+
+    def get_random_adj(self, known_words):
+        return self.lexicon.get_random_adj(known_words)
+
+    def get_random_adv(self, known_words):
+        return self.lexicon.get_random_adv(known_words)
 
 class GenerativeGrammarEngine(object):
     def __init__(self):
         self.macros = Macros()
         self.templates = GenerativeTemplates()
         self.max_rule_len = 8
+        self.wordbag_words = set()
         self.dictionaries = None
 
     def set_max_rule_length(self, max_len):
@@ -1401,16 +1394,21 @@ class GenerativeGrammarEngine(object):
 
     def pickle_to(self, file):
         pickle.dump(self.templates, file)
+        pickle.dump(self.wordbag_words, file)
 
     @staticmethod
     def unpickle_from(file):
         grammar = GenerativeGrammarEngine()
         grammar.templates = pickle.load(file)
+        grammar.wordbag_words = pickle.load(file)
         return grammar
 
     def load(self, filepath):
         with open(filepath, 'rb') as f:
             self.templates = pickle.load(f)
+
+    def add_word(self, word):
+        self.wordbag_words.add(word)
 
     def add_macro(self, macro_str):
         self.macros.parse(macro_str)
@@ -1428,6 +1426,14 @@ class GenerativeGrammarEngine(object):
         topic_words = list()
         for word, proba in words_p_bag:
             topic_word = construct_topic_word(word, proba, known_words,
+                                              self.dictionaries.thesaurus,
+                                              self.dictionaries.lexicon,
+                                              self.dictionaries.grdict,
+                                              self.dictionaries.assocs)
+            topic_words.append(topic_word)
+
+        for word in self.wordbag_words:
+            topic_word = construct_topic_word(word, 1.0, known_words,
                                               self.dictionaries.thesaurus,
                                               self.dictionaries.lexicon,
                                               self.dictionaries.grdict,
@@ -1455,18 +1461,6 @@ class GenerativeGrammarEngine(object):
             weighted_phrases.append(phrase)
 
         return weighted_phrases
-
-    #def get_random_verb(self, known_words):
-    #    return self.lexicon.get_random_verb(known_words)
-
-    #def get_random_noun(self, known_words):
-    #    return self.lexicon.get_random_noun(known_words)
-
-    #def get_random_adj(self, known_words):
-    #    return self.lexicon.get_random_adj(known_words)
-
-    #def get_random_adv(self, known_words):
-    #    return self.lexicon.get_random_adv(known_words)
 
 
 if __name__ == "__main__":
