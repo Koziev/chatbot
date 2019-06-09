@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from model_applicator import ModelApplicator
+from bot.model_applicator import ModelApplicator
 
 
 class SynonymyDetector(ModelApplicator):
@@ -17,3 +17,13 @@ class SynonymyDetector(ModelApplicator):
 
     def get_most_similar(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         raise NotImplementedError()
+
+    def get_threshold(self):
+        """
+        Возвращаемая моделью оценка синонимичности часто нужна не только для выбора лучшего
+        варианта среди нескольких альтернатив. Обычно нужно еще понять, достаточно ли похожи
+        фразы, чтобы считать их синонимичными. Возвращаемое этой функцией значение как
+        раз используется по умолчанию как порог. В будущем можно инициализировать его
+        из конфига при загрузке модели.
+        """
+        return 0.7

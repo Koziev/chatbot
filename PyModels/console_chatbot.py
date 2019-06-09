@@ -85,11 +85,31 @@ bot.on_process_order = on_order
 
 
 def on_weather_forecast(bot, session, user_id, interpreted_phrase):
+    """
+    Обработчик запросов для прогноза погоды.
+    Вызывается ядром чатбота.
+    :return: текст ответа, который увидит пользователь
+    """
     when_arg = bot.extract_entity(u'когда', interpreted_phrase)
     return u'Прогноз погоды на момент времени "{}" сгенерирован в функции on_weather_forecast для демонстрации'.format(when_arg)
 
 
+def on_check_emails(bot, session, user_id, interpreted_phrase):
+    """
+    Обработчик запросов на проверку электронной почты (реплики типа "Нет ли новых писем?")
+    """
+    return u'Фиктивная проверка почты в функции on_check_email'
+
+
+def on_alarm_clock(bot, session, user_id, interpreted_phrase):
+    when_arg = bot.extract_entity(u'когда', interpreted_phrase)
+    return u'Фиктивный будильник для "{}"'.format(when_arg)
+
+
+# Выполняем привязку обработчиков
 bot.add_event_handler(u'weather_forecast', on_weather_forecast)
+bot.add_event_handler(u'check_emails', on_check_emails)
+bot.add_event_handler(u'alarm_clock', on_alarm_clock)
 
 
 print_tech_banner()

@@ -35,7 +35,9 @@ from entity_extractor import EntityExtractor
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
     """
-    Чат-бот на основе набора нейросетевых и прочих моделей (https://github.com/Koziev/chatbot).
+    Движок чатбота на основе набора нейросетевых и прочих моделей (https://github.com/Koziev/chatbot).
+    Методы класса реализуют workflow обработки реплик пользователя - формирование ответов, управление
+    базой знаний.
     """
 
     def __init__(self, text_utils):
@@ -278,10 +280,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         if self.intent_detector is not None:
             interpreted.intent = self.intent_detector.detect_intent(raw_phrase)
+            self.logger.debug(u'intent="%s"', interpreted.intent)
 
         return interpreted
 
     def say(self, session, answer):
+        self.logger.info(u'say "%s"', answer)
         answer_interpretation = InterpretedPhrase(answer)
         answer_interpretation.is_bot_phrase = True
         answer_interpretation.set_modality(self.modality_model.get_modality(answer, self.text_utils, self.word_embeddings))
@@ -299,6 +303,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return 1.0
 
     def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False):
+        self.logger.info(u'push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
         question = self.text_utils.canonize_text(phrase)
         if question == u'#traceon':
             self.trace_enabled = True
@@ -323,6 +328,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         session.add_phrase_to_history(interpreted_phrase)
 
         if interpreted_phrase.is_imperative:
+            self.logger.debug(u'Processing as imperative: "%s"', interpreted_phrase.interpretation)
             # Обработка приказов (императивов).
             order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
             if not order_processed:
@@ -330,6 +336,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 self.premise_not_found_model.order_not_understood(phrase, bot, self.text_utils, self.word_embeddings)
                 order_processed = True
         elif interpreted_phrase.is_question:
+            self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
             # Обрабатываем вопрос собеседника (либо результат трансляции императива).
             answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
             for answer in answers:
@@ -347,6 +354,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     if additional_speech is not None:
                         self.say(session, additional_speech)
         else:
+            self.logger.debug(u'Processing as assertion: "%s"', interpreted_phrase.interpretation)
+
             # Обработка прочих фраз. Обычно это просто утверждения (новые факты, болтовня).
             # Пробуем применить общие правила, которые опираются в том числе на
             # intent реплики или ее текст.
@@ -504,7 +513,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
 
     def process_order(self, bot, session, interlocutor, interpreted_phrase):
-        self.logger.debug(u'Process order "{}"'.format(interpreted_phrase.interpretation))
+        self.logger.debug(u'Processing order "%s"', interpreted_phrase.interpretation)
 
         # Пробуем применить общие правила, которые опираются в том числе на
         # intent реплики или ее текст.
@@ -522,7 +531,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def build_answers0(self, session, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
-            self.logger.debug(u'Question to process={}'.format(interpreted_phrase.interpretation))
+            self.logger.debug(u'Question to process="%s"', interpreted_phrase.interpretation)
 
         # Проверяем базу FAQ, вдруг там есть развернутый ответ на вопрос.
         best_faq_answer = None
@@ -603,7 +612,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # тест ответа из FAQ.
             answers = [best_faq_answer]
             answer_rels = [best_faq_rel]
-            self.logger.info(u'FAQ entry provides best answer={} with rel={}'.format(best_faq_answer, best_faq_rel))
+            self.logger.info(u'FAQ entry provides best answer="{}" with rel={}'.format(best_faq_answer, best_faq_rel))
 
         if len(answers) == 0:
             # Не удалось найти предпосылку для формирования ответа.
@@ -638,3 +647,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def get_session(self, bot, interlocutor):
         return self.session_factory.get_session(bot, interlocutor)
+
+    def get_synonymy_detector(self):
+        return self.synonymy_detector
+
+    def get_text_utils(self):
+        return self.text_utils
+
+    def get_word_embeddings(self):
+        return self.word_embeddings

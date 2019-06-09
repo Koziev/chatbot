@@ -12,37 +12,7 @@ from bot.smalltalk_rules import SmalltalkSayingRule
 from bot.smalltalk_rules import SmalltalkGeneratorRule
 from generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 from comprehension_table import ComprehensionTable
-
-
-# TODO вынести в отдельный файл
-class ScriptingRule(object):
-    def __init__(self, condition, action):
-        self.condition = condition
-        self.action = action
-
-    def check_condition(self, interpreted_phrase):
-        if u'intent' in self.condition:
-            return self.condition[u'intent'] == interpreted_phrase.intent
-        else:
-            raise NotImplementedError()
-
-    def do_action(self, bot, session, user_id, interpreted_phrase):
-        if u'say' in self.action:
-            if isinstance(self.action[u'say'], list):
-                bot.say(session, random.choice(self.action[u'say']))
-            else:
-                bot.say(session, self.action[u'say'])
-        elif u'answer' in self.action:
-            if isinstance(self.action[u'answer'], list):
-                bot.push_phrase(user_id, random.choice(self.action[u'answer']), True)
-            else:
-                bot.push_phrase(user_id, self.action[u'answer'], True)
-        elif u'callback' in self.action:
-            resp = bot.invoke_callback(self.action[u'callback'], session, user_id, interpreted_phrase)
-            if resp:
-                bot.say(session, resp)
-        else:
-            raise NotImplementedError()
+from scripting_rule import ScriptingRule
 
 
 class BotScripting(object):
@@ -124,7 +94,7 @@ class BotScripting(object):
         return answering_machine.text_utils.language_resources[u'не знаю']
 
     def generate_response4nonquestion(self, answering_machine, interlocutor, interpreted_phrase):
-        '''Генерация реплики для не-вопроса собеседника'''
+        """ Генерация реплики для не-вопроса собеседника """
         return None
 
     def start_conversation(self, chatbot, session):
@@ -163,7 +133,7 @@ class BotScripting(object):
 
     def apply_rule(self, bot, session, user_id, interpreted_phrase):
         for rule in self.rules:
-            if rule.check_condition(interpreted_phrase):
+            if rule.check_condition(interpreted_phrase, bot.get_engine()):
                 rule.do_action(bot, session, user_id, interpreted_phrase)
                 return True
         return False

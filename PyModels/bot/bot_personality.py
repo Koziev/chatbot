@@ -32,6 +32,9 @@ class BotPersonality:
     def get_scripting(self):
         return self.scripting
 
+    def get_engine(self):
+        return self.engine
+
     def extract_entity(self, entity_name, phrase):
         return self.engine.extract_entity(entity_name, phrase.interpretation)
 
@@ -45,8 +48,8 @@ class BotPersonality:
         # todo переделка
         return self.engine.pop_phrase(self, user_id)
 
-    def push_phrase(self, user_id, question):
-        self.engine.push_phrase(self, user_id, question)
+    def push_phrase(self, user_id, question, internal_issuer=False):
+        self.engine.push_phrase(self, user_id, question, internal_issuer)
 
     def process_order(self, session, user_id, interpreted_phrase):
         order_str = interpreted_phrase.interpretation
