@@ -264,7 +264,7 @@ class NGrams(object):
 
                     s2 = s.split(u'|')
                     for s in s2:
-                        words = tokenizer.tokenize(s)
+                        words = tokenizer.tokenize(s.lower())
                         for gap in range(max_gap):
                             ngrams = list(zip(words, words[1+gap:]))
                             self.all_2grams.update(ngrams)
@@ -664,6 +664,29 @@ class GT_RegexWordFilter(GT_Item):
 
 
 
+class GT_NamedSet(GT_Item):
+    def __init__(self, set_name, words):
+        super(GT_NamedSet, self).__init__()
+        self.set_name = set_name
+        self.words = words
+
+    def __repr__(self):
+        return self.set_name
+
+    def __eq__(self, other):
+        return other is GT_NamedSet and self.set_name == other.set_name
+
+    def generate(self, topic_words, gren):
+        selected_forms = []
+
+        for word in self.words:
+            selected_forms.append((word, 1.0))
+            break
+
+        return selected_forms
+
+
+
 class GT_Replaceable(GT_Item):
     def __init__(self, tags):
         super(GT_Replaceable, self).__init__()
@@ -935,7 +958,7 @@ def is_numword(s):
     return all(c in '0123456789' for c in s)
 
 
-def construct_topic_word(word, slot_proba, corpus, thesaurus, lexicon, grdict, assocs):
+def construct_topic_word(word, word_class, slot_proba, corpus, thesaurus, lexicon, grdict, assocs):
     topic_word = TopicWord(word, slot_proba)
 
     if is_numword(word):
@@ -944,6 +967,9 @@ def construct_topic_word(word, slot_proba, corpus, thesaurus, lexicon, grdict, a
         lemmas = dict()
 
         for lemma0, pos0 in lexicon.get_lemmas(word):
+            if word_class is not None and pos0 != word_class:
+                continue
+
             lemmas[(lemma0, pos0)] = 1.0
 
             for lemma2, pos2, link_type in thesaurus.get_linked(lemma0):
@@ -1084,7 +1110,7 @@ class GenerativeTemplates(object):
         self.templates = []
         self.flow_root = None
 
-    def parse(self, s, macros, max_rule_len):
+    def parse(self, s, macros, named_sets, max_rule_len):
         terms = s.split(u' ')
         if len(terms) > max_rule_len:
             return
@@ -1115,6 +1141,8 @@ class GenerativeTemplates(object):
                         template.items.append(GT_RandomWord(term))
                     elif len(term) >= 3 and term[0] == u'(' and term[-1] == u')':
                         template.items.append(GT_RegexWordFilter(term))
+                    elif term in named_sets:
+                        template.items.append(GT_NamedSet(term, named_sets[term]))
                     else:
                         template.items.append(GT_Word(term))
 
@@ -1237,7 +1265,7 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
                     continue
 
                 # НАЧАЛО ОТЛАДКИ
-                #if cur_item.word == u'играешь' and word == u'на':
+                #if cur_item.word == u'как' and word == u'ты':
                 #    print('DEBUG@1260')
                 # КОНЕЦ ОТЛАДКИ
 
@@ -1373,8 +1401,10 @@ class GenerativeGrammarDictionaries(object):
     def get_random_adv(self, known_words):
         return self.lexicon.get_random_adv(known_words)
 
+
 class GenerativeGrammarEngine(object):
     def __init__(self):
+        self.named_sets = dict()
         self.macros = Macros()
         self.templates = GenerativeTemplates()
         self.max_rule_len = 8
@@ -1395,26 +1425,34 @@ class GenerativeGrammarEngine(object):
     def pickle_to(self, file):
         pickle.dump(self.templates, file)
         pickle.dump(self.wordbag_words, file)
+        pickle.dump(self.named_sets, file)
 
     @staticmethod
     def unpickle_from(file):
         grammar = GenerativeGrammarEngine()
         grammar.templates = pickle.load(file)
         grammar.wordbag_words = pickle.load(file)
+        grammar.named_sets = pickle.load(file)
         return grammar
 
     def load(self, filepath):
         with open(filepath, 'rb') as f:
             self.templates = pickle.load(f)
 
-    def add_word(self, word):
-        self.wordbag_words.add(word)
+    def add_named_set(self, set_name, words):
+        if set_name not in self.named_sets:
+            self.named_sets[set_name] = set(words)
+        else:
+            self.named_sets[set_name].update(words)
+
+    def add_word(self, word, part_of_speech):
+        self.wordbag_words.add((word, part_of_speech))
 
     def add_macro(self, macro_str):
         self.macros.parse(macro_str)
 
     def add_rule(self, rule_str):
-        self.templates.parse(rule_str, self.macros, self.max_rule_len)
+        self.templates.parse(rule_str, self.macros, self.named_sets, self.max_rule_len)
 
     def compile_rules(self):
         self.templates.compile(self.max_rule_len)
@@ -1425,15 +1463,15 @@ class GenerativeGrammarEngine(object):
     def generate2(self, words_p_bag, known_words):
         topic_words = list()
         for word, proba in words_p_bag:
-            topic_word = construct_topic_word(word, proba, known_words,
+            topic_word = construct_topic_word(word, None, proba, known_words,
                                               self.dictionaries.thesaurus,
                                               self.dictionaries.lexicon,
                                               self.dictionaries.grdict,
                                               self.dictionaries.assocs)
             topic_words.append(topic_word)
 
-        for word in self.wordbag_words:
-            topic_word = construct_topic_word(word, 1.0, known_words,
+        for word, part_of_speech in self.wordbag_words:
+            topic_word = construct_topic_word(word, part_of_speech, 1.0, known_words,
                                               self.dictionaries.thesaurus,
                                               self.dictionaries.lexicon,
                                               self.dictionaries.grdict,

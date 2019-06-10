@@ -13,38 +13,41 @@ def compile_grammar(grammar, max_len, include_templates=True):
 
     # Предлоги всегда подмешиваем в затравочный wordbag, так как делать с ними
     # отдельные правила нельзя из-за экспоненциального взрыва количества вариантов.
-    grammar.add_word(u'с')
-    grammar.add_word(u'на')
-    grammar.add_word(u'в')
-    grammar.add_word(u'за')
-    grammar.add_word(u'про')
-    grammar.add_word(u'под')
-    grammar.add_word(u'о')
-    grammar.add_word(u'об')
+    grammar.add_word(u'с', u'ПРЕДЛОГ')
+    grammar.add_word(u'на', u'ПРЕДЛОГ')
+    grammar.add_word(u'в', u'ПРЕДЛОГ')
+    grammar.add_word(u'за', u'ПРЕДЛОГ')
+    grammar.add_word(u'про', u'ПРЕДЛОГ')
+    grammar.add_word(u'под', u'ПРЕДЛОГ')
+    grammar.add_word(u'о', u'ПРЕДЛОГ')
+    grammar.add_word(u'об', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'с')
-    grammar.add_word(u'за')
-    grammar.add_word(u'над')
-    grammar.add_word(u'под')
+    grammar.add_word(u'с', u'ПРЕДЛОГ')
+    grammar.add_word(u'за', u'ПРЕДЛОГ')
+    grammar.add_word(u'над', u'ПРЕДЛОГ')
+    grammar.add_word(u'под', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'из')
-    grammar.add_word(u'до')
-    grammar.add_word(u'после')
-    grammar.add_word(u'вместо')
-    grammar.add_word(u'внутри')
-    grammar.add_word(u'вдали от')
-    grammar.add_word(u'недалеко от')
-    grammar.add_word(u'из-за')
-    grammar.add_word(u'у')
-    grammar.add_word(u'около')
+    grammar.add_word(u'из', u'ПРЕДЛОГ')
+    grammar.add_word(u'до', u'ПРЕДЛОГ')
+    grammar.add_word(u'после', u'ПРЕДЛОГ')
+    grammar.add_word(u'вместо', u'ПРЕДЛОГ')
+    grammar.add_word(u'внутри', u'ПРЕДЛОГ')
+    grammar.add_word(u'вдали от', u'ПРЕДЛОГ')
+    grammar.add_word(u'недалеко от', u'ПРЕДЛОГ')
+    grammar.add_word(u'из-за', u'ПРЕДЛОГ')
+    grammar.add_word(u'у', u'ПРЕДЛОГ')
+    grammar.add_word(u'около', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'на')
-    grammar.add_word(u'в')
-    grammar.add_word(u'о')
-    grammar.add_word(u'об')
+    grammar.add_word(u'на', u'ПРЕДЛОГ')
+    grammar.add_word(u'в', u'ПРЕДЛОГ')
+    grammar.add_word(u'о', u'ПРЕДЛОГ')
+    grammar.add_word(u'об', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'к')
-    grammar.add_word(u'по')
+    grammar.add_word(u'к', u'ПРЕДЛОГ')
+    grammar.add_word(u'по', u'ПРЕДЛОГ')
+
+    grammar.add_named_set(u'вопр1', u'почему зачем когда куда откуда как'.split())
+
 
     # правое родительное дополнение для существительных
     grammar.add_macro(u'род_доп = [сущ,род]')
@@ -385,7 +388,7 @@ def compile_grammar(grammar, max_len, include_templates=True):
     grammar.add_macro(u'числ_группа = [числит]')
     grammar.add_macro(u'числ_группа = [num_word]')
 
-    grammar.add_macro(u'вопр1 = {почему|зачем|когда|куда|откуда|как}')
+    #grammar.add_macro(u'вопр1 = {почему|зачем|когда|куда|откуда|как}')
 
     if True:
         grammar.add_macro(u'вопр_какой = предлог,род какого [сущ,род,муж,ед]')
@@ -425,50 +428,68 @@ def compile_grammar(grammar, max_len, include_templates=True):
     # =========
 
     if include_templates:
-        # Как называется эта компьютерная игра?
-        grammar.add_rule(u'Как называется эта подлежащ,жен ?')
-        grammar.add_rule(u'Как называется этот подлежащ,муж ?')
-        grammar.add_rule(u'Как называются эти подлежащ,мн ?')
 
-        # Как называется игра?
-        grammar.add_rule(u'Как называется подлежащ,ед ?')
-        grammar.add_rule(u'Как называются подлежащ,мн ?')
+        # Как ты относишься к глобальному потеплению?
+        grammar.add_rule(u'как ты относишься к объект,дат ?')
 
         if True:
-            grammar.add_rule(u'Часто ли ты играешь в объект,вин ?')
-            grammar.add_rule(u'Как часто ты играешь в объект,вин ?')
-            grammar.add_rule(u'В какие объект,вин ты любишь играть ?')
-            grammar.add_rule(u'Ты любишь инф_группа ?')
-            grammar.add_rule(u'С кем ты играешь в объект,вин ?')
-            grammar.add_rule(u'У тебя хорошо получается играть в объект,вин ?')
-            grammar.add_rule(u'Что интересного можешь рассказать о объект,предл ?')
-            grammar.add_rule(u'Какие объект,вин ты пробовал недавно ?')
-            grammar.add_rule(u'Зачем тебе подлежащ,мн ?')
-            grammar.add_rule(u'А есть польза от объект,род ?')
+            # Где ты узнал про глобальное потепление?
+            grammar.add_rule(u'где ты узнал про объект,вин ?')
+
+            # Как на тебя влияет глобальное потемление?
+            grammar.add_rule(u'как на тебя влияет подлежащ,ед ?')
+
+            # Как на тебя влияют дожди?
+            grammar.add_rule(u'как на тебя влияют подлежащ,мн ?')
+
+            # Что тебе нравится в грозах?
+            grammar.add_rule(u'что тебе нравится в объект,предл ?')
+
+            # Что тебе не нравится в грозах?
+            grammar.add_rule(u'что тебе не нравится в объект,предл ?')
+
+            # Как называется эта компьютерная игра?
+            grammar.add_rule(u'как называется эта подлежащ,жен ?')
+            grammar.add_rule(u'как называется этот подлежащ,муж ?')
+            grammar.add_rule(u'как называются эти подлежащ,мн ?')
+
+            # Как называется игра?
+            grammar.add_rule(u'как называется подлежащ,ед ?')
+            grammar.add_rule(u'как называются подлежащ,мн ?')
+            grammar.add_rule(u'часто ли ты играешь в объект,вин ?')
+            grammar.add_rule(u'как часто ты играешь в объект,вин ?')
+            grammar.add_rule(u'в какие объект,вин ты любишь играть ?')
+            grammar.add_rule(u'ты любишь инф_группа ?')
+            grammar.add_rule(u'с кем ты играешь в объект,вин ?')
+            grammar.add_rule(u'у тебя хорошо получается играть в объект,вин ?')
+            grammar.add_rule(u'что интересного можешь рассказать о объект,предл ?')
+            grammar.add_rule(u'какие объект,вин ты пробовал недавно ?')
+            grammar.add_rule(u'зачем тебе подлежащ,мн ?')
+            grammar.add_rule(u'а есть польза от объект,род ?')
             grammar.add_rule(u'подлежащ,мн могут быть опасными ?')
-            grammar.add_rule(u'Тебе нравятся {такие|эти} подлежащ,мн ?')
-            grammar.add_rule(u'Как ты относишься к объект,дат ?')
-            grammar.add_rule(u'Тебе нравится инф_группа ?')
-            grammar.add_rule(u'Как называется твоя любимая подлежащ,жен ?')  # Как называется твоя любимая игра?
+            grammar.add_rule(u'тебе нравятся {такие|эти} подлежащ,мн ?')
+            grammar.add_rule(u'как ты относишься к объект,дат ?')
+            grammar.add_rule(u'тебе нравится инф_группа ?')
+            grammar.add_rule(u'как называется твоя любимая подлежащ,жен ?')  # Как называется твоя любимая игра?
 
             # Какие игры тебе нравятся?
-            grammar.add_rule(u'Какие подлежащ,мн тебе нравятся ?')
+            grammar.add_rule(u'какие подлежащ,мн тебе нравятся ?')
 
-            grammar.add_rule(u'Ты часто ешь объект,вин ?')
-            grammar.add_rule(u'Где ты кушаешь объект,вин ?')
-            grammar.add_rule(u'Ты умеешь сам готовить объект,вин ?')
-            grammar.add_rule(u'Какой еще [сущ,вин,муж,ед,неодуш] ты любишь?')
-            grammar.add_rule(u'Какую еще [сущ,вин,жен,ед] ты любишь?')
-            grammar.add_rule(u'Какое еще [сущ,вин,ср,ед] ты любишь?')
+            grammar.add_rule(u'ты часто ешь объект,вин ?')
+            grammar.add_rule(u'где ты кушаешь объект,вин ?')
+            grammar.add_rule(u'ты умеешь сам готовить объект,вин ?')
+            grammar.add_rule(u'какой еще [сущ,вин,муж,ед,неодуш] ты любишь?')
+            grammar.add_rule(u'какую еще [сущ,вин,жен,ед] ты любишь?')
+            grammar.add_rule(u'какое еще [сущ,вин,ср,ед] ты любишь?')
 
             # Зачем нужно ловить мышей?
-            grammar.add_rule(u'Зачем нужно инф_группа ?')
+            grammar.add_rule(u'качем нужно инф_группа ?')
 
             # Что еще ты любишь?
-            grammar.add_rule(u'Что еще ты [гл,2,изъяв,вин,ед] ?')
+            grammar.add_rule(u'что еще ты [гл,2,изъяв,вин,ед] ?')
 
             # Зачем кошки ловят мышей?
-            grammar.add_rule(u'Зачем подлежащ,мн сказуемое,3л,мн ?')
+            grammar.add_rule(u'зачем подлежащ,мн сказуемое,3л,мн ?')
 
             # Ты часто играешь на компьютере?
             grammar.add_rule(u'ты нареч_группа сказуемое,2л,ед ?')
@@ -477,53 +498,53 @@ def compile_grammar(grammar, max_len, include_templates=True):
             grammar.add_rule(u'ты сказуемое,2л,ед ?')
 
             # Часто ли ты играешь на компьютере?
-            grammar.add_rule(u'Часто ли ты сказуемое,2л,ед ?')
+            grammar.add_rule(u'часто ли ты сказуемое,2л,ед ?')
 
             # Когда ты играешь на компьютере?
             grammar.add_rule(u'вопр1 ты сказуемое,2л,ед ?')
 
             # С кем ты играешь на компьютере?
-            grammar.add_rule(u'С кем ты сказуемое,2л,ед ?')
+            grammar.add_rule(u'с кем ты сказуемое,2л,ед ?')
 
             # Тебе нравится играть на компьютере?
-            grammar.add_rule(u'Тебе нравится инф_группа ?')
+            grammar.add_rule(u'тебе нравится инф_группа ?')
 
             # Тебе хотелось бы поиграть на компьютере?
-            grammar.add_rule(u'Тебе хотелось бы инф_группа ?')
+            grammar.add_rule(u'тебе хотелось бы инф_группа ?')
 
             # Зачем кошка ловит мышку?
             grammar.add_rule(u'вопр1 подлежащ,ед сказуемое,3л,ед ?')
 
             # Как ты относишься к компьютерным играм?
-            grammar.add_rule(u'Как ты относишься к объект,дат ?')
+            grammar.add_rule(u'как ты относишься к объект,дат ?')
 
             # Тебе нравятся компьютерные игры?
-            grammar.add_rule(u'Тебе нравятся подлежащ,мн ?')
-            grammar.add_rule(u'Тебе нравятся {такие|эти} подлежащ,мн ?')
+            grammar.add_rule(u'тебе нравятся подлежащ,мн ?')
+            grammar.add_rule(u'тебе нравятся {такие|эти} подлежащ,мн ?')
 
             # Для чего нужны компьютерные игры?
-            grammar.add_rule(u'Для чего нужны подлежащ,мн ?')
+            grammar.add_rule(u'для чего нужны подлежащ,мн ?')
 
             # Какие компьютерные игры тебе нравятся?
-            grammar.add_rule(u'Какие подлежащ,мн тебе нравятся ?')
+            grammar.add_rule(u'какие подлежащ,мн тебе нравятся ?')
 
             # Какая польза от компьютерных игр?
-            grammar.add_rule(u'Какая польза от объект,род ?')
+            grammar.add_rule(u'какая польза от объект,род ?')
 
             # Какой результат дают компьютерные игры?
-            grammar.add_rule(u'Какой результат дают подлежащ,мн ?')
+            grammar.add_rule(u'какой результат дают подлежащ,мн ?')
 
             # Что хорошего в компьютерных играх?
-            grammar.add_rule(u'Что хорошего в объект,предл ?')
+            grammar.add_rule(u'что хорошего в объект,предл ?')
 
             # Что можешь рассказать про компьютерные игры?
-            grammar.add_rule(u'Что можешь рассказать про объект,вин ?')
+            grammar.add_rule(u'что можешь рассказать про объект,вин ?')
 
             # Кто ловит мышей?
-            grammar.add_rule(u'Кто [гл,3,ед,изъяв,вин] объект,вин ?')
+            grammar.add_rule(u'кто [гл,3,ед,изъяв,вин] объект,вин ?')
 
             # Кого ловят кошки?
-            grammar.add_rule(u'Кого [гл,3,мн,изъяв,вин] подлежащ,мн ?')
+            grammar.add_rule(u'кого [гл,3,мн,изъяв,вин] подлежащ,мн ?')
 
             # Кого ловит кошка?
             grammar.add_rule(u'кого сказуемое,3л,ед подлежащ,ед ?')
@@ -538,7 +559,7 @@ def compile_grammar(grammar, max_len, include_templates=True):
             grammar.add_rule(u'вопр_какой ты [гл,2,ед,изъяв,вин] объект,вин ?')
 
             # Чем ты занимаешься в школе?
-            grammar.add_rule(u'Чем ты сказуемое,2л,ед ?')
+            grammar.add_rule(u'чем ты сказуемое,2л,ед ?')
 
             # Почему кошка мяукает?
             grammar.add_rule(u'вопр1 подлежащ,ед сказуемое,3л,ед ?')
@@ -559,36 +580,36 @@ def compile_grammar(grammar, max_len, include_templates=True):
             grammar.add_rule(u'у тебя есть подлежащ ?')
 
             # Как зовут кошку?
-            grammar.add_rule(u'Как зовут объект,вин ?')
-            grammar.add_rule(u'Как звать объект,вин ?')
-            grammar.add_rule(u'Как объект,вин зовут ?')
-            grammar.add_rule(u'Как объект,вин звать ?')
+            grammar.add_rule(u'как зовут объект,вин ?')
+            grammar.add_rule(u'как звать объект,вин ?')
+            grammar.add_rule(u'как объект,вин зовут ?')
+            grammar.add_rule(u'как объект,вин звать ?')
 
             # Сколько лет твоему брату?
-            grammar.add_rule(u'Сколько лет объект,дат ?')
+            grammar.add_rule(u'сколько лет объект,дат ?')
 
             # Тебе нравится играть с сестрой?
             # Тебе нравится ходить в школу?
             # Тебе нравится плавать в бассейне?
-            grammar.add_rule(u'Тебе нравится инф_группа ?')
+            grammar.add_rule(u'тебе нравится инф_группа ?')
 
             # Тебе нравятся сладкие яблоки?
-            grammar.add_rule(u'Тебе нравятся подлежащ,мн ?')
+            grammar.add_rule(u'тебе нравятся подлежащ,мн ?')
 
             # Тебе нравится арбуз?
-            grammar.add_rule(u'Тебе нравится подлежащ,ед ?')
+            grammar.add_rule(u'тебе нравится подлежащ,ед ?')
 
             # Нравится ли тебе черный кофе?
-            grammar.add_rule(u'Нравится ли тебе подлежащ,ед ?')
+            grammar.add_rule(u'нравится ли тебе подлежащ,ед ?')
 
             # Нравятся ли тебе дыни?
-            grammar.add_rule(u'Нравятся ли тебе подлежащ,мн ?')
+            grammar.add_rule(u'нравятся ли тебе подлежащ,мн ?')
 
             # Какие яблоки ты любишь?
-            grammar.add_rule(u'Какие [сущ,мн,вин,неодуш] ты любишь ?')
+            grammar.add_rule(u'какие [сущ,мн,вин,неодуш] ты любишь ?')
 
             # Каких коней ты любишь?
-            grammar.add_rule(u'Каких [сущ,мн,вин,одуш] ты любишь ?')
+            grammar.add_rule(u'каких [сущ,мн,вин,одуш] ты любишь ?')
 
             # Тебе какие яблоки нравятся?
             grammar.add_rule(u'тебе какие [сущ,мн,им] нравятся ?')
@@ -603,47 +624,52 @@ def compile_grammar(grammar, max_len, include_templates=True):
             grammar.add_rule(u'тебе какое [сущ,ср,ед,им] нравится ?')
 
             # Ты любишь кислые яблоки?
-            grammar.add_rule(u'Ты сказуемое,2л,ед ?')
+            grammar.add_rule(u'ты сказуемое,2л,ед ?')
 
             # Тебе нравится петь частушки?
-            grammar.add_rule(u'Тебе нравится инф_группа ?')
+            grammar.add_rule(u'тебе нравится инф_группа ?')
 
             # Что ты любишь?
-            grammar.add_rule(u'Что ты [гл,2,вин,ед,изъяв] ?')
+            grammar.add_rule(u'что ты [гл,2,вин,ед,изъяв] ?')
 
             # на чем ты играешь?
-            grammar.add_rule(u'Не чем ты [гл,2,вин,ед,изъяв] ?')
+            grammar.add_rule(u'не чем ты [гл,2,вин,ед,изъяв] ?')
 
             # Тебе интересно говорить о компьютерных играх?
-            grammar.add_rule(u'Тебе интересно говорить о объект,предл ?')
+            grammar.add_rule(u'тебе интересно говорить о объект,предл ?')
 
             # Тебе интересно обсуждать компьютерные игры?
-            grammar.add_rule(u'Тебе интересно обсуждать объект,вин ?')
+            grammar.add_rule(u'тебе интересно обсуждать объект,вин ?')
 
             # Ты хочешь поговорить о компьютерных играх?
-            grammar.add_rule(u'Ты хочешь поговорить о объект,предл ?')
+            grammar.add_rule(u'ты хочешь поговорить о объект,предл ?')
 
             # Ты хотел бы обсудить компьютерные игры?
-            grammar.add_rule(u'Ты хотел бы обсудить объект,вин ?')
+            grammar.add_rule(u'ты хотел бы обсудить объект,вин ?')
 
             # Какие игры ты хотел бы обсудить?
-            grammar.add_rule(u'Какие [сущ,мн,вин,неодуш] ты хотел бы обсудить ?')
+            grammar.add_rule(u'какие [сущ,мн,вин,неодуш] ты хотел бы обсудить ?')
 
             # Что тебе нравится в компьютерных играх?
-            grammar.add_rule(u'Что тебе нравится в объект,предл ?')
+            grammar.add_rule(u'что тебе нравится в объект,предл ?')
 
             # Чем занимаются химики?
-            grammar.add_rule(u'Чем занимаются подлежащ,мн ?')
+            grammar.add_rule(u'чем занимаются подлежащ,мн ?')
 
             # Чем занимаентся король?
-            grammar.add_rule(u'Чем занимается подлежащ,ед ?')
+            grammar.add_rule(u'чем занимается подлежащ,ед ?')
 
             # Что делает король?
-            grammar.add_rule(u'Что делает подлежащ,ед ?')
+            grammar.add_rule(u'что делает подлежащ,ед ?')
 
             # Что делают рыцари?
-            grammar.add_rule(u'Что делают рыцари подлежащ,мн ?')
+            grammar.add_rule(u'что делают рыцари подлежащ,мн ?')
 
+            # Раздражает ли тебя дождь?
+            grammar.add_rule(u'Раздражает ли тебя подлежащ,ед ?')
+
+            # Раздражают ли тебя дожди?
+            grammar.add_rule(u'Раздражают ли тебя подлежащ,мн ?')
 
 
         print('Computation flow compilation...')

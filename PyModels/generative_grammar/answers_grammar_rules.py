@@ -12,38 +12,38 @@ def compile_grammar(grammar, max_len):
 
     # Предлоги всегда подмешиваем в затравочный wordbag, так как делать с ними
     # отдельные правила нельзя из-за экспоненциального взрыва количества вариантов.
-    grammar.add_word(u'с')
-    grammar.add_word(u'на')
-    grammar.add_word(u'в')
-    grammar.add_word(u'за')
-    grammar.add_word(u'про')
-    grammar.add_word(u'под')
-    grammar.add_word(u'о')
-    grammar.add_word(u'об')
+    grammar.add_word(u'с', u'ПРЕДЛОГ')
+    grammar.add_word(u'на', u'ПРЕДЛОГ')
+    grammar.add_word(u'в', u'ПРЕДЛОГ')
+    grammar.add_word(u'за', u'ПРЕДЛОГ')
+    grammar.add_word(u'про', u'ПРЕДЛОГ')
+    grammar.add_word(u'под', u'ПРЕДЛОГ')
+    grammar.add_word(u'о', u'ПРЕДЛОГ')
+    grammar.add_word(u'об', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'с')
-    grammar.add_word(u'за')
-    grammar.add_word(u'над')
-    grammar.add_word(u'под')
+    grammar.add_word(u'с', u'ПРЕДЛОГ')
+    grammar.add_word(u'за', u'ПРЕДЛОГ')
+    grammar.add_word(u'над', u'ПРЕДЛОГ')
+    grammar.add_word(u'под', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'из')
-    grammar.add_word(u'до')
-    grammar.add_word(u'после')
-    grammar.add_word(u'вместо')
-    grammar.add_word(u'внутри')
-    grammar.add_word(u'вдали от')
-    grammar.add_word(u'недалеко от')
-    grammar.add_word(u'из-за')
-    grammar.add_word(u'у')
-    grammar.add_word(u'около')
+    grammar.add_word(u'из', u'ПРЕДЛОГ')
+    grammar.add_word(u'до', u'ПРЕДЛОГ')
+    grammar.add_word(u'после', u'ПРЕДЛОГ')
+    grammar.add_word(u'вместо', u'ПРЕДЛОГ')
+    grammar.add_word(u'внутри', u'ПРЕДЛОГ')
+    grammar.add_word(u'вдали от', u'ПРЕДЛОГ')
+    grammar.add_word(u'недалеко от', u'ПРЕДЛОГ')
+    grammar.add_word(u'из-за', u'ПРЕДЛОГ')
+    grammar.add_word(u'у', u'ПРЕДЛОГ')
+    grammar.add_word(u'около', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'на')
-    grammar.add_word(u'в')
-    grammar.add_word(u'о')
-    grammar.add_word(u'об')
+    grammar.add_word(u'на', u'ПРЕДЛОГ')
+    grammar.add_word(u'в', u'ПРЕДЛОГ')
+    grammar.add_word(u'о', u'ПРЕДЛОГ')
+    grammar.add_word(u'об', u'ПРЕДЛОГ')
 
-    grammar.add_word(u'к')
-    grammar.add_word(u'по')
+    grammar.add_word(u'к', u'ПРЕДЛОГ')
+    grammar.add_word(u'по', u'ПРЕДЛОГ')
 
 
 
@@ -368,40 +368,6 @@ def compile_grammar(grammar, max_len):
 
     grammar.add_macro(u'числ_группа = [числит]')
     grammar.add_macro(u'числ_группа = [num_word]')
-
-    if False:
-        grammar.add_macro(u'вопр1 = {почему|зачем|когда|куда|откуда|как}')
-
-        grammar.add_macro(u'вопр_какой = предлог,род какого [сущ,род,муж,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,род какой [сущ,род,жен,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,род какого [сущ,род,ср,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,род каких [сущ,род,мн]')
-
-        grammar.add_macro(u'вопр_какой = предлог,дат какому [сущ,дат,муж,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,дат какой [сущ,дат,жен,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,дат какому [сущ,дат,ср,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,дат каким [сущ,дат,мн]')
-
-        grammar.add_macro(u'вопр_какой = предлог,предл каком [сущ,предл,муж,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,предл какой [сущ,предл,жен,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,предл каком [сущ,предл,ср,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,предл каких [сущ,предл,мн]')
-
-        grammar.add_macro(u'вопр_какой = предлог,тв каким [сущ,тв,муж,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,тв какой [сущ,тв,жен,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,тв каким [сущ,тв,ср,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,тв какими [сущ,тв,мн]')
-
-        grammar.add_macro(u'вопр_какой = предлог,вин какой [сущ,вин,муж,ед,неодуш]')
-        grammar.add_macro(u'вопр_какой = предлог,вин какого [сущ,вин,муж,ед,одуш]')
-        grammar.add_macro(u'вопр_какой = предлог,вин какую [сущ,вин,жен,ед]')
-        grammar.add_macro(u'вопр_какой = предлог,вин какое [сущ,вин,ср,ед]')
-
-        grammar.add_macro(u'вопр_какой = предлог,вин какие [сущ,вин,муж,мн,неодуш]')
-        grammar.add_macro(u'вопр_какой = предлог,вин каких [сущ,вин,муж,мн,одуш]')
-        grammar.add_macro(u'вопр_какой = предлог,вин какие [сущ,вин,жен,мн,неодуш]')
-        grammar.add_macro(u'вопр_какой = предлог,вин каких [сущ,вин,жен,мн,одуш]')
-        grammar.add_macro(u'вопр_какой = предлог,вин какие [сущ,вин,ср,мн]')
 
     # =========
     # Ответы
