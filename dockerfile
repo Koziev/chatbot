@@ -19,6 +19,7 @@ RUN pip install pathlib
 RUN pip install python-crfsuite
 RUN pip install tensorflow
 RUN pip install colorama
+RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
 RUN pip install git+https://github.com/Koziev/rutokenizer
 RUN pip install git+https://github.com/Koziev/rupostagger
 RUN pip install git+https://github.com/Koziev/ruword2tags
