@@ -3,6 +3,7 @@
 import sys
 import colorama  # https://pypi.python.org/pypi/colorama
 import platform
+import logging
 
 
 def is_py2():
@@ -11,7 +12,15 @@ def is_py2():
 
 def input_kbd(prompt):
     if is_py2():
-        return raw_input(prompt.strip() + u' ').decode(sys.stdout.encoding).strip().lower()
+        raw = raw_input(prompt.strip() + u' ')
+        try:
+            # Странные ошибки бывают при вводе в консоли с редактированием через backspace.
+            # Из decode при этом вылетает UnicodeDecodeError.
+            s8 = raw.decode(sys.stdout.encoding, errors='ignore').strip().lower()
+            return s8
+        except Exception as ex:
+            logging.exception('Error occured when decoding raw_input string')
+            return u''
     else:
         return input(prompt.strip() + u' ').strip().lower()
 
