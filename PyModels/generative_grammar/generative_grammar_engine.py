@@ -240,13 +240,12 @@ class NGrams(object):
         self.all_3grams = None
         self.has_2grams = False
         self.has_3grams = False
+        self.all_2grams = collections.Counter()
+        self.all_3grams = collections.Counter()
 
     def collect(self, corpora, max_gap, max_2grams, max_3grams):
         tokenizer = rutokenizer.Tokenizer()
         tokenizer.load()
-
-        self.all_2grams = collections.Counter()
-        self.all_3grams = collections.Counter()
 
         for corpus_path in corpora:
             logging.info(u'Collecting ngram statistics from {}'.format(corpus_path))
@@ -604,7 +603,7 @@ class GT_Item(object):
 
 class GT_Word(GT_Item):
     def __init__(self, word):
-        if not all((c.lower() in u'1234567890абвгдеёжзийклмнопрстуфхцчшщъыьэюя?.!-:;_') for c in word):
+        if not all((c.lower() in u'1234567890абвгдеёжзийклмнопрстуфхцчшщъыьэюя?.!-:;_') for c in word) and word != u',':
             msg = u'Invalid word '+word
             print(msg)
             raise ValueError(msg)
@@ -696,6 +695,8 @@ class GT_Replaceable(GT_Item):
         for tag in tags.replace(',', ' ').split(' '):
             if tag == u'сущ':
                 self.tags.append((u'ЧАСТЬ_РЕЧИ', u'СУЩЕСТВИТЕЛЬНОЕ'))
+            elif tag == u'местоим_сущ':
+                self.tags.append((u'ЧАСТЬ_РЕЧИ', u'МЕСТОИМ_СУЩ'))
             elif tag == u'союз':
                 self.tags.append((u'ЧАСТЬ_РЕЧИ', u'СОЮЗ'))
             elif tag == u'местоим':
@@ -756,6 +757,8 @@ class GT_Replaceable(GT_Item):
                 self.tags.append((u'СТЕПЕНЬ', u'СРАВН'))
             elif tag == u'превосх':
                 self.tags.append((u'СТЕПЕНЬ', u'ПРЕВОСХ'))
+            elif tag == u'страд':
+                self.tags.append((u'СТРАД', u'1'))
             elif tag == u'одуш':
                 self.tags.append((u'ОДУШ', u'ОДУШ'))
             elif tag == u'неодуш':
@@ -1345,13 +1348,15 @@ class GenerativeGrammarDictionaries(object):
             corpora = [os.path.join(data_folder, 'pqa_all.dat'),
                        os.path.join(data_folder, 'ngrams_corpus.txt'),
                        os.path.join(data_folder, 'paraphrases.txt'),
+                       os.path.join(data_folder, 'valid_syntax_dataset.txt'),
                        # r'/media/inkoziev/corpora/Corpus/word2vector/ru/w2v.ru.corpus.txt'
                        ]
         else:
             corpora = corpora_paths
 
         self.all_ngrams = NGrams()
-        self.all_ngrams.collect(corpora, max_gap=max_ngram_gap, max_2grams=5000000, max_3grams=5000000)
+        if max_ngram_gap > 0:
+            self.all_ngrams.collect(corpora, max_gap=max_ngram_gap, max_2grams=5000000, max_3grams=5000000)
 
         self.assocs = Associations()
         # self.assocs.load(os.path.join(data_folder, 'dict/mutual_info_2_ru.dat'), grdict)
