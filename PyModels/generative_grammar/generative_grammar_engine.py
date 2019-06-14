@@ -823,6 +823,9 @@ class GeneratedPhrase(object):
     def get_str(self):
         return clean_output(u' '.join(self.words))
 
+    def get_words(self):
+        return self.words
+
     def get_proba0(self):
         return self.proba0
 
@@ -977,6 +980,9 @@ def construct_topic_word(word, word_class, slot_proba, corpus, thesaurus, lexico
 
             for lemma2, pos2, link_type in thesaurus.get_linked(lemma0):
                 if link_type not in (u'в_класс', u'член_класса'):
+                    if word_class is not None and pos2 != word_class:
+                        continue
+
                     k = (lemma2, pos2)
                     lemmas[k] = max(0.8, lemmas.get(k, 0.0))
 
@@ -1439,10 +1445,6 @@ class GenerativeGrammarEngine(object):
         grammar.wordbag_words = pickle.load(file)
         grammar.named_sets = pickle.load(file)
         return grammar
-
-    def load(self, filepath):
-        with open(filepath, 'rb') as f:
-            self.templates = pickle.load(f)
 
     def add_named_set(self, set_name, words):
         if set_name not in self.named_sets:
