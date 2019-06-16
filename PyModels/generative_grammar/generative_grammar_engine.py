@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Движок генеративной грамматики для вопросно-ответной системы.
+Движок русской генеративной грамматики для вопросно-ответной системы.
 """
 
 from __future__ import division
@@ -20,6 +20,8 @@ import logging
 import re
 
 import rutokenizer
+import rupostagger
+import rulemma
 
 
 def decode_pos(pos):
@@ -168,10 +170,21 @@ class Associations:
             self.word2assocs[word] = assocs
 
     def collect_from_corpus(self, corpora, max_pairs):
+
+        tokenizer = rutokenizer.Tokenizer()
+        tokenizer.load()
+
+        tagger = rupostagger.RuPosTagger()
+        tagger.load()
+
+        lemmatizer = rulemma.Lemmatizer()
+        lemmatizer.load()
+
+
         word2freq = collections.Counter()
         pair2freq = dict()
         for corpus_path in corpora:
-            logging.info(u'Collecting ngram statistics from {}'.format(corpus_path))
+            logging.info(u'Collecting "mutual info" statistics from {}'.format(corpus_path))
             if len(pair2freq) > max_pairs:
                 break
 
@@ -181,7 +194,13 @@ class Associations:
                         break
 
                     s = line.strip().replace(u'Q: ', u'').replace(u'A: ', u'').replace(u'T: ', u'')
-                    words = s.split()
+                    words0 = tokenizer.tokenize(s)
+                    tags = tagger.tag(words0)
+                    tokens2 = lemmatizer.lemmatize(tags)
+
+                    # Теперь строим цепочу лемм вместо исходных слов.
+                    words = [z[2] for z in tokens2]
+
                     word2freq.update(words)
                     nword = len(words)
                     for i1, word1 in enumerate(words):
@@ -743,6 +762,8 @@ class GT_Replaceable(GT_Item):
                 self.tags.append((u'ВРЕМЯ', u'НАСТОЯЩЕЕ'))
             elif tag == u'прош':
                 self.tags.append((u'ВРЕМЯ', u'ПРОШЕДШЕЕ'))
+            elif tag == u'1':
+                self.tags.append((u'ЛИЦО', u'2'))
             elif tag == u'2':
                 self.tags.append((u'ЛИЦО', u'2'))
             elif tag == u'3':
@@ -964,7 +985,7 @@ def is_numword(s):
     return all(c in '0123456789' for c in s)
 
 
-def construct_topic_word(word, word_class, slot_proba, corpus, thesaurus, lexicon, grdict, assocs):
+def construct_topic_word(word, word_class, slot_proba, corpus, thesaurus, lexicon, grdict, assocs, use_assocs):
     topic_word = TopicWord(word, slot_proba)
 
     if is_numword(word):
@@ -1004,7 +1025,7 @@ def construct_topic_word(word, word_class, slot_proba, corpus, thesaurus, lexico
             else:
                 all_lemmas[(lemma, pos)] = relat
 
-            if False:
+            if use_assocs and assocs is not None:
                 ax = assocs.get_assocs(lemma)
                 if len(ax) > 0:
                     max_relat = max(map(operator.itemgetter(1), ax))
@@ -1274,8 +1295,10 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
                     continue
 
                 # НАЧАЛО ОТЛАДКИ
-                #if cur_item.word == u'как' and word == u'ты':
-                #    print('DEBUG@1260')
+                #if cur_item.word == u'на' and word == u'кофе':
+                #    print('DEBUG@1297')
+                #    print('DEBUG@1298 --> {}'.format((cur_item.word, word) in ngrams))
+                #    exit(0)
                 # КОНЕЦ ОТЛАДКИ
 
                 # За повтор леммы - штрафуем.
@@ -1464,17 +1487,18 @@ class GenerativeGrammarEngine(object):
     def compile_rules(self):
         self.templates.compile(self.max_rule_len)
 
-    def generate(self, words_bag, known_words):
-        return self.generate2([(word, 1.0) for word in words_bag], known_words)
+    def generate(self, words_bag, known_words, use_assocs=False):
+        return self.generate2([(word, 1.0) for word in words_bag], known_words, use_assocs)
 
-    def generate2(self, words_p_bag, known_words):
+    def generate2(self, words_p_bag, known_words, use_assocs=False):
         topic_words = list()
         for word, proba in words_p_bag:
             topic_word = construct_topic_word(word, None, proba, known_words,
                                               self.dictionaries.thesaurus,
                                               self.dictionaries.lexicon,
                                               self.dictionaries.grdict,
-                                              self.dictionaries.assocs)
+                                              self.dictionaries.assocs,
+                                              use_assocs)
             topic_words.append(topic_word)
 
         for word, part_of_speech in self.wordbag_words:
@@ -1482,7 +1506,7 @@ class GenerativeGrammarEngine(object):
                                               self.dictionaries.thesaurus,
                                               self.dictionaries.lexicon,
                                               self.dictionaries.grdict,
-                                              self.dictionaries.assocs)
+                                              None, False)
             topic_words.append(topic_word)
 
         all_generated_phrases = self.templates.generate_phrases(topic_words,

@@ -57,8 +57,9 @@ class AnswerBuilder(object):
         self.answer_generator.load(models_folder)
 
         self.grammar = GenerativeGrammarEngine()
+        with open(os.path.join(models_folder, 'answer_generative_grammar.bin'), 'rb') as f:
+            self.grammar = GenerativeGrammarEngine.unpickle_from(f)
         self.grammar.set_dictionaries(text_utils.gg_dictionaries)
-        self.grammar.load(os.path.join(models_folder, 'answer_generative_grammar.bin'))
 
         self.word_selector = WordSelector()
         self.word_selector.load(models_folder)
