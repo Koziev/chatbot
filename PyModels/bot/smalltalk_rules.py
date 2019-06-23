@@ -21,22 +21,22 @@ class SmalltalkBasicRule(object):
         else:
             return [node]
 
-    @staticmethod
-    def load_yaml(rule):
-        condition = rule['rule']['if']
-        action = rule['rule']['then']
-
-        if 'text' in condition:
-            if 'say' in action:
-                for condition1 in SmalltalkBasicRule.__get_node_list(condition['text']):
-                    rule11 = SmalltalkSayingRule(condition1)
-                    for answer1 in SmalltalkBasicRule.__get_node_list(action['say']):
-                        rule11.add_answer(answer1)
-                    return rule11
-            elif 'generate' in action:
-                pass
-
-        raise NotImplementedError()
+    # @staticmethod
+    # def load_yaml(rule):
+    #     condition = rule['rule']['if']
+    #     action = rule['rule']['then']
+    #
+    #     if 'text' in condition:
+    #         if 'say' in action:
+    #             for condition1 in SmalltalkBasicRule.__get_node_list(condition['text']):
+    #                 rule11 = SmalltalkSayingRule(condition1)
+    #                 for answer1 in SmalltalkBasicRule.__get_node_list(action['say']):
+    #                     rule11.add_answer(answer1)
+    #                 return rule11
+    #         elif 'generate' in action:
+    #             pass
+    #
+    #     raise NotImplementedError()
 
 
 class SmalltalkSayingRule(SmalltalkBasicRule):

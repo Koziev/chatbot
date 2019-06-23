@@ -35,9 +35,17 @@ class SmalltalkGenerativeRules(object):
 
                 # Простые правила, которые задают срабатывание по тексту фразы, добавляем в отдельный
                 # список, чтобы обрабатывать в модели синонимичности одним пакетом.
-                if 'text' in condition and 'generate' in action:
-                    for condition1 in SmalltalkGenerativeRules.__get_node_list(condition['text']):
-                        key = u'text' + u'|' + condition1
+                if 'generate' in action:
+                    condition_keyword = None
+                    if 'text' in condition:
+                        condition_keyword = u'text'
+                    elif 'intent' in condition:
+                        condition_keyword = u'intent'
+                    else:
+                        raise NotImplementedError()
+
+                    for condition1 in SmalltalkGenerativeRules.__get_node_list(condition[condition_keyword]):
+                        key = condition_keyword + u'|' + condition1
                         print(u'Rule "{}"...'.format(key))
                         generative_templates = list(SmalltalkGenerativeRules.__get_node_list(action['generate']))
                         grammar = GenerativeGrammarEngine()
@@ -48,7 +56,6 @@ class SmalltalkGenerativeRules(object):
                             grammar.add_rule(template)
 
                         grammar.compile_rules()
-
                         smalltalk_rule2grammar[key] = grammar
 
         with open(output_filepath, 'wb') as f:

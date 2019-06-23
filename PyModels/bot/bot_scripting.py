@@ -22,6 +22,7 @@ class BotScripting(object):
         self.greetings = []
         self.goodbyes = []
         self.smalltalk_rules = []
+        self.smalltalk_intent_rules = []
         self.comprehension_rules = None
 
     @staticmethod
@@ -78,9 +79,27 @@ class BotScripting(object):
                             key = u'text' + u'|' + condition1
                             if key in smalltalk_rule2grammar:
                                 rule.compiled_grammar = smalltalk_rule2grammar[key]
+                            else:
+                                logging.error(u'Missing compiled grammar for rule %s', key)
+
                             self.smalltalk_rules.append(rule)
                         else:
                             raise NotImplementedError()
+                elif 'intent' in condition:
+                    for condition1 in BotScripting.__get_node_list(condition['intent']):
+                        if 'generate' in action:
+                            generative_templates = list(BotScripting.__get_node_list(action['generate']))
+                            rule = SmalltalkGeneratorRule(condition1, generative_templates)
+                            key = u'intent' + u'|' + condition1
+                            if key in smalltalk_rule2grammar:
+                                rule.compiled_grammar = smalltalk_rule2grammar[key]
+                            else:
+                                logging.error(u'Missing compiled grammar for rule %s', key)
+
+                            self.smalltalk_intent_rules.append(rule)
+                        else:
+                            raise NotImplementedError()
+
                 else:
                     raise NotImplementedError()
 
@@ -89,6 +108,9 @@ class BotScripting(object):
 
     def enumerate_smalltalk_rules(self):
         return self.smalltalk_rules
+
+    def enumerate_smalltalk_intent_rules(self):
+        return self.smalltalk_intent_rules
 
     def buid_answer(self, answering_machine, interlocutor, interpreted_phrase):
         return answering_machine.text_utils.language_resources[u'не знаю']
