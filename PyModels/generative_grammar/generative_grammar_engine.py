@@ -169,18 +169,7 @@ class Associations:
                 assocs = sorted(assocs, key=operator.itemgetter(1), reverse=True)[:nbest]
             self.word2assocs[word] = assocs
 
-    def collect_from_corpus(self, corpora, max_pairs):
-
-        tokenizer = rutokenizer.Tokenizer()
-        tokenizer.load()
-
-        tagger = rupostagger.RuPosTagger()
-        tagger.load()
-
-        lemmatizer = rulemma.Lemmatizer()
-        lemmatizer.load()
-
-
+    def collect_from_corpus(self, corpora, max_pairs, tokenizer, postagger, lemmatizer):
         word2freq = collections.Counter()
         pair2freq = dict()
         for corpus_path in corpora:
@@ -195,7 +184,7 @@ class Associations:
 
                     s = line.strip().replace(u'Q: ', u'').replace(u'A: ', u'').replace(u'T: ', u'')
                     words0 = tokenizer.tokenize(s)
-                    tags = tagger.tag(words0)
+                    tags = postagger.tag(words0)
                     tokens2 = lemmatizer.lemmatize(tags)
 
                     # Теперь строим цепочу лемм вместо исходных слов.
@@ -261,11 +250,11 @@ class NGrams(object):
         self.has_3grams = False
         self.all_2grams = collections.Counter()
         self.all_3grams = collections.Counter()
+        self.v_prep_case = collections.Counter()
+        self.use_verb_prep_case = False
 
-    def collect(self, corpora, max_gap, max_2grams, max_3grams):
-        tokenizer = rutokenizer.Tokenizer()
-        tokenizer.load()
-
+    def collect(self, corpora, max_gap, max_2grams, max_3grams, use_verb_prep_case, tokenizer, tagger, lemmatizer):
+        self.use_verb_prep_case = use_verb_prep_case
         for corpus_path in corpora:
             logging.info(u'Collecting ngram statistics from {}'.format(corpus_path))
 
@@ -287,15 +276,71 @@ class NGrams(object):
                             ngrams = list(zip(words, words[1+gap:]))
                             self.all_2grams.update(ngrams)
 
-                            ngrams = list(zip(words, words[1+gap:], words[2+gap:]))
-                            self.all_3grams.update(ngrams)
+                            if max_3grams > 0:
+                                ngrams = list(zip(words, words[1+gap:], words[2+gap:]))
+                                self.all_3grams.update(ngrams)
+
+                        if use_verb_prep_case:
+                            # собираем статистику сочетаемости глаголов и предложных дополнений.
+                            # много хардкода из-за отсутствия (пока) питоновского модуля dependency парсинга.
+                            tags = tagger.tag(words)
+                            tokens2 = lemmatizer.lemmatize(tags)
+
+                            # Ищем глагол. Для простоты пропускаем предложения со сложными
+                            # аналитическими конструкциями из вспомогательного или модального
+                            # глагола и инфинитива (я БУДУ ДРУЖИТЬ с лешей), чтобы не
+                            # замусоривать статистику.
+                            verb_index = -1
+                            has_inf = False
+                            many_verbs = False
+                            for index, token in enumerate(tags):
+                                token_tags = token[1]
+                                if token_tags.startswith('VERB'):
+                                    if 'VerbForm=Inf' in token_tags:
+                                        has_inf = True
+                                    elif 'VerbForm=Fin' in token_tags:
+                                        if verb_index != -1:
+                                            many_verbs = True
+                                        else:
+                                            verb_index = index
+
+                            if not many_verbs and not has_inf and verb_index != -1:
+                                verb_lemma = tokens2[verb_index][2]
+
+                                # ищем ближайший к глаголу предлог
+                                prep_index = -1
+                                min_dist = 1000000
+                                for index, token in enumerate(tags):
+                                    token_tags = token[1]
+                                    if token_tags.startswith('ADP'):
+                                        if abs(index - verb_index) < min_dist:
+                                            # TODO: проверять, что между предлогом и глаголом
+                                            # нет существительного или прилагательного?
+                                            min_dist = abs(index - verb_index)
+                                            prep_index = index
+                                            if min_dist == 1:
+                                                break
+
+                                if prep_index != -1:
+                                    # Нашли предложное дополнение
+                                    obj_index = prep_index + 1
+                                    if obj_index < len(words):
+                                        if tokens2[obj_index][3] in (u'СУЩЕСТВИТЕЛЬНОЕ', u'МЕСТОИМ_СУЩ', u'ПРИЛАГАТЕЛЬНОЕ'):
+                                            cases = [tags for tags in tokens2[obj_index][4] if tags[0] == u'ПАДЕЖ']
+                                            if len(cases) == 1:
+                                                obj_case = cases[0][1]  # нам важна падежная форма
+
+                                                # Запоминаем тройку глагол+предлог+падеж
+                                                prep_lemma = tokens2[prep_index][2]
+                                                key = (verb_lemma, prep_lemma, obj_case)
+                                                self.v_prep_case[key] += 1
 
                     if len(self.all_2grams) > max_2grams and len(self.all_3grams) > max_3grams:
                         break
 
         self.has_2grams = len(self.all_2grams) > 0
         self.has_3grams = len(self.all_3grams) > 0
-        logging.info('{} 2grams, {} 3grams stored'.format(len(self.all_2grams), len(self.all_3grams)))
+        logging.info("2grams.count={}, 3grams.count={} v_prep_case.count={}".format(len(self.all_2grams), len(self.all_3grams), len(self.v_prep_case)))
 
     def __contains__(self, ngram):
         l = len(ngram)
@@ -305,6 +350,9 @@ class NGrams(object):
             return ngram in self.all_3grams
         else:
             return False
+
+    def contains_verb_prep_case(self, verb_prep_case):
+        return verb_prep_case in self.v_prep_case
 
     def get(self, ngram):
         l = len(ngram)
@@ -335,7 +383,13 @@ class Word2Lemmas(object):
                         form = tx[0].replace(u' - ', u'-').lower()
                         if all_words is None or form in all_words:
                             lemma = tx[1].replace(u' - ', u'-').lower()
+                            if lemma == u'я':
+                                continue
+
                             pos = decode_pos(tx[2])
+
+                            if pos == u'ПРИЛАГАТЕЛЬНОЕ' and lemma in (u'мой твой наш ваш его ее их'):
+                                continue
 
                             if form not in self.forms:
                                 self.forms[form] = [(lemma, pos)]
@@ -360,7 +414,7 @@ class Word2Lemmas(object):
         logging.info('Lexicon loaded: {} lemmas, {} wordforms'.format(len(self.lemmas), len(self.forms)))
 
     def same_lemma(self, word1, word2):
-        return len(set(self.forms.get(word1, [])) & set(self.forms.get(word2, []))) > 1
+        return len(set(self.forms.get(word1, [])) & set(self.forms.get(word2, []))) > 0
 
     def get_lemma(self, word):
         if word in self.forms:
@@ -417,9 +471,9 @@ class Thesaurus:
                 tx = line.strip().split('\t')
                 if len(tx) == 5:
                     word1 = tx[0].replace(u' - ', u'-').lower()
-                    pos1 = tx[1]
+                    pos1 = decode_pos(tx[1])
                     word2 = tx[2].replace(u' - ', u'-').lower()
-                    pos2 = tx[3]
+                    pos2 = decode_pos(tx[3])
                     relat = tx[4]
 
                     if relat in (u'в_класс', u'член_класса', u'antonym'):
@@ -437,7 +491,13 @@ class Thesaurus:
         self.word2links[u'я'] = [(u'мой', u'ПРИЛАГАТЕЛЬНОЕ', u'в_прил')]
         self.word2links[u'мы'] = [(u'наш', u'ПРИЛАГАТЕЛЬНОЕ', u'в_прил')]
         self.word2links[u'вы'] = [(u'ваш', u'ПРИЛАГАТЕЛЬНОЕ', u'в_прил')]
-        logging.info('{} items in thesaurus loaded'.format(len(self.word2links)))
+
+        self.word2links[u'твой'] = [(u'ты', u'МЕСТОИМЕНИЕ', u'в_мест')]
+        self.word2links[u'мой'] = [(u'я', u'МЕСТОИМЕНИЕ', u'в_мест')]
+        self.word2links[u'наш'] = [(u'наш', u'МЕСТОИМЕНИЕ', u'в_мест')]
+        self.word2links[u'ваш'] = [(u'ваш', u'МЕСТОИМЕНИЕ', u'в_мест')]
+
+        logging.info('%d thesaurus items loaded', len(self.word2links))
 
     def get_linked(self, word1):
         res = []
@@ -478,6 +538,7 @@ class GrammarDict:
         self.word_pos2tags = dict()
         self.tagstr2id = dict()
         self.tagsid2list = dict()
+        self.word2cases = dict()
         logging.info(u'Loading morphology information from {}'.format(path))
 
         self.word2pos = dict()
@@ -585,6 +646,16 @@ class GrammarDict:
         else:
             self.word_pos2tags[word_pos].append(tags_id)
 
+        if pos in (u'СУЩЕСТВИТЕЛЬНОЕ', u'ПРИЛАГАТЕЛЬНОЕ', u'МЕСТИМ_СУЩ', u'МЕСТОИМЕНИЕ'):
+            tags_list = tags_str.split()
+            cases = [tag for tag in tags_list if tag.startswith(u'ПАДЕЖ:')]
+            if len(cases) > 0:
+                word_case = cases[0].split(':')[1]
+                if word not in self.word2cases:
+                    self.word2cases[word] = [word_case]
+                else:
+                    self.word2cases[word].append(word_case)
+
     def __contains__(self, word):
         return word in self.word2pos
 
@@ -596,7 +667,7 @@ class GrammarDict:
 
     def get_word_tagsets(self, word):
         tagsets = []
-        for tagset_id in self.word2tags[word]:
+        for tagset_id in self.word2tags.get(word, []):
             tagsets.append(self.tagsid2list[tagset_id])
         return tagsets
 
@@ -608,20 +679,42 @@ class GrammarDict:
                 tagsets.append(self.tagsid2list[tagset_id])
         return tagsets
 
+    def get_word_cases(self, word):
+        return self.word2cases.get(word, [])
+
+
+class GT_GeneratedWord(object):
+    def __init__(self, word, proba, part_of_speeches=None):
+        self.word = word
+        self.proba = proba
+        self.part_of_speeches = part_of_speeches
+
+    def __repr__(self):
+        if self.part_of_speeches:
+            return u'{} ({}) [{}]'.format(self.word, self.proba, u' '.join(self.part_of_speeches))
+        else:
+            return u'{} ({})'.format(self.word, self.proba)
+
 
 class GT_Item(object):
     def __init__(self):
         pass
 
     def generate(self, topic_words, gren):
+        """ Вернет список из экземпляров GT_GeneratedWord """
         raise NotImplementedError()
 
     def __eq__(self, other):
         raise NotImplementedError()
 
 
+def class_from_tagset(tagset):
+    return tagset[0][1]
+
+
 class GT_Word(GT_Item):
-    def __init__(self, word):
+    """ Генерируемое слово задано явно в тексте правила """
+    def __init__(self, word, gren):
         if not all((c.lower() in u'1234567890абвгдеёжзийклмнопрстуфхцчшщъыьэюя?.!-:;_') for c in word) and word != u',':
             msg = u'Invalid word '+word
             print(msg)
@@ -629,9 +722,12 @@ class GT_Word(GT_Item):
 
         super(GT_Word, self).__init__()
         self.word = word
+        self.part_of_speeches = []
+        for tagset in gren.get_word_tagsets(word):
+            self.part_of_speeches.append(class_from_tagset(tagset))
 
     def generate(self, topic_words, gren):
-        return [(self.word, 1.0)]
+        return [GT_GeneratedWord(self.word, 1.0, self.part_of_speeches)]
 
     def __repr__(self):
         return self.word
@@ -641,14 +737,22 @@ class GT_Word(GT_Item):
 
 
 class GT_RandomWord(GT_Item):
-    def __init__(self, words_str):
+    def __init__(self, words_str, gren):
         super(GT_RandomWord, self).__init__()
         words = words_str[1:-1].split('|')
         assert(len(words) >= 2)
         self.words = words
 
+        self.words_classes = []
+        for word in words:
+            classes = []
+            for tagset in gren.get_word_tagsets(word):
+                classes.append(class_from_tagset(tagset))
+            self.words_classes.append(classes)
+
     def generate(self, topic_words, gren):
-        return [(random.choice(self.words), 1.0)]
+        index = random.randint(0, len(self.words)-1)
+        return [GT_GeneratedWord(self.words[index], 1.0, self.words_classes[index])]
 
     def __repr__(self):
         return u'{' + u' '.join(self.words) + u'}'
@@ -675,18 +779,23 @@ class GT_RegexWordFilter(GT_Item):
         for topic_word in topic_words:
             for variant in topic_word.get_all_variants():
                 if self.rx.match(variant.word):
-                    selected_forms.append((variant.word, variant.weight))
+                    selected_forms.append(GT_GeneratedWord(variant.word, variant.weight))
                     break
 
         return selected_forms[:5]
 
 
-
 class GT_NamedSet(GT_Item):
-    def __init__(self, set_name, words):
+    def __init__(self, set_name, words, gren):
         super(GT_NamedSet, self).__init__()
         self.set_name = set_name
         self.words = words
+        self.words_classes = []
+        for word in words:
+            classes = []
+            for tagset in gren.get_word_tagsets(word):
+                classes.append(class_from_tagset(tagset))
+            self.words_classes.append(classes)
 
     def __repr__(self):
         return self.set_name
@@ -697,12 +806,11 @@ class GT_NamedSet(GT_Item):
     def generate(self, topic_words, gren):
         selected_forms = []
 
-        for word in self.words:
-            selected_forms.append((word, 1.0))
+        for word, part_of_speeches in zip(self.words, self.words_classes):
+            selected_forms.append(GT_GeneratedWord(word, 1.0, part_of_speeches))
             break
 
         return selected_forms
-
 
 
 class GT_Replaceable(GT_Item):
@@ -827,10 +935,10 @@ class GT_Replaceable(GT_Item):
                 for tagset in variant.tagsets:
                     #if (u'ЧАСТЬ_РЕЧИ', variant.part_of_speech) in tagset:
                     if all((tag in tagset) for tag in self.tags):
-                        selected_forms.append((variant.word, variant.weight))
+                        selected_forms.append(GT_GeneratedWord(variant.word, variant.weight, [variant.part_of_speech]))
                         break
 
-        best_forms = sorted(selected_forms, key=lambda z: -z[1])[:5]
+        best_forms = sorted(selected_forms, key=lambda z: -z.proba)[:5]
         return best_forms
 
 
@@ -840,9 +948,13 @@ class GeneratedPhrase(object):
         self.words_hash = tuple(words).__hash__()
         self.proba0 = proba
         self.total_proba = proba
+        self.text = clean_output(u' '.join(token.word for token in self.words))
 
     def get_str(self):
-        return clean_output(u' '.join(self.words))
+        return self.text
+
+    def get_hash(self):
+        return self.text
 
     def get_words(self):
         return self.words
@@ -1007,12 +1119,25 @@ def construct_topic_word(word, word_class, slot_proba, corpus, thesaurus, lexico
                     k = (lemma2, pos2)
                     lemmas[k] = max(0.8, lemmas.get(k, 0.0))
 
+                    # НАЧАЛО ОТЛАДКИ
+                    #if lemma2 == u'работать':
+                    #    print('DEBUG@1094')
+                    #    exit(0)
+                    # КОНЕЦ ОТЛАДКИ
+
                     # Добавляем синонимы синонимов и т.д.
                     for lemma3, pos3, link_type3 in thesaurus.get_linked(lemma2):
                         if pos3 is None:
                             raise RuntimeError()
                         k = (lemma3, pos3)
-                        lemmas[k] = max(0.6, lemmas.get(k, 0.0))
+                        lemmas[k] = max(0.5, lemmas.get(k, 0.0))
+
+                        # НАЧАЛО ОТЛАДКИ
+                        #if lemma3 == u'работать':
+                        #    print(u'DEBUG@1107 lemma2={}'.format(lemma2))
+                        #    exit(0)
+                        # КОНЕЦ ОТЛАДКИ
+
 
         all_lemmas = dict()
         for (lemma, pos), relat in lemmas.items():
@@ -1140,7 +1265,7 @@ class GenerativeTemplates(object):
         self.templates = []
         self.flow_root = None
 
-    def parse(self, s, macros, named_sets, max_rule_len):
+    def parse(self, s, macros, named_sets, max_rule_len, gren):
         terms = s.split(u' ')
         if len(terms) > max_rule_len:
             return
@@ -1168,13 +1293,13 @@ class GenerativeTemplates(object):
                     if len(term) > 3 and term[0] == u'[' and term[-1] == u']':
                         template.items.append(GT_Replaceable(term[1:-1]))
                     elif len(term) >= 3 and term[0] == u'{' and term[-1] == u'}':
-                        template.items.append(GT_RandomWord(term))
+                        template.items.append(GT_RandomWord(term, gren))
                     elif len(term) >= 3 and term[0] == u'(' and term[-1] == u')':
                         template.items.append(GT_RegexWordFilter(term))
                     elif term in named_sets:
-                        template.items.append(GT_NamedSet(term, named_sets[term]))
+                        template.items.append(GT_NamedSet(term, named_sets[term], gren))
                     else:
-                        template.items.append(GT_Word(term))
+                        template.items.append(GT_Word(term, gren))
 
             if len(template.items) <= max_rule_len:
                 templates.append(template)
@@ -1221,9 +1346,9 @@ class GenerativeTemplates(object):
 
 
 class BeamSearchItem(object):
-    def __init__(self, word, word_proba, path_proba, prev_item):
+    def __init__(self, word, path_proba, prev_item):
         self.word = word
-        self.word_proba = word_proba
+        self.word_proba = word.proba
         self.path_proba = path_proba
         self.prev_item = prev_item
 
@@ -1274,8 +1399,8 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
     cur_items = []
 
     # Для затравки - берем несколько лучших слов из первого слота
-    for word, word_proba in word_slots[0][:beam_size*5]:
-        cur_item = BeamSearchItem(word, word_proba, word_proba, None)
+    for word_info in word_slots[0][:beam_size*5]:
+        cur_item = BeamSearchItem(word_info, word_info.proba, None)
         cur_items.append(cur_item)
 
     for word_slot in word_slots[1:]:
@@ -1288,9 +1413,9 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
         #        exit(0)
         # конец отладки
 
-        for word, word_proba in word_slot:
+        for word_info in word_slot:
             for cur_item in cur_items:
-                if cur_item.word == word:
+                if cur_item.word == word_info.word:
                     # буквальный повтор слова запрещаем безусловно
                     continue
 
@@ -1302,15 +1427,16 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
                 # КОНЕЦ ОТЛАДКИ
 
                 # За повтор леммы - штрафуем.
-                trans_proba1 = 0.5 if same_stem(cur_item.word, word) and lexicon.same_lemma(cur_item.word, word) else 1.0
+                trans_proba1 = 0.5 if same_stem(cur_item.word.word, word_info.word)\
+                                      and lexicon.same_lemma(cur_item.word.word, word_info.word) else 1.0
 
                 # встречается ли такая 2-грамма
-                transition_proba = 1.0 if (cur_item.word, word) in ngrams else 0.5
+                transition_proba = 1.0 if (cur_item.word.word, word_info.word) in ngrams else 0.5
 
-                discount = calc_discount(word, cur_item.path_words, thesaurus, lexicon)
+                discount = calc_discount(word_info.word, cur_item.path_words, thesaurus, lexicon)
 
-                path_proba = discount * trans_proba1 * transition_proba * word_proba * cur_item.path_proba
-                item = BeamSearchItem(word, word_proba, path_proba, cur_item)
+                path_proba = discount * trans_proba1 * transition_proba * word_info.proba * cur_item.path_proba
+                item = BeamSearchItem(word_info, path_proba, cur_item)
                 next_items.append(item)
         cur_items = sorted(next_items, key=lambda z: -z.path_proba)[:beam_size]
 
@@ -1318,8 +1444,12 @@ def beam_search(word_slots, thesaurus, lexicon, ngrams):
     return paths
 
 
-def calc_phrase_score(phrase, topic_words, ngrams, assocs, max_gap):
-    words = phrase.words
+def sigmoid(x):
+  return 1.0 / (1.0 + math.exp(-x))
+
+
+def calc_phrase_score(phrase, topic_words, ngrams, assocs, max_gap, lexicon, gren):
+    words = [token.word for token in phrase.get_words()]
     p = 1.0
 
     p += len(words) * 1e-3  # небольшая награда за более длинные предложения
@@ -1329,6 +1459,11 @@ def calc_phrase_score(phrase, topic_words, ngrams, assocs, max_gap):
     for topic_slot in topic_words:
         if not topic_slot.find_in_variants(words_set):
             p -= 0.3 * topic_slot.slot_proba
+
+    # Штрафуем фразы за повтор леммы в не-соседних словах.
+    # Для быстроты - упрощенный алгоритм, проверяем первые 4 буквы слов.
+    stems = collections.Counter(word[:4] for word in words)
+    p -= 5.0 * (stems.most_common(1)[0][1] - 1)
 
     for gap in range(max_gap):
         if ngrams.has_2grams:
@@ -1355,8 +1490,51 @@ def calc_phrase_score(phrase, topic_words, ngrams, assocs, max_gap):
         #score1 += ngrams.get((word1, word2))
         #score2 += assocs.get_mi(word1, word2)
 
+    nb_known_vpcase = 0
+    nb_unknown_vpcase = 0
+
+    if ngrams.use_verb_prep_case:
+        # Учтем паттерны ГЛАГОЛ+ПРЕДЛОГ+ОБЪЕКТ
+
+        # НАЧАЛО ОТЛАДКИ
+        #if phrase.get_str() == u'Часто ли ты дружишь с лешей?':
+        #    print('DEBUG@1446')
+        # КОНЕЦ ОТЛАДКИ
+
+        for index, token in enumerate(phrase.get_words()):
+            if u'ГЛАГОЛ' in token.part_of_speeches:
+                # Для глагола нам будет нужна его нормальная форма
+                verb_lemma = lexicon.get_lemma(token.word)
+
+                for index2, token2 in enumerate(phrase.get_words()):
+                    if u'ПРЕДЛОГ' in token2.part_of_speeches:
+                        index3 = index2 + 1  # позиция подчиненного предлогу существительного
+                        if index3 < len(words):
+                            # TODO нужен падеж подчиненного объекта
+                            obj = phrase.get_words()[index3]
+                            vpc_found = False
+                            for tags in gren.get_word_tagsets(obj.word):
+                                for tag in tags:
+                                    if tag[0] == u'ПАДЕЖ':
+                                        obj_case = tag[1]
+                                        vpcase = (verb_lemma, token2.word, obj_case)
+
+                                        if ngrams.contains_verb_prep_case(vpcase):
+                                            vpc_found = True
+                                            break
+
+                                if vpc_found:
+                                    break
+
+                            if vpc_found:
+                                nb_known_vpcase += 1
+                            else:
+                                nb_unknown_vpcase += 1
+
+    vpn_score = nb_known_vpcase - 10*nb_unknown_vpcase
+
     #return score1 * score2
-    return p
+    return p + vpn_score
 
 
 
@@ -1369,9 +1547,19 @@ class GenerativeGrammarDictionaries(object):
         self.lexicon = None
         self.grdict = None
 
-    def prepare(self, data_folder, max_ngram_gap, use_thesaurus=True, use_assocs=True,
+    def prepare(self, data_folder, max_ngram_gap=1, use_thesaurus=True, use_assocs=True, use_verb_prep_case=False,
                 corpora_paths=None, lexicon_words=None):
         self.max_ngram_gap = max_ngram_gap
+
+
+        tokenizer = rutokenizer.Tokenizer()
+        tokenizer.load()
+
+        tagger = rupostagger.RuPosTagger()
+        tagger.load()
+
+        lemmatizer = rulemma.Lemmatizer()
+        lemmatizer.load()
 
         if corpora_paths is None:
             corpora = [os.path.join(data_folder, 'pqa_all.dat'),
@@ -1383,14 +1571,19 @@ class GenerativeGrammarDictionaries(object):
         else:
             corpora = corpora_paths
 
+        self.grdict = GrammarDict()
+        self.grdict.load(os.path.join(data_folder, 'word2tags.dat'), lexicon_words)
+
         self.all_ngrams = NGrams()
         if max_ngram_gap > 0:
-            self.all_ngrams.collect(corpora, max_gap=max_ngram_gap, max_2grams=5000000, max_3grams=5000000)
+            self.all_ngrams.collect(corpora, max_gap=max_ngram_gap,
+                                    max_2grams=5000000, max_3grams=5000000, use_verb_prep_case=use_verb_prep_case,
+                                    tokenizer=tokenizer, tagger=tagger, lemmatizer=lemmatizer)
 
         self.assocs = Associations()
         # self.assocs.load(os.path.join(data_folder, 'dict/mutual_info_2_ru.dat'), grdict)
         if use_assocs:
-            self.assocs.collect_from_corpus(corpora, 5000000)
+            self.assocs.collect_from_corpus(corpora, 5000000, tokenizer, tagger, lemmatizer)
 
         # Большой текстовый корпус, в котором текст уже токенизирован и нормализован.
         #corpus = CorpusWords()
@@ -1406,8 +1599,6 @@ class GenerativeGrammarDictionaries(object):
         self.lexicon = Word2Lemmas()
         self.lexicon.load(os.path.join(data_folder, 'dict/word2lemma.dat'), lexicon_words)
 
-        self.grdict = GrammarDict()
-        self.grdict.load(os.path.join(data_folder, 'word2tags.dat'), lexicon_words)
 
     def save(self, filepath):
         logging.info(u'Storing generative grammar dictionaries to "{}"'.format(filepath))
@@ -1482,7 +1673,7 @@ class GenerativeGrammarEngine(object):
         self.macros.parse(macro_str)
 
     def add_rule(self, rule_str):
-        self.templates.parse(rule_str, self.macros, self.named_sets, self.max_rule_len)
+        self.templates.parse(rule_str, self.macros, self.named_sets, self.max_rule_len, self.dictionaries.grdict)
 
     def compile_rules(self):
         self.templates.compile(self.max_rule_len)
@@ -1516,18 +1707,24 @@ class GenerativeGrammarEngine(object):
                                                                 self.dictionaries.all_ngrams)
 
         weighted_phrases = []
+        phrases_set = set()
         for phrase in all_generated_phrases:
             # НАЧАЛО ОТЛАДКИ
             #if phrase.get_str() in (u'Илья', u'Папа'):
             #    print('DEBUG@1331')
             # КОНЕЦ ОТЛАДКИ
+            h = phrase.get_hash()
+            if h not in phrases_set:
+                phrases_set.add(h)
 
-            p2 = calc_phrase_score(phrase, topic_words, self.dictionaries.all_ngrams,
-                                   self.dictionaries.assocs,
-                                   self.dictionaries.max_ngram_gap)
-            p2 = normalize_proba(p2) * phrase.get_proba0()
-            phrase.set_rank(p2)
-            weighted_phrases.append(phrase)
+                p2 = calc_phrase_score(phrase, topic_words, self.dictionaries.all_ngrams,
+                                       self.dictionaries.assocs,
+                                       self.dictionaries.max_ngram_gap,
+                                       self.dictionaries.lexicon,
+                                       self.dictionaries.grdict)
+                p2 = normalize_proba(p2) * phrase.get_proba0()
+                phrase.set_rank(p2)
+                weighted_phrases.append(phrase)
 
         return weighted_phrases
 
