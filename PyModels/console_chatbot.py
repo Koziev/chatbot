@@ -131,6 +131,8 @@ while True:
         print_answer(u'B:>', answer)
 
     question = input_kbd('H:>').lower()
-    if len(question) == 0:
-        break
-    bot.push_phrase(user_id, question)
+    if len(question) > 0:
+        if question in ('\exit', '\q', '\quit'):
+            break
+
+        bot.push_phrase(user_id, question)

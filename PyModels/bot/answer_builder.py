@@ -234,9 +234,11 @@ class AnswerBuilder(object):
                         self.logger.debug('Ranking {} answers'.format(len(all_generated_phrases)))
 
                     if len(all_generated_phrases) > 0:
-                        scored_answers = self.answer_relevancy.score_answers(tokenized_premises, tokenized_question,
-                                                                      all_generated_phrases, word_embeddings,
-                                                                      text_utils, len2proba)
+                        scored_answers = self.answer_relevancy.score_answers(tokenized_premises,
+                                                                             tokenized_question,
+                                                                             all_generated_phrases,
+                                                                             word_embeddings,
+                                                                             text_utils, len2proba)
 
                         sorted_answers = sorted(scored_answers, key=lambda z: -z.get_rank())
 
