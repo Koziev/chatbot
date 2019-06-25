@@ -5,7 +5,7 @@ import os
 import logging
 import lightgbm
 
-from gb_synonymy_detector import GB_SynonymyDetector
+from bot.gb_synonymy_detector import GB_SynonymyDetector
 
 
 class LGB_SynonymyDetector(GB_SynonymyDetector):

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from model_applicator import ModelApplicator
+from bot.model_applicator import ModelApplicator
 
 
 class EnoughPremisesModel(ModelApplicator):

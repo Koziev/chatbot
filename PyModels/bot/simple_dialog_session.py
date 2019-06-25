@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from base_dialog_session import BaseDialogSession
+from bot.base_dialog_session import BaseDialogSession
 
 class SimpleDialogSession(BaseDialogSession):
     """

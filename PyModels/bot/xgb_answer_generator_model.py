@@ -11,7 +11,7 @@ import itertools
 import xgboost
 from scipy.sparse import lil_matrix
 
-from answer_generator_model import AnswerGeneratorModel
+from bot.answer_generator_model import AnswerGeneratorModel
 
 
 BEG_WORD = u'\b'

@@ -10,7 +10,7 @@ import numpy as np
 import logging
 
 from keras.models import model_from_json
-from base_utterance_interpreter import BaseUtteranceInterpreter
+from bot.base_utterance_interpreter import BaseUtteranceInterpreter
 from utils.padding_utils import PAD_WORD, lpad_wordseq, rpad_wordseq
 
 

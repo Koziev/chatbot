@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from base_session_factory import BaseDialogSessionFactory
-from simple_dialog_session import SimpleDialogSession
+from bot.base_session_factory import BaseDialogSessionFactory
+from bot.simple_dialog_session import SimpleDialogSession
 
 
 class SimpleDialogSessionFactory(BaseDialogSessionFactory):

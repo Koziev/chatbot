@@ -61,6 +61,8 @@ class ScriptingRule(object):
             resp = bot.invoke_callback(self.action[u'callback'], session, user_id, interpreted_phrase)
             if resp:
                 bot.say(session, resp)
+        elif u'nothing' in self.action:
+            return
         else:
             raise NotImplementedError()
 

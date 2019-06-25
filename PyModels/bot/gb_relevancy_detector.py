@@ -7,8 +7,8 @@
 
 import logging
 
-from relevancy_detector import RelevancyDetector
-from gb_base_detector import GB_BaseDetector
+from bot.relevancy_detector import RelevancyDetector
+from bot.gb_base_detector import GB_BaseDetector
 
 
 class GB_RelevancyDetector(RelevancyDetector):

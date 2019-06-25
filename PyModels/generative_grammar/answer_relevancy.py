@@ -79,7 +79,7 @@ class AnswerRelevancy(object):
                 for i in range(self.max_nb_premises):
                     Xn_probe[i][ianswer, :, :] = Xn_probe[i][0, :, :]
 
-            words = pad_wordseq(answer.words, self.max_inputseq_len)
+            words = pad_wordseq([token.word for token in answer.get_words()], self.max_inputseq_len)
             #vectorize_words(words, X_answer, ianswer, word2vec)
             word2vec.vectorize_words(self.w2v_path, words, X_answer, ianswer)
 

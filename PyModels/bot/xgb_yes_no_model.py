@@ -10,7 +10,7 @@ import logging
 import xgboost
 from scipy.sparse import lil_matrix
 
-from yes_no_model import YesNoModel
+from bot.yes_no_model import YesNoModel
 
 
 class XGB_YesNoModel(YesNoModel):

@@ -7,8 +7,8 @@
 
 import logging
 
-from synonymy_detector import SynonymyDetector
-from gb_base_detector import GB_BaseDetector
+from bot.synonymy_detector import SynonymyDetector
+from bot.gb_base_detector import GB_BaseDetector
 
 
 class GB_SynonymyDetector(SynonymyDetector):

@@ -5,7 +5,7 @@ import os
 import logging
 import lightgbm
 
-from gb_relevancy_detector import GB_RelevancyDetector
+from bot.gb_relevancy_detector import GB_RelevancyDetector
 
 
 class LGB_RelevancyDetector(GB_RelevancyDetector):

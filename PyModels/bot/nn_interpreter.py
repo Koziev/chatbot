@@ -13,7 +13,7 @@ import random
 import pickle
 
 from keras.models import model_from_json
-from base_utterance_interpreter import BaseUtteranceInterpreter
+from bot.base_utterance_interpreter import BaseUtteranceInterpreter
 from utils.padding_utils import PAD_WORD, lpad_wordseq, rpad_wordseq
 
 
@@ -71,7 +71,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
         self.logger.info('Loading NN_Interpreter model files')
 
         # Таблицы для трансляции грамматического лица
-        with open(os.path.join(models_folder, 'person_change_dictionary.pickle'), 'r') as f:
+        with open(os.path.join(models_folder, 'person_change_dictionary.pickle'), 'rb') as f:
             self.person_changing_data = pickle.load(f)
 
         #self.w1s = self.person_changing_data['word_1s']
@@ -154,9 +154,6 @@ class NN_Interpreter(BaseUtteranceInterpreter):
             batch_index += 1
 
         yield inputs
-
-    def require_interpretation(self, phrase, text_utils, word_embeddings):
-        pass  # todo
 
     def interpret(self, phrases, text_utils, word_embeddings):
         assert(0 < len(phrases) <= self.max_nb_inputs)

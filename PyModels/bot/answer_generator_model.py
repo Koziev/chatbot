@@ -3,7 +3,7 @@
 Базовый класс для модели генерации ответа на основе предпосылки и вопроса.
 """
 
-from model_applicator import ModelApplicator
+from bot.model_applicator import ModelApplicator
 
 
 class AnswerGeneratorModel(ModelApplicator):
