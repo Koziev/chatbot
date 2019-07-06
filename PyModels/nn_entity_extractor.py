@@ -93,33 +93,37 @@ def pad_wordseq(words, n, padding):
 def map_value(phrase_tokens, value_tokens):
     labels = np.zeros(len(phrase_tokens), dtype=np.int)
     ntoken = len(value_tokens)
-    if ntoken > 0:
-        mapped = False
-        if value_tokens[0] in phrase_tokens:
-            for i0, phrase_token in enumerate(phrase_tokens):
-                if phrase_token == value_tokens[0]:
-                    # первый токен совпал
-                    # проверим совпадение оставшихся токенов
-                    tail_matched = True
-                    if len(value_tokens) == 1:
-                        labels[i0] = 1
-                        mapped = True
-                    else:
-                        for i1, value_token in enumerate(value_tokens[1:], start=1):
-                            if i1 < ntoken:
-                                if value_token != phrase_tokens[i0 + i1]:
+    try:
+        if ntoken > 0:
+            mapped = False
+            if value_tokens[0] in phrase_tokens:
+                for i0, phrase_token in enumerate(phrase_tokens):
+                    if phrase_token == value_tokens[0]:
+                        # первый токен совпал
+                        # проверим совпадение оставшихся токенов
+                        tail_matched = True
+                        if len(value_tokens) == 1:
+                            labels[i0] = 1
+                            mapped = True
+                        else:
+                            for i1, value_token in enumerate(value_tokens[1:], start=1):
+                                if i1 < ntoken:
+                                    if value_token != phrase_tokens[i0 + i1]:
+                                        tail_matched = False
+                                        break
+                                else:
                                     tail_matched = False
                                     break
-                            else:
-                                tail_matched = False
-                                break
 
-                        if tail_matched:
-                            labels[i0:i0+i1+1] = 1
-                            mapped = True
-        if not mapped:
-            print(u'NOT MAPPED ERROR: phrase_tokens={} value_tokens={}'.format(u' '.join(phrase_tokens), u' '.join(value_tokens)))
-            exit(1)
+                            if tail_matched:
+                                labels[i0:i0+i1+1] = 1
+                                mapped = True
+            if not mapped:
+                msg = u'NOT MAPPED ERROR: phrase_tokens={} value_tokens={}'.format(u' '.join(phrase_tokens), u' '.join(value_tokens))
+                raise RuntimeError(msg)
+    except Exception as ex:
+        print(u'Error occured for phrase="{}" and entity="{}":\n{}'.format(u' '.join(phrase_tokens), u' '.join(value_tokens), ex))
+        return None
 
     return labels
 
@@ -154,14 +158,18 @@ def load_samples(input_path):
                         phrase = phrase[:-1]
                     phrase = phrase.replace(u'?', u'').replace(u'!', u'')
 
+                    if value.endswith(u'.'):
+                        value = value[:-1]
+
                     phrase_tokens = tokenizer.tokenize(phrase)
                     value_tokens = tokenizer.tokenize(value)
 
                     all_value_tokens.update(value_tokens)
                     token_labels = map_value(phrase_tokens, value_tokens)
-                    sample = Sample(phrase, value, phrase_tokens, token_labels)
-                    entity2samples[current_entity].append(sample)
-                    max_inputseq_len = max(max_inputseq_len, len(phrase_tokens))
+                    if token_labels is not None:
+                        sample = Sample(phrase, value, phrase_tokens, token_labels)
+                        entity2samples[current_entity].append(sample)
+                        max_inputseq_len = max(max_inputseq_len, len(phrase_tokens))
 
     logging.info('max_inputseq_len={}'.format(max_inputseq_len))
     computed_params['max_inputseq_len'] = max_inputseq_len
@@ -221,7 +229,13 @@ def vectorize_samples(samples, params, computed_params):
     for isample, sample in enumerate(samples):
         words = pad_wordseq(sample.phrase_tokens, max_inputseq_len, padding)
         vectorize_words(words, X_data, isample, w2v)
+
+        # По умолчанию считаем, что для всех токенов, включая заполнители, на выходе
+        # будет label=0. Поэтому выставляем нулевой элемент каждой пары в 1.
+        y_data[isample, :, 0] = 1
+
         for itoken, token_label in enumerate(sample.token_labels):
+            y_data[isample, itoken, 1-token_label] = 0
             y_data[isample, itoken, token_label] = 1
 
     return X_data, y_data
