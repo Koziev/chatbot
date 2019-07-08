@@ -25,6 +25,7 @@ import itertools
 import json
 import os
 import io
+import yaml
 import argparse
 import codecs
 import logging
@@ -84,6 +85,33 @@ def ngrams2(s, n):
                 basic_shingles.append(new_shingle)
 
     return basic_shingles
+
+
+def collect_strings(d):
+    res = []
+
+    if isinstance(d, unicode):
+        res.append(d)
+    elif isinstance(d, list):
+        for item in d:
+            res.extend(collect_strings(item))
+    elif isinstance(d, dict):
+        for k, node in d.items():
+            res.extend(collect_strings(node))
+
+    return res
+
+
+def load_strings_from_yaml(yaml_path):
+    res = []
+    with io.open(yaml_path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+        strings = collect_strings(data)
+        for phrase in strings:
+            phrase = phrase.strip()
+            if u'_' not in phrase and any((c in u'абвгдеёжзийклмнопрстуфхцчшщъыьэюя') for c in phrase):
+                res.append(phrase)
+    return res
 
 
 if False:
@@ -278,6 +306,75 @@ def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
         print('accuracy top-10={}'.format(accuracy10))
 
     return accuracy
+
+
+def calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id):
+    # Код для получения оценочной метрики "качество ранжирования".
+    # Берем условное val-подмножество из базового датасета.
+    df_val = df.sample(n=10000, random_state=12345678)
+    premise2samples = dict()
+    for i, r1 in df_val[df_val['relevance'] == 1].iterrows():
+        phrase1 = r1['premise']
+        phrase2 = r1['question']
+        if phrase1 not in premise2samples:
+            premise2samples[phrase1] = [(phrase2, 1)]
+
+    for i, r2 in df_val[df_val['relevance'] == 0].iterrows():
+        phrase1 = r2['premise']
+        phrase2 = r2['question']
+        # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению.
+        for phrase1_1, samples_1 in premise2samples.items():
+            if phrase1 != phrase1_1:
+                if len(premise2samples[phrase1_1]) < 50:
+                    if (phrase2, 0) not in premise2samples[phrase1_1] and (phrase2, 1) not in premise2samples[
+                        phrase1_1]:
+                        premise2samples[phrase1_1].append((phrase2, 0))
+
+    # Теперь в premise2samples для каждой фразы-ключа есть некоторое количество сравниваемых
+    # фраз, из которых только 1 релевантна. Мы должны проверить, что модель именно эту пару
+    # оценит максимально высоко, а остальным присвоит меньшую релевантность.
+    # 07-07-2019 Кроме того, можно брать позицию правильного выбора после сортировки по релевантности.
+    # Чем ближе средняя позиция к 0, тем лучше модель
+    nb_good = 0
+    nb_total = 0
+    rank_positions = []  # тут накопим позиции правильного сэмпла при ранжировке
+    for phrase1, samples in premise2samples.items():
+        df_samples = pd.DataFrame(index=None, columns=['premise', 'question', 'relevance'])
+        for phrase2, label in samples:
+            df_samples = df_samples.append({'premise': phrase1, 'question': phrase2, 'relevance': label},
+                                           ignore_index=True)
+
+        # X_data, y_data = vectorize_data(df_samples, best_vectorizer, best_model_params)
+
+        nb_samples = len(samples)
+        X_data = lil_matrix((nb_samples, nb_features), dtype='float32')
+        y_data = df_samples['relevance'].values
+
+        for irow, (premise, question) in enumerate(
+                zip(df_samples['premise'].values, df_samples['question'].values)):
+            premise_shingles = set(ngrams(premise, shingle_len))
+            question_shingles = set(ngrams(question, shingle_len))
+            vectorize_sample_x(X_data, irow, premise_shingles, question_shingles, shingle2id)
+
+        y_pred = estimator.predict(X_data)
+        maxy_pred = np.argmax(y_pred)
+        maxy_data = np.argmax(y_data)
+        nb_good += int(maxy_pred == maxy_data)
+        nb_total += 1
+
+        yy = [(y_pred[i], y_data[i]) for i in range(nb_samples)]
+        yy = sorted(yy, key=lambda z: -z[0])
+        y_true_pos = next(i for i, z in enumerate(yy) if z[1] == 1)
+        rank_positions.append(y_true_pos)
+
+
+    # Precision@1 - для какой доли сэмплов правильная пара попадает в top-1
+    rank_accuracy = float(nb_good) / nb_total
+
+    # Средняя позиция правильного ответа
+    mean_pos = np.mean(rank_positions)
+
+    return rank_accuracy, mean_pos
 
 
 def get_params(space):
@@ -537,13 +634,31 @@ if run_mode == 'train':
         # сохраняем саму модель
         cl.save_model(model_filename)
 
+        estimator = cl
+        #tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
+        #nb_features = model_config['nb_features']
+        #shingle_len = model_config['shingle_len']
+        #shingle2id = model_config['shingle2id']
+
+        # eval_data = EvaluationDataset(0, tokenizer, 'none')
+        # eval_data.load(data_folder)
+        #
+        # accuracy = evaluate_model(lgb_relevancy, model_config, eval_data, verbose=1)
+        #
+        # # Итоговая точность выбора предпосылок на оценочной задаче.
+        # print('eval accuracy={}'.format(accuracy))
+
+        logging.info('Calculate ranking accuracy...')
+        rank_acc, mean_pos = calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id)
+        logging.info('Ranking accuracy: precision@1={} mean_pos={}'.format(rank_accuracy, mean_pos))
+
         # Для отладки - прогоним через модель весь датасет и сохраним результаты в текстовый файл.
-        y_pred = cl.predict(X_data)
-        with codecs.open(os.path.join(tmp_folder, 'lgb_{}.validation.txt'.format(task)), 'w', 'utf-8') as wrt:
-            for i in range(len(y_pred)):
-                premise = phrases[i][2]
-                question = phrases[i][3]
-                wrt.write(u'{}\n{}\ny_true={} y_pred={}\n\n'.format(premise, question, y_data[i], y_pred[i]))
+        # y_pred = cl.predict(X_data)
+        # with codecs.open(os.path.join(tmp_folder, 'lgb_{}.validation.txt'.format(task)), 'w', 'utf-8') as wrt:
+        #     for i in range(len(y_pred)):
+        #         premise = phrases[i][2]
+        #         question = phrases[i][3]
+        #         wrt.write(u'{}\n{}\ny_true={} y_pred={}\n\n'.format(premise, question, y_data[i], y_pred[i]))
 
 
 if run_mode == 'query':
@@ -606,7 +721,7 @@ if run_mode == 'query2':
         # Поиск лучшей предпосылки, релевантной введенному вопросу
 
         if True:
-            for fname in ['premises_1s.txt', 'premises_2s.txt']:
+            for fname in ['premises_1s.txt', 'premises_2s.txt', 'premises.txt']:
                 with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
                     for line in rdr:
                         phrase = line.strip()
@@ -626,25 +741,29 @@ if run_mode == 'query2':
             print('{} premises loaded from {}'.format(len(all_premises), input_path))
             premises.extend((premise, premise) for premise in all_premises)
 
+        if True:
+            for phrase in load_strings_from_yaml(os.path.join(data_folder, 'rules.yaml')):
+                phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                if phrase2 not in added_phrases:
+                    added_phrases.add(phrase2)
+                    premises.append((phrase2, phrase))
+
+
     elif task == 'synonymy':
         # поиск ближайшего приказа или вопроса из списка FAQ
         phrases2 = set()
         if True:
-            with codecs.open(os.path.join(data_folder, 'smalltalk.txt'), 'r', 'utf-8') as rdr:
-                for line in rdr:
-                    phrase = line.strip()
-                    if len(phrase) > 5 and phrase.startswith(u'Q:'):
-                        phrase = phrase.replace(u'Q:', u'').strip()
-                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                        if phrase2 not in added_phrases:
-                            added_phrases.add(phrase2)
-                            phrases2.add((phrase2, phrase))
+            for phrase in load_strings_from_yaml(os.path.join(data_folder, 'rules.yaml')):
+                phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                if phrase2 not in added_phrases:
+                    added_phrases.add(phrase2)
+                    phrases2.add((phrase2, phrase))
 
         if True:
-            with codecs.open(os.path.join(data_folder, 'orders.txt'), 'r', 'utf-8') as rdr:
+            with codecs.open(os.path.join(data_folder, 'intents.txt'), 'r', 'utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
-                    if len(phrase) > 5:
+                    if len(phrase) > 5 and not phrase.startswith('#') and u'_' not in phrase:
                         phrase2 = u' '.join(tokenizer.tokenize(phrase))
                         if phrase2 not in added_phrases:
                             added_phrases.add(phrase2)
@@ -686,7 +805,8 @@ if run_mode == 'query2':
         y_pred = lgb_relevancy.predict(X_data)
         phrase_rels = [(premises[i][1], y_pred[i]) for i in range(nb_premises)]
         phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
-        for phrase, sim in phrase_rels[:20]:  # выводим топ ближайших фраз
+        print('-'*50)
+        for phrase, sim in phrase_rels[:30]:  # выводим топ ближайших фраз
             print(u'{:6.4f} {}'.format(sim, phrase))
 
 
@@ -698,18 +818,17 @@ if run_mode == 'evaluate':
     with open(os.path.join(tmp_folder, config_filename), 'r') as f:
         model_config = json.load(f)
 
+    estimator = lightgbm.Booster(model_file=model_config['model_filename'])
     tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
+    nb_features = model_config['nb_features']
+    shingle_len = model_config['shingle_len']
+    shingle2id = model_config['shingle2id']
 
-    eval_data = EvaluationDataset(0, tokenizer, 'none')
-    eval_data.load(data_folder)
+    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
 
-    lgb_relevancy = lightgbm.Booster(model_file=model_config['model_filename'])
-
-    accuracy = evaluate_model(lgb_relevancy, model_config, eval_data, verbose=1)
-
-    # Итоговая точность выбора предпосылок на оценочной задаче.
-    print('eval accuracy={}'.format(accuracy))
-
+    logging.info('Calculate ranking accuracy...')
+    rank_acc, mean_pos = calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id)
+    logging.info('Ranking accuracy: precision@1={} mean_pos={}'.format(rank_acc, mean_pos))
 
 if run_mode == 'clusterize':
     # семантическая кластеризация предложений с использованием
