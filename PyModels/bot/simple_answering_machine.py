@@ -180,7 +180,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return self.session_factory
 
     def is_question(self, phrase):
-        return self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings) == ModalityDetector.question
+        modality, person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+        return modality == ModalityDetector.question
 
     def translate_interlocutor_replica(self, bot, session, raw_phrase):
         rules = bot.get_comprehension_templates().get_templates()
@@ -217,7 +218,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def interpret_phrase(self, bot, session, raw_phrase, internal_issuer):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
-        phrase_modality = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+        phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
         phrase_is_question = phrase_modality == ModalityDetector.question
 
         # история фраз доступна в session как conversation_history
@@ -279,14 +280,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if translated_str is not None:
                 phrase = translated_str
                 raw_phrase = translated_str
-                phrase_modality = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+                phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
                 was_interpreted = True
 
         if not was_interpreted:
             phrase = self.interpreter.normalize_person(raw_phrase, self.text_utils, self.word_embeddings)
 
+        # TODO: Если результат интерпретации содержит мусор, то не нужно его обрабатывать.
+        # Поэтому тут надо проверить phrase  с помощью верификатора синтаксиса.
+        # ...
+
         interpreted.interpretation = phrase
-        interpreted.set_modality(phrase_modality)
+        interpreted.set_modality(phrase_modality, phrase_person)
 
         if self.intent_detector is not None:
             interpreted.intent = self.intent_detector.detect_intent(raw_phrase)
@@ -298,7 +303,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.info(u'say "%s"', answer)
         answer_interpretation = InterpretedPhrase(answer)
         answer_interpretation.is_bot_phrase = True
-        answer_interpretation.set_modality(self.modality_model.get_modality(answer, self.text_utils, self.word_embeddings))
+        answer_interpretation.set_modality(*self.modality_model.get_modality(answer, self.text_utils, self.word_embeddings))
         session.add_to_buffer(answer)
         session.add_phrase_to_history(answer_interpretation)
 
@@ -312,7 +317,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # TODO
         return 1.0
 
-    def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False):
+    def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False, force_question_answering=False):
         self.logger.info(u'push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
         question = self.text_utils.canonize_text(phrase)
         if question == u'#traceon':
@@ -322,7 +327,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.trace_enabled = False
             return
         elif question == u'#facts':
-            for fact, person, fact_id in self.facts_storage.enumerate_facts(interlocutor):
+            for fact, person, fact_id in bot.facts.enumerate_facts(interlocutor):
                 print(u'{}'.format(fact))
             return
 
@@ -332,6 +337,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # так что мы можем раскрыть анафору, подставить в явном виде опущенные составляющие и т.д.,
         # определить, является ли фраза вопросом, фактом или императивным высказыванием.
         interpreted_phrase = self.interpret_phrase(bot, session, question, internal_issuer)
+
+        if force_question_answering:
+            # В случае, если наш бот должен считать все входные фразы вопросами,
+            # на которые он должен отвечать.
+            interpreted_phrase.set_modality(ModalityDetector.question, interpreted_phrase.person)
+
+        # Утверждения для 2го лица, то есть относящиеся к профилю чатбота, будем
+        # рассматривать как вопросы. Таким образом, запрещаем прямой вербальный
+        # доступ к профилю чатбота на запись.
+        is_question2 = interpreted_phrase.is_assertion and interpreted_phrase.person == 2
 
         # Интерпретация фраз и в общем случае реакция на них зависит и от истории
         # общения, поэтому результат интерпретации сразу добавляем в историю.
@@ -345,7 +360,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Сообщим, что не знаем как обработать приказ.
                 self.premise_not_found_model.order_not_understood(phrase, bot, self.text_utils, self.word_embeddings)
                 order_processed = True
-        elif interpreted_phrase.is_question:
+        elif interpreted_phrase.is_question or is_question2:
             self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
             # Обрабатываем вопрос собеседника (либо результат трансляции императива).
             answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
@@ -394,26 +409,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
 
                 generated_replicas = []  # список кортежей (подобранная_реплика_бота, вес_реплики)
-                if bot.has_scripting():
-                    replica = bot.scripting.generate_response4nonquestion(self, interlocutor, interpreted_phrase)
-                    if replica is not None:
-                        # Не будем допускать, чтобы одна и та же реплика призносилась
-                        # ботом более 2х раз
-                        if session.count_bot_phrase(replica) <= 2:
-
-                            # Будем учитывать, насколько хорошо предлагаемая реплика ложится в общий
-                            # дискурс текущей беседы.
-                            discourse_rel = self.calc_discourse_relevance(replica, session)
-                            replica_rel = discourse_rel * np.random.rand(0.95, 1.0)
-
-                            # проверить, если answer является репликой-ответом: знает
-                            # ли бот ответ на этот вопрос.
-                            if self.is_question(replica):
-                                if not self.does_bot_know_answer(replica, session):
-                                    generated_replicas.add((replica, replica_rel))
-                            else:
-                                # Добавляется не вопрос.
-                                generated_replicas.add((replica, replica_rel))
 
                 if bot.enable_smalltalk and bot.has_scripting():
                     # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
@@ -522,8 +517,27 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
 
                             if not intent_rule_applied:
-                                # TODO: вероятность использования сценария вынести в общие настройки бота
-                                if random.random() > 0.7:
+                                # TODO: вероятность использования разных способом генерации реплик вынести
+                                # в общие настройки бота
+
+                                if random.random() > 0.5:
+                                    phrases = [(f,) for f in bot.get_common_phrases() if f != phrase]
+
+                                    sim_phrases = self.jsyndet.get_most_similar(phrase, phrases, self.text_utils,
+                                                                        self.word_embeddings, nb_results=1)
+                                    for f, phrase_sim in [sim_phrases]:
+                                        if phrase_sim > 0.10 and f.lower() != phrase:
+                                            if session.count_bot_phrase(f) == 0:
+                                                # проверить, если answer является репликой-ответом: знает
+                                                # ли бот ответ на этот вопрос.
+                                                #if self.is_question(replica):
+                                                #    if not self.does_bot_know_answer(replica, session):
+                                                #        generated_replicas.append((replica, replica_rel))
+
+                                                discourse_rel = self.calc_discourse_relevance(f, session)
+                                                generated_replicas.append(
+                                                    (f, phrase_sim * discourse_rel * time_decay, 'common_phrases'))
+
                                     # Выбираем ближайший факт
                                     facts = bot.facts.enumerate_facts(interlocutor)
                                     facts = [fact for fact in facts if fact[0].lower() != phrase]
@@ -534,7 +548,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                             if session.count_bot_phrase(fact) == 0:
                                                 discourse_rel = self.calc_discourse_relevance(fact, session)
                                                 generated_replicas.append(
-                                                    (fact, fact_sim * discourse_rel * time_decay, 'smalltalk2'))
+                                                    (fact, fact_sim * discourse_rel * time_decay, 'nesrest_fact'))
                                 else:
                                     # Используем генеративную грамматику для получения возможных реплик
                                     logging.debug('Using replica_grammar to generate replicas...')
@@ -652,7 +666,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                  nb_results=3)
             if self.trace_enabled:
                 if best_rels[0] >= self.min_premise_relevancy:
-                    self.logger.info(u'Best premise is "{}" with relevancy={}'.format(best_premises[0], best_rels[0]))
+                    self.logger.info(u'Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
 
             if len(answers) == 0:
                 if bot.premise_is_answer:
@@ -689,7 +703,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # тест ответа из FAQ.
             answers = [best_faq_answer]
             answer_rels = [best_faq_rel]
-            self.logger.info(u'FAQ entry provides best answer="{}" with rel={}'.format(best_faq_answer, best_faq_rel))
+            self.logger.info(u'FAQ entry provides nearest question="%s" with rel=%e', best_faq_question, best_faq_rel)
 
         if len(answers) == 0:
             # Не удалось найти предпосылку для формирования ответа.

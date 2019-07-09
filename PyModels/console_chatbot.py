@@ -5,8 +5,10 @@
 
 import os
 import argparse
+import json
 
-from bot.files3_facts_storage import Files3FactsStorage
+from bot.bot_profile import BotProfile
+from bot.profile_facts_reader import ProfileFactsReader
 from bot.text_utils import TextUtils
 from bot.simple_answering_machine import SimpleAnsweringMachine
 from bot.console_utils import input_kbd, print_answer, print_tech_banner
@@ -21,57 +23,57 @@ user_id = 'test'
 parser = argparse.ArgumentParser(description='Question answering machine')
 parser.add_argument('--data_folder', type=str, default='../data')
 parser.add_argument('--w2v_folder', type=str, default='../tmp')
-parser.add_argument('--facts_folder', type=str, default='../data', help='path to folder containing knowledgebase files')
+parser.add_argument('--profile', type=str, default='../data/profile_1.json', help='path to profile file')
 parser.add_argument('--models_folder', type=str, default='../tmp', help='path to folder with pretrained models')
 parser.add_argument('--tmp_folder', type=str, default='../tmp', help='path to folder for logfile etc')
+parser.add_argument('--debugging', action='store_true')
 
 args = parser.parse_args()
-facts_folder = os.path.expanduser(args.facts_folder)
+profile_path = os.path.expanduser(args.profile)
 models_folder = os.path.expanduser(args.models_folder)
 data_folder = os.path.expanduser(args.data_folder)
 w2v_folder = os.path.expanduser(args.w2v_folder)
 tmp_folder = os.path.expanduser(args.tmp_folder)
 
-init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'))
-
+init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'), args.debugging)
 
 # Создаем необходимое окружение для бота.
 # Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
 text_utils = TextUtils()
 text_utils.load_dictionaries(data_folder, models_folder)
 
-scripting = BotScripting(data_folder)
-scripting.load_rules(os.path.join(data_folder, 'rules.yaml'),
-                     os.path.join(models_folder, 'smalltalk_generative_grammars.bin'),
-                     text_utils
-                     )
-
-
+# Настроечные параметры аватара собраны в профиле - файле в json формате.
+profile = BotProfile()
+profile.load(profile_path, data_folder, models_folder)
 
 # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
-# ботов с разными базами фактов и правил, хотя тут у нас будет работать только один.
+# ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
 machine = SimpleAnsweringMachine(text_utils=text_utils)
 machine.load_models(data_folder, models_folder, w2v_folder)
-machine.trace_enabled = True  # для отладки
+machine.trace_enabled = args.debugging
 
-# Конкретная реализация хранилища фактов - плоские файлы с utf-8, без форматирования.
-facts_storage = Files3FactsStorage(text_utils=text_utils,
-                                   facts_folder=facts_folder)
+# Контейнер для правил
+scripting = BotScripting(data_folder)
+scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, text_utils)
+
+# Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
+profile_facts = ProfileFactsReader(text_utils=text_utils, profile_path=profile.premises_path)
 
 # Подключем простое файловое хранилище с FAQ-правилами бота.
 # Движок бота сопоставляет вопрос пользователя с опорными вопросами в FAQ базе,
 # и если нашел хорошее соответствие (синонимичность выше порога), то
 # выдает ответную часть найденной записи.
-faq = PlainFileFaqStorage(os.path.join(data_folder, 'faq2.txt'))
+faq_storage = PlainFileFaqStorage(profile.faq_path)
 
-# Инициализируем бота, загружаем правила (файл data/rules.yaml).
+# Инициализируем аватара
 bot = BotPersonality(bot_id='test_bot',
                      engine=machine,
-                     facts=facts_storage,
-                     faq=faq,
+                     facts=profile_facts,
+                     faq=faq_storage,
                      scripting=scripting,
-                     enable_scripting=True,
-                     enable_smalltalk=True)
+                     enable_scripting=profile.rules_enabled,
+                     enable_smalltalk=profile.smalltalk_enabled,
+                     force_question_answering=profile.force_question_answering)
 
 
 def on_order(order_anchor_str, bot, session):

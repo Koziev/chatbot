@@ -7,7 +7,9 @@ import logging
 class BotPersonality:
     def __init__(self, bot_id, engine, facts,
                  faq=None, scripting=None,
-                 enable_smalltalk=False, enable_scripting=False):
+                 enable_smalltalk=False,
+                 enable_scripting=False,
+                 force_question_answering=False):
         if bot_id is None or bot_id == '':
             self.bot_id = str(uuid.uuid4())
         else:
@@ -22,6 +24,7 @@ class BotPersonality:
         self.premise_is_answer = False
         self.event_handlers = dict()
         self.on_process_order = None
+        self.force_question_answering = force_question_answering
 
     def get_bot_id(self):
         return self.bot_id
@@ -49,7 +52,8 @@ class BotPersonality:
         return self.engine.pop_phrase(self, user_id)
 
     def push_phrase(self, user_id, question, internal_issuer=False):
-        self.engine.push_phrase(self, user_id, question, internal_issuer)
+        self.engine.push_phrase(self, user_id, question, internal_issuer,
+                                force_question_answering=self.force_question_answering)
 
     def process_order(self, session, user_id, interpreted_phrase):
         order_str = interpreted_phrase.interpretation
@@ -81,4 +85,5 @@ class BotPersonality:
             else:
                 logging.error(u'No handler for callback event "{}"'.format(event_name))
 
-
+    def get_common_phrases(self):
+        return self.scripting.common_phrases

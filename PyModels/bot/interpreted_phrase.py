@@ -11,8 +11,10 @@ class InterpretedPhrase:
         self.is_question = None
         self.is_imperative = None
         self.intent = None
+        self.person = None
 
-    def set_modality(self, modality):
+    def set_modality(self, modality, person):
+        self.person = person
         if modality == ModalityDetector.imperative:
             self.is_imperative = True
             self.is_question = False
@@ -22,3 +24,10 @@ class InterpretedPhrase:
         else:
             self.is_question = False
             self.is_imperative = False
+
+    @property
+    def is_assertion(self):
+        return not self.is_question and not self.is_imperative
+
+    def __repr__(self):
+        return u'{} (raw="{}" intent="{}")'.format(self.interpretation, self.raw_phrase, self.intent)

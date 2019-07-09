@@ -41,6 +41,7 @@ class BotScripting(object):
             if 'goodbye' in data:
                 self.goodbyes = data['goodbye']
 
+            # INSTEAD-OF правила
             for rule in data['rules']:
                 # Пока делаем самый простой формат правил - с одним условием и одним актором.
                 condition = rule['rule']['if']
@@ -106,6 +107,10 @@ class BotScripting(object):
             self.comprehension_rules = ComprehensionTable()
             self.comprehension_rules.load_yaml_data(data)
 
+            self.common_phrases = []
+            for common_phrase in data['common_phrases']:
+                self.common_phrases.append(common_phrase)
+
     def enumerate_smalltalk_rules(self):
         return self.smalltalk_rules
 
@@ -114,10 +119,6 @@ class BotScripting(object):
 
     def buid_answer(self, answering_machine, interlocutor, interpreted_phrase):
         return answering_machine.text_utils.language_resources[u'не знаю']
-
-    def generate_response4nonquestion(self, answering_machine, interlocutor, interpreted_phrase):
-        """ Генерация реплики для не-вопроса собеседника """
-        return None
 
     def start_conversation(self, chatbot, session):
         # Начало общения с пользователем, для которого загружена сессия session

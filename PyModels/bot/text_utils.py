@@ -61,8 +61,6 @@ class TextUtils(object):
                 word = line.strip()
                 self.known_words.add(word)
 
-
-
     def tag(self, words):
         """ Частеречная разметка для цепочки слов words """
         return self.postagger.tag(words)

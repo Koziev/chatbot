@@ -1,5 +1,12 @@
-FROM nitincypher/docker-ubuntu-python-pip
+#FROM nitincypher/docker-ubuntu-python-pip
 #FROM ubuntu
+FROM python:2.7-slim
+
+SHELL ["/bin/bash", "-c"]
+
+# Default to UTF-8 file.encoding
+ENV LANG C.UTF-8
+
 
 RUN apt-get update
 RUN apt-get install -y python python-pip 
@@ -9,6 +16,12 @@ RUN apt-get install -y liblzma-dev
 
 RUN pip install --upgrade pip
 RUN pip install --upgrade setuptools
+
+RUN pip install git+https://github.com/Koziev/rulemma
+RUN pip uninstall -y numpy
+RUN yes | apt-get install python-numpy
+
+
 RUN pip install xgboost
 RUN pip install lightgbm
 RUN pip install keras
@@ -24,6 +37,8 @@ RUN pip install git+https://github.com/Koziev/rutokenizer
 RUN pip install git+https://github.com/Koziev/rupostagger
 RUN pip install git+https://github.com/Koziev/ruword2tags
 RUN pip install git+https://github.com/Koziev/rusyllab
+
+
 
 RUN apt-get clean 
 
