@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Подготовка датасета для тренировки модели определения intent'а в NLU движке
+Подготовка датасета для тренировки модели определения intent'а в NLU движке чатбота
+27.06.2019 - формат датасета приведен в соответствие с RASA
 """
 
 from __future__ import division  # for python2 compatability
@@ -19,21 +20,26 @@ samples = set()
 
 with io.open(input_path, 'r', encoding='utf-8') as rdr:
     current_intent = None
-    for line in rdr:
+    for iline, line in enumerate(rdr):
         if line.startswith('#'):
-            continue
+            if line.startswith('##'):
+                if 'intent:' in line:
+                    current_intent = line.split(':')[1].strip()
+                else:
+                    raise RuntimeError()
+            else:
+                # комментарии пропускаем
+                continue
         else:
             line = line.strip()
-            if len(line) > 0:
-                if all(c == '-' for c in line.strip()):
-                    continue
-
+            if line.startswith('-'):  # в файлах RASA строки начинаются с -
+                line = line[1:]
+            if line:
                 if current_intent:
                     samples.add((line, current_intent))
                 else:
-                    current_intent = line
-            else:
-                current_intent = None
+                    print('line #{}: Current intent is "None"!'.format(iline))
+                    exit(0)
 
 samples = list(samples)
 
@@ -43,7 +49,7 @@ intent2freq.update(map(operator.itemgetter(1), samples))
 for intent, freq in intent2freq.most_common():
     print(u'{}\t{}'.format(intent, freq))
 
-print('{} samples in result dataset'.format(len(samples)))
+print('{} samples, {} intents in result dataset'.format(len(samples), len(intent2freq)))
 df = pd.DataFrame(columns='phrase intent'.split(), index=None)
 for sample in samples:
     df = df.append({'phrase': sample[0], 'intent': sample[1]}, ignore_index=True)

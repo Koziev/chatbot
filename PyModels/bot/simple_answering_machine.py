@@ -221,6 +221,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
         phrase_is_question = phrase_modality == ModalityDetector.question
 
+        if self.intent_detector is not None:
+            interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils, self.word_embeddings)
+            self.logger.debug(u'intent="%s"', interpreted.intent)
+
         # история фраз доступна в session как conversation_history
         was_interpreted = False
 
@@ -292,10 +296,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         interpreted.interpretation = phrase
         interpreted.set_modality(phrase_modality, phrase_person)
-
-        if self.intent_detector is not None:
-            interpreted.intent = self.intent_detector.detect_intent(raw_phrase)
-            self.logger.debug(u'intent="%s"', interpreted.intent)
 
         return interpreted
 

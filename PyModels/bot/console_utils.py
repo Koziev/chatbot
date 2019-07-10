@@ -16,13 +16,13 @@ def input_kbd(prompt):
         try:
             # Странные ошибки бывают при вводе в консоли с редактированием через backspace.
             # Из decode при этом вылетает UnicodeDecodeError.
-            s8 = raw.decode(sys.stdout.encoding, errors='ignore').strip().lower()
+            s8 = raw.decode(sys.stdout.encoding, errors='ignore').strip()
             return s8
         except Exception as ex:
             logging.exception('Error occured when decoding raw_input string')
             return u''
     else:
-        return input(prompt.strip() + u' ').strip().lower()
+        return input(prompt.strip() + u' ').strip()
 
 
 def print_error(error_msg):
