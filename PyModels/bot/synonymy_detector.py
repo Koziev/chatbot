@@ -18,6 +18,9 @@ class SynonymyDetector(ModelApplicator):
     def get_most_similar(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
         raise NotImplementedError()
 
+    def calc_synonymy2(self, phrase1, phrase2, text_utils, word_embeddings):
+        raise NotImplementedError()
+
     def get_threshold(self):
         """
         Возвращаемая моделью оценка синонимичности часто нужна не только для выбора лучшего

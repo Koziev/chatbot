@@ -56,8 +56,10 @@ np.random.seed(123456789)
 
 class Sample:
     def __init__(self, phrase1, phrase2, y):
-        assert(len(phrase1) > 0)
-        assert(len(phrase2) > 0)
+        if len(phrase1) == 0 or len(phrase2) == 0:
+            logging.error(u'Empty phrase: phrase1={} phrase2={}'.format(phrase1, phrase2))
+            raise RuntimeError()
+
         assert(y in (0, 1))
         self.phrase1 = phrase1
         self.phrase2 = phrase2

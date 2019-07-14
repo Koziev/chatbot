@@ -173,7 +173,7 @@ def load_samples(input_path):
 
     logging.info('max_inputseq_len={}'.format(max_inputseq_len))
     computed_params['max_inputseq_len'] = max_inputseq_len
-    computed_params['value_tokens'] = all_value_tokens
+    #computed_params['value_tokens'] = all_value_tokens
 
     logging.info('Count of samples per entity:')
     for entity, samples in sorted(entity2samples.items(), key=lambda samples: len(samples)):
@@ -196,8 +196,6 @@ def load_embeddings(tmp_folder, word2vector_path, computed_params):
 
     word_dims = w2v_dims + wc2v_dims   # + 1  # 1 компонент для бинарного признака "известный токен для значения entity"
     computed_params['word_dims'] = word_dims
-
-    value_tokens = computed_params['value_tokens']
 
     word2vec = dict()
     for word in wc2v.vocab:
@@ -329,8 +327,7 @@ def vectorize_words(words, M, irow, word2vec):
             M[irow, iword, :] = word2vec[word]
 
 
-def train_model(model, X_train, y_train, X_val, y_val, params, computed_params):
-    weights_path = os.path.join(tmp_folder, 'nn_entity_extractor.weights')
+def train_model(model, X_train, y_train, X_val, y_val, params, computed_params, weights_path):
     if params['net_arch'] == 'crf':
         monitor_metric = 'val_crf_viterbi_accuracy'
     else:
@@ -485,7 +482,7 @@ if __name__ == '__main__':
     parser.add_argument('--run_mode', type=str, default='gridsearch', choices='train query gridsearch'.split(), help='what to do: train | query | gridsearch')
     parser.add_argument('--batch_size', type=int, default=250, help='batch size for neural model training')
     parser.add_argument('--input', type=str, default='../data/entity_extraction.txt', help='path to input dataset')
-    parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
+    parser.add_argument('--tmp', type=str, default='../../../tmp', help='folder to store results')
     parser.add_argument('--wordchar2vector', type=str, default='../data/wordchar2vector.dat', help='path to wordchar2vector model dataset')
     parser.add_argument('--word2vector', type=str, default='~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin', help='path to word2vector model file')
     parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
@@ -503,19 +500,19 @@ if __name__ == '__main__':
     word2vector_path = os.path.expanduser(args.word2vector)
     run_mode = args.run_mode
 
-    # В этих файлах будем сохранять натренированную сетку
-    arch_filepath = os.path.join(tmp_folder, 'nn_entity_extractor.arch')
-    weights_path = os.path.join(tmp_folder, 'nn_entity_extractor.weights')
     config_path = os.path.join(tmp_folder, 'nn_entity_extractor.config')
 
     if run_mode == 'gridsearch':
         logging.info('Start gridsearch')
+
         entity2samples, computed_params = load_samples(input_path)
         load_embeddings(tmp_folder, word2vector_path, computed_params)
 
         # ищем entity с максимальным кол-вом образцов разбора
         entity, samples = sorted(entity2samples.items(), key=lambda z: -len(z[1]))[0]
         logging.info(u'Do gridsearch on {} samples for "{}" entity'.format(len(samples), entity))
+
+        weights_path = os.path.join(tmp_folder, 'nn_entity_extractor.(gridsearch).weights')
 
         best_params = None
         best_score = -np.inf
@@ -545,7 +542,9 @@ if __name__ == '__main__':
                 #X_finval, y_vinval = vectorize_samples(finval_samples, computed_params)
 
                 model = create_model(params, computed_params)
-                acc_pertoken, acc_perinstance = train_model(model, X_train, y_train, X_val, y_val, params, computed_params)
+                acc_pertoken, acc_perinstance = train_model(model, X_train, y_train, X_val, y_val,
+                                                            params, computed_params, weights_path)
+
                 logging.info('KFold[{}] acc_pertoken={} acc_perinstance={}'.format(ifold, acc_pertoken, acc_perinstance))
                 score = acc_pertoken
                 #score = score_model(model, finval_samples, params, computed_params)
@@ -569,62 +568,77 @@ if __name__ == '__main__':
 
         entity2samples, computed_params = load_samples(input_path)
 
-        # пока будет работать только с entity=когда
-        entity, samples = sorted(entity2samples.items(), key=lambda z: -len(z[1]))[0]
-        logging.info(u'Do training on {} samples for "{}" entity'.format(len(samples), entity))
+        entities = list(entity2samples.keys())
+        index2entity = dict(enumerate(entities))
+        entity2index = dict((e, i) for (i, e) in index2entity.items())
 
         load_embeddings(tmp_folder, word2vector_path, computed_params)
 
-        params = dict()
-        params['net_arch'] = 'crf'
-        params['nb_rnn'] = 1
-        params['rnn_units1'] = 300
-        params['dropout_rate'] = 0.0
-        params['optimizer'] = 'nadam'
-        params['batch_size'] = 100
-        params['padding'] = 'right'
+        for entity in entities:
+            logging.info(u'Start processing entity "{}"'.format(entity))
+            entity_index = entity2index[entity]
 
+            samples = entity2samples[entity]
+
+            logging.info(u'Do training on {} samples for "{}" entity'.format(len(samples), entity))
+
+            params = dict()
+            params['net_arch'] = 'crf'
+            params['nb_rnn'] = 1
+            params['rnn_units1'] = 300
+            params['dropout_rate'] = 0.0
+            params['optimizer'] = 'nadam'
+            params['batch_size'] = 100
+            params['padding'] = 'right'
+
+            model = create_model(params, computed_params)
+
+            arch_path = os.path.join(tmp_folder, 'nn_entity_extractor.({}).arch'.format(entity_index))
+            weights_path = os.path.join(tmp_folder, 'nn_entity_extractor.({}).weights'.format(entity_index))
+
+            logging.info(u'Storing entity="{}" model architecture to "{}"'.format(entity, arch_path))
+            with open(arch_path, 'w') as f:
+                f.write(model.to_json())
+
+            #keras.utils.plot_model(model,
+            #                       to_file=os.path.join(tmp_folder, 'nn_answer_length.arch.png'),
+            #                       show_shapes=False,
+            #                       show_layer_names=True)
+
+            SEED = 123456
+            TEST_SHARE = 0.2
+            train_samples, val_samples = train_test_split(samples, test_size=TEST_SHARE, random_state=SEED)
+
+            X_train, y_train = vectorize_samples(train_samples, params, computed_params)
+            X_val, y_val = vectorize_samples(val_samples, params, computed_params)
+
+            acc_pertoken, acc_perinstance = train_model(model, X_train, y_train, X_val, y_val,
+                                                        params, computed_params, weights_path)
+            logging.info('acc_pertoken={}'.format(acc_pertoken))
+            logging.info('acc_perinstance={}'.format(acc_perinstance))
+
+            #val_acc = score_model(model, val_samples, params, computed_params)
+            #logging.info('Final val_acc={}'.format(val_acc))
+
+            # Для контроля прогоним через модель все сэмплы и сохраним результаты в текстовый файл
+            report_model(model, samples, params, computed_params, os.path.join(tmp_folder, 'nn_entity_extractor.({}).validation.txt'.format(entity_index)))
+
+        # ЗАКОНЧИЛИ ОБУЧЕНИЕ ВСЕХ МОДЕЛЕЙ
         # сохраним конфиг модели, чтобы ее использовать в чат-боте
         model_config = {
-                        'engine': 'nn',
-                        'max_inputseq_len': computed_params['max_inputseq_len'],
-                        'word2vector_path': word2vector_path,
-                        'wordchar2vector_path': wordchar2vector_path,
-                        'PAD_WORD': PAD_WORD,
-                        'model_folder': tmp_folder,
-                        'word_dims': computed_params['word_dims'],
-                        'padding': params['padding']
-                       }
+            'engine': 'nn',
+            'max_inputseq_len': computed_params['max_inputseq_len'],
+            'word2vector_path': word2vector_path,
+            'wordchar2vector_path': wordchar2vector_path,
+            'PAD_WORD': PAD_WORD,
+            'model_folder': tmp_folder,
+            'word_dims': computed_params['word_dims'],
+            'padding': params['padding'],
+            'index2entity': index2entity
+        }
 
         with open(config_path, 'w') as f:
             json.dump(model_config, f, indent=4)
-
-        model = create_model(params, computed_params)
-
-        with open(arch_filepath, 'w') as f:
-            f.write(model.to_json())
-
-        #keras.utils.plot_model(model,
-        #                       to_file=os.path.join(tmp_folder, 'nn_answer_length.arch.png'),
-        #                       show_shapes=False,
-        #                       show_layer_names=True)
-
-        SEED = 123456
-        TEST_SHARE = 0.2
-        train_samples, val_samples = train_test_split(samples, test_size=TEST_SHARE, random_state=SEED)
-
-        X_train, y_train = vectorize_samples(train_samples, params, computed_params)
-        X_val, y_val = vectorize_samples(val_samples, params, computed_params)
-
-        acc_pertoken, acc_perinstance = train_model(model, X_train, y_train, X_val, y_val, params, computed_params)
-        logging.info('acc_pertoken={}'.format(acc_pertoken))
-        logging.info('acc_perinstance={}'.format(acc_perinstance))
-
-        #val_acc = score_model(model, val_samples, params, computed_params)
-        #logging.info('Final val_acc={}'.format(val_acc))
-
-        # Для контроля прогоним через модель все сэмплы и сохраним результаты в текстовый файл
-        report_model(model, samples, params, computed_params, os.path.join(tmp_folder, 'nn_entity_extractor.validation.txt'))
 
     if run_mode == 'query':
         logging.info('Start run_mode==query')
@@ -636,11 +650,19 @@ if __name__ == '__main__':
             wordchar2vector_path = model_config['wordchar2vector_path']
             word_dims = model_config['word_dims']
             padding = model_config['padding']
+            index2entity = model_config['index2entity']
 
-        with open(arch_filepath, 'r') as f:
-            model = model_from_json(f.read(), {'CRF': CRF})
+        models = []
+        entity2index = dict()
+        for index, entity in index2entity.items():
+            entity2index[entity] = index
+            arch_filepath = os.path.join(tmp_folder, 'nn_entity_extractor.({}).arch'.format(index))
+            weights_path = os.path.join(tmp_folder, 'nn_entity_extractor.({}).weights'.format(index))
+            with open(arch_filepath, 'r') as f:
+                model = model_from_json(f.read(), {'CRF': CRF})
 
-        model.load_weights(weights_path)
+            model.load_weights(weights_path)
+            models.append((entity, model))
 
         computed_params = dict()
         load_embeddings(tmp_folder, w2v_path, computed_params)
@@ -657,18 +679,19 @@ if __name__ == '__main__':
             if len(phrase) == 0:
                 break
 
-            # Очистим входные тензоры перед заполнением новыми данными
-            X_probe.fill(0)
-
             words = tokenizer.tokenize(phrase)
             words = pad_wordseq(words, max_inputseq_len, padding)
+
+            # Очистим входные тензоры перед заполнением новыми данными
+            X_probe.fill(0)
             vectorize_words(words, X_probe, 0, word2vec)
 
-            inputs = dict()
-            inputs['input'] = X_probe
+            for entity, model in models:
+                inputs = dict()
+                inputs['input'] = X_probe
 
-            y = model.predict(x=inputs)[0]
-            predicted_labels = np.argmax(y, axis=-1)
+                y = model.predict(x=inputs)[0]
+                predicted_labels = np.argmax(y, axis=-1)
 
-            selected_words = [word for word, label in zip(words, predicted_labels) if label == 1]
-            print(u'prediction="{}"'.format(u' '.join(selected_words)))
+                selected_words = [word for word, label in zip(words, predicted_labels) if label == 1]
+                print(u'{} entity["{}"]="{}"'.format(entity2index[entity], entity, u' '.join(selected_words)))

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from abc import abstractmethod
+import random
 
 
 class SmalltalkBasicRule(object):
@@ -49,6 +50,12 @@ class SmalltalkSayingRule(SmalltalkBasicRule):
 
     def is_generator(self):
         return False
+
+    def pick_random_answer(self):
+        if len(self.answers) > 1:
+            return random.choise(self.answers)
+        else:
+            return self.answers[0]
 
 
 class SmalltalkGeneratorRule(SmalltalkBasicRule):

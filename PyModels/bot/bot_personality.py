@@ -5,6 +5,10 @@ import logging
 
 
 class BotPersonality:
+    """Предполагается, что этот класс будет хранить модели и правила, определяющие
+    поведение экземпляра бота и его характер. Базовые модели типа детектора
+    синонимичности и релевантности хранятся в общем для всех экземпляров движке
+    чатбота (SimpleAnsweringMachine)"""
     def __init__(self, bot_id, engine, facts,
                  faq=None, scripting=None,
                  enable_smalltalk=False,
@@ -62,13 +66,8 @@ class BotPersonality:
         else:
             return False
 
-    def apply_rule(self, session, user_id, interpreted_phrase):
-        # Подбор подходящего правила для обработки реплики человека, выполнение
-        # этого правила. Вернет True, если правило исполнено, иначе False.
-        if self.scripting is not None:
-            return self.scripting.apply_rule(self, session, user_id, interpreted_phrase)
-
-        return False
+    #def apply_insteadof_rule(self, session, interlocutor, interpreted_phrase):
+    #    return False
 
     def say(self, session, phrase):
         self.engine.say(session, phrase)

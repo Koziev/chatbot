@@ -39,3 +39,8 @@ class GB_SynonymyDetector(SynonymyDetector):
                                              text_utils,
                                              predictor_func=lambda X_data: self.predict_by_model(X_data),
                                              nb_results=nb_results)
+
+    def calc_synonymy2(self, phrase1, phrase2, text_utils, word_embeddings):
+        return self.engine.calc_relevancy1(phrase1, phrase2,
+                                           text_utils,
+                                           predictor_func=lambda X_data: self.predict_by_model(X_data))

@@ -34,6 +34,7 @@ class GB_BaseDetector(object):
         return phrase.replace(u'?', u' ').replace(u'!', u' ').strip()
 
     def calc_relevancy1(self, premise, question, text_utils, predictor_func):
+        """Вернет оценку достоверности того, что две заданные фразы релевантны"""
         X_data = lil_matrix((1, self.xgb_relevancy_nb_features), dtype=self.x_matrix_type)
 
         if self.xgb_relevancy_lemmatize:

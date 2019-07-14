@@ -98,6 +98,9 @@ def add_record(premise, question, answer, is_handmade):
 if True:
     # Добавляем перефразировочные пары как сэмплы с ответом 'да'
     print('Parsing {:<40s} '.format(paraphrases_path), end='')
+
+    question_words = set(u'кто что кому чему кем чем ком чем почему зачем когда где сколько откуда куда'.split())
+
     nb_paraphrases = 0
     lines = []
     with io.open(os.path.join(data_folder, paraphrases_path), "r", encoding="utf-8") as inf:
@@ -117,6 +120,11 @@ if True:
                                 questions.append(s)
 
                     for premise in premises:
+                        premise_words = tokenizer.tokenize(premise)
+                        if any((word in question_words) for word in premise_words):
+                            # Пропускаем фразу, так как это вопрос, и в качестве предпосылки он не будет использоваться
+                            continue
+
                         for question in questions:
                             add_record(premise, question, u'да', False)
                             nb_paraphrases += 1
@@ -174,14 +182,16 @@ for p, is_handmade in px:
             filter_answer_complexity = True
 
         samples_count = 0
-        while samples_count <= max_samples:
+        eof = False
+        while samples_count <= max_samples and not eof:
             line = inf.readline()
             if len(line) == 0:
-                break
+                line  = u''
+                eof = True
+            else:
+                line = line.strip()
 
-            line = line.strip()
-
-            if line.startswith(u'T:'):
+            if line.startswith(u'T:') or eof:
                 if loading_state == 'T':
                     text.append(normalize_qline(line))
                 else:

@@ -34,7 +34,7 @@ if run_mode == 'train':
     with io.open(os.path.join(data_dir, 'word2tags.dat'), 'r', encoding='utf-8') as rdr:
         for line in rdr:
             tx = line.strip().split(u'\t')
-            if len(tx) == 4:
+            if len(tx) == 5:
                 tags = tx[3]
                 if u'ЧИСЛО:ЕД' in tags:
                     if u'НАКЛОНЕНИЕ:ИЗЪЯВ' in tags:
@@ -105,6 +105,7 @@ if run_mode == 'train':
     person_change_1s_2s[u'моих'] = u'твоих'
     person_change_1s_2s[u'моим'] = u'твоим'
     person_change_1s_2s[u'моими'] = u'твоими'
+    person_change_1s_2s[u'по-моему'] = u'по-твоему'
 
     person_change_2s_1s[u'тебя'] = u'меня'
     person_change_2s_1s[u'тебе'] = u'мне'
@@ -119,6 +120,7 @@ if run_mode == 'train':
     person_change_2s_1s[u'твоих'] = u'моих'
     person_change_2s_1s[u'твоим'] = u'моим'
     person_change_2s_1s[u'твоими'] = u'моими'
+    person_change_2s_1s[u'по-твоему'] = u'по-моему'
 
 
     # Сохраним все результаты в файле данных, чтобы чатбот мог воспользоваться ими без разбора

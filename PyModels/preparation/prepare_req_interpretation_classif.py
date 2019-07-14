@@ -40,6 +40,9 @@ def load_samples(input_path):
         phrases = []
         for iline, line in enumerate(rdr):
             line = line.strip()
+            if line.startswith('#'):  # комментарии пропускаем
+                continue
+
             if len(line) == 0:
                 if len(phrases) > 0:
                     for phrase in phrases:
@@ -61,10 +64,16 @@ def load_samples(input_path):
                                 # правая часть интерпретации не нуждается в переинтерпретации,
                                 # так как совпадает с левой.
                                 samples0.add(right)
+                        else:
+                            samples0.add(phrase)
 
                 phrases = []
             else:
-                phrases.append(line)
+                if line.startswith(u'#'):  # строки комментариев
+                    continue
+                else:
+                    phrases.append(line)
+
     return list(samples0), list(samples1)
 
 

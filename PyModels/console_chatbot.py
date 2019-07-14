@@ -108,10 +108,17 @@ def on_alarm_clock(bot, session, user_id, interpreted_phrase):
     return u'Фиктивный будильник для "{}"'.format(when_arg)
 
 
+def on_buy_pizza(bot, session, user_id, interpreted_phrase):
+    meal_arg = bot.extract_entity(u'объект', interpreted_phrase)
+    count_arg = bot.extract_entity(u'количество', interpreted_phrase)
+    return u'Заказываю: что="{}", сколько="{}"'.format(meal_arg, count_arg)
+
+
 # Выполняем привязку обработчиков
 bot.add_event_handler(u'weather_forecast', on_weather_forecast)
 bot.add_event_handler(u'check_emails', on_check_emails)
 bot.add_event_handler(u'alarm_clock', on_alarm_clock)
+bot.add_event_handler(u'buy_pizza', on_buy_pizza)
 
 
 print_tech_banner()
@@ -132,9 +139,9 @@ while True:
 
         print_answer(u'B:>', answer)
 
-    question = input_kbd('H:>').lower()
+    question = input_kbd('H:>')
     if len(question) > 0:
-        if question in ('\exit', '\q', '\quit'):
+        if question.lower() in ('\exit', '\q', '\quit', '/stop'):
             break
 
         bot.push_phrase(user_id, question)

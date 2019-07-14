@@ -283,57 +283,60 @@ class NGrams(object):
                         if use_verb_prep_case:
                             # собираем статистику сочетаемости глаголов и предложных дополнений.
                             # много хардкода из-за отсутствия (пока) питоновского модуля dependency парсинга.
-                            tags = tagger.tag(words)
-                            tokens2 = lemmatizer.lemmatize(tags)
+                            try:
+                                tags = tagger.tag(words)
+                                tokens2 = lemmatizer.lemmatize(tags)
 
-                            # Ищем глагол. Для простоты пропускаем предложения со сложными
-                            # аналитическими конструкциями из вспомогательного или модального
-                            # глагола и инфинитива (я БУДУ ДРУЖИТЬ с лешей), чтобы не
-                            # замусоривать статистику.
-                            verb_index = -1
-                            has_inf = False
-                            many_verbs = False
-                            for index, token in enumerate(tags):
-                                token_tags = token[1]
-                                if token_tags.startswith('VERB'):
-                                    if 'VerbForm=Inf' in token_tags:
-                                        has_inf = True
-                                    elif 'VerbForm=Fin' in token_tags:
-                                        if verb_index != -1:
-                                            many_verbs = True
-                                        else:
-                                            verb_index = index
-
-                            if not many_verbs and not has_inf and verb_index != -1:
-                                verb_lemma = tokens2[verb_index][2]
-
-                                # ищем ближайший к глаголу предлог
-                                prep_index = -1
-                                min_dist = 1000000
+                                # Ищем глагол. Для простоты пропускаем предложения со сложными
+                                # аналитическими конструкциями из вспомогательного или модального
+                                # глагола и инфинитива (я БУДУ ДРУЖИТЬ с лешей), чтобы не
+                                # замусоривать статистику.
+                                verb_index = -1
+                                has_inf = False
+                                many_verbs = False
                                 for index, token in enumerate(tags):
                                     token_tags = token[1]
-                                    if token_tags.startswith('ADP'):
-                                        if abs(index - verb_index) < min_dist:
-                                            # TODO: проверять, что между предлогом и глаголом
-                                            # нет существительного или прилагательного?
-                                            min_dist = abs(index - verb_index)
-                                            prep_index = index
-                                            if min_dist == 1:
-                                                break
+                                    if token_tags.startswith('VERB'):
+                                        if 'VerbForm=Inf' in token_tags:
+                                            has_inf = True
+                                        elif 'VerbForm=Fin' in token_tags:
+                                            if verb_index != -1:
+                                                many_verbs = True
+                                            else:
+                                                verb_index = index
 
-                                if prep_index != -1:
-                                    # Нашли предложное дополнение
-                                    obj_index = prep_index + 1
-                                    if obj_index < len(words):
-                                        if tokens2[obj_index][3] in (u'СУЩЕСТВИТЕЛЬНОЕ', u'МЕСТОИМ_СУЩ', u'ПРИЛАГАТЕЛЬНОЕ'):
-                                            cases = [tags for tags in tokens2[obj_index][4] if tags[0] == u'ПАДЕЖ']
-                                            if len(cases) == 1:
-                                                obj_case = cases[0][1]  # нам важна падежная форма
+                                if not many_verbs and not has_inf and verb_index != -1:
+                                    verb_lemma = tokens2[verb_index][2]
 
-                                                # Запоминаем тройку глагол+предлог+падеж
-                                                prep_lemma = tokens2[prep_index][2]
-                                                key = (verb_lemma, prep_lemma, obj_case)
-                                                self.v_prep_case[key] += 1
+                                    # ищем ближайший к глаголу предлог
+                                    prep_index = -1
+                                    min_dist = 1000000
+                                    for index, token in enumerate(tags):
+                                        token_tags = token[1]
+                                        if token_tags.startswith('ADP'):
+                                            if abs(index - verb_index) < min_dist:
+                                                # TODO: проверять, что между предлогом и глаголом
+                                                # нет существительного или прилагательного?
+                                                min_dist = abs(index - verb_index)
+                                                prep_index = index
+                                                if min_dist == 1:
+                                                    break
+
+                                    if prep_index != -1:
+                                        # Нашли предложное дополнение
+                                        obj_index = prep_index + 1
+                                        if obj_index < len(words):
+                                            if tokens2[obj_index][3] in (u'СУЩЕСТВИТЕЛЬНОЕ', u'МЕСТОИМ_СУЩ', u'ПРИЛАГАТЕЛЬНОЕ'):
+                                                cases = [tags for tags in tokens2[obj_index][4] if tags[0] == u'ПАДЕЖ']
+                                                if len(cases) == 1:
+                                                    obj_case = cases[0][1]  # нам важна падежная форма
+
+                                                    # Запоминаем тройку глагол+предлог+падеж
+                                                    prep_lemma = tokens2[prep_index][2]
+                                                    key = (verb_lemma, prep_lemma, obj_case)
+                                                    self.v_prep_case[key] += 1
+                            except Exception as ex:
+                                logging.error(u'При обработке предложения "%s" возникла ошибка: %s', s, ex)
 
                     if len(self.all_2grams) > max_2grams and len(self.all_3grams) > max_3grams:
                         break
@@ -1566,6 +1569,17 @@ class GenerativeGrammarDictionaries(object):
                        os.path.join(data_folder, 'ngrams_corpus.txt'),
                        os.path.join(data_folder, 'paraphrases.txt'),
                        os.path.join(data_folder, 'valid_syntax_dataset.txt'),
+
+                       os.path.join(data_folder, 'collocations', 'adj+noun.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'adv+adv.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'ADVP+INDOBJ.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'adv+verb.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'PRN+PreposAdj+V.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'S+V+ACCUS.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'S+V+INDOBJ.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'S+V+INF.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'S+V+INSTR.plain.txt'),
+                       os.path.join(data_folder, 'collocations', 'S+V.plain.txt'),
                        # r'/media/inkoziev/corpora/Corpus/word2vector/ru/w2v.ru.corpus.txt'
                        ]
         else:

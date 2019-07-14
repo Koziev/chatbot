@@ -92,21 +92,23 @@ def load_samples(input_path, tokenizer, lemmatizer):
 
                         if '|' in last_line:
                             fx = last_line.split('|')
-                            phrases.append(fx[0])  # добавим левую часть последней пары к контексту
-                            phrase_words = [tokenizer.tokenize(f) for f in phrases]
-                            phrase_lemmas = [lemmatizer.tokenize(f) for f in phrases]
 
-                            result_phrase = fx[1]  # правая часть последней пары становится результатом интерпретации
-                            result_lemmas = lemmatizer.tokenize(result_phrase)
+                            if fx[0].lower() != fx[1].lower():  # пропускаем сэмплы с идентичными левой и правой частями
+                                phrases.append(fx[0])  # добавим левую часть последней пары к контексту
+                                phrase_words = [tokenizer.tokenize(f) for f in phrases]
+                                phrase_lemmas = [lemmatizer.tokenize(f) for f in phrases]
 
-                            sample = Sample(phrases, phrase_words, phrase_lemmas, result_phrase, result_lemmas)
-                            samples.append(sample)
+                                result_phrase = fx[1]  # правая часть последней пары становится результатом интерпретации
+                                result_lemmas = lemmatizer.tokenize(result_phrase)
+
+                                sample = Sample(phrases, phrase_words, phrase_lemmas, result_phrase, result_lemmas)
+                                samples.append(sample)
 
                     lines = []
             else:
                 lines.append(line)
 
-    logging.info(u'{} samples loaded from {}'.format(len(samples), input_path))
+    logging.info(u'%d samples loaded from "%s"', len(samples), input_path)
     return samples
 
 
@@ -230,7 +232,7 @@ class VisualizeCallback(keras.callbacks.Callback):
         # Счетчик напечатанных строк, сгенерированных моделью
         nb_shown = 0
 
-        nb_steps = nval//batch_size
+        nb_steps = nval // batch_size
 
         print('')
         acc = 0.0
@@ -343,11 +345,10 @@ if __name__ == '__main__':
     arch_filepath = os.path.join(tmp_folder, 'nn_interpreter.arch')
     weights_path = os.path.join(tmp_folder, 'nn_interpreter.weights')
 
-
     if run_mode == 'train':
         logging.info('Start with run_mode==train')
 
-        logging.info(u'Loading the wordchar2vector model {}'.format(wordchar2vector_path))
+        logging.info(u'Loading the wordchar2vector model %s', wordchar2vector_path)
         wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
         wc2v_dims = len(wc2v.syn0[0])
         logging.info('wc2v_dims={0}'.format(wc2v_dims))

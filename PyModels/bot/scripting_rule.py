@@ -47,22 +47,25 @@ class ScriptingRule(object):
             raise NotImplementedError()
 
     def do_action(self, bot, session, user_id, interpreted_phrase):
+        """Вернет True, если правило сформировало ответную реплику."""
         if u'say' in self.action:
             if isinstance(self.action[u'say'], list):
                 bot.say(session, random.choice(self.action[u'say']))
             else:
                 bot.say(session, self.action[u'say'])
+            return True
         elif u'answer' in self.action:
             if isinstance(self.action[u'answer'], list):
                 bot.push_phrase(user_id, random.choice(self.action[u'answer']), True)
             else:
                 bot.push_phrase(user_id, self.action[u'answer'], True)
+            return True
         elif u'callback' in self.action:
             resp = bot.invoke_callback(self.action[u'callback'], session, user_id, interpreted_phrase)
             if resp:
                 bot.say(session, resp)
+            return True
         elif u'nothing' in self.action:
-            return
+            return False
         else:
             raise NotImplementedError()
-

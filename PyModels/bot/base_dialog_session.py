@@ -42,15 +42,15 @@ class BaseDialogSession(object):
 
         return self.answer_buffer.pop(0)
 
-    def store_new_fact(self, fact):
-        """
-        К списку фактов добавляется новый, полученный в результате
-        диалога с пользователем. В зависимости от реализации хранилища
-        факт может быть запомнен либо только в памяти, либо сохранен
-        в файлах, БД etc
-        :param fact:
-        """
-        self.facts_storage.store_new_fact(interlocutor=self.interlocutor, fact=fact)
+    # def store_new_fact(self, fact):
+    #     """
+    #     К списку фактов добавляется новый, полученный в результате
+    #     диалога с пользователем. В зависимости от реализации хранилища
+    #     факт может быть запомнен либо только в памяти, либо сохранен
+    #     в файлах, БД etc
+    #     :param fact:
+    #     """
+    #     self.facts_storage.store_new_fact(interlocutor=self.interlocutor, fact=fact)
 
     def add_phrase_to_history(self, interpreted_phrase):
         self.conversation_history.append(interpreted_phrase)
@@ -80,3 +80,16 @@ class BaseDialogSession(object):
                 n += 1
 
         return n
+
+    def get_bot_phrases(self):
+        res = []
+        for item in self.conversation_history:
+            if item.is_bot_phrase:
+                res.append(item.interpretation)
+        return res
+
+    def get_last_interlocutor_utterance(self):
+        for item in self.conversation_history[::-1]:
+            if not item.is_bot_phrase:
+                return item
+        return None

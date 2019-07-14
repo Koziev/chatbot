@@ -18,9 +18,9 @@ from scripting_rule import ScriptingRule
 class BotScripting(object):
     def __init__(self, data_folder):
         self.data_folder = data_folder
-        self.rules = []
         self.greetings = []
         self.goodbyes = []
+        self.insteadof_rules = []
         self.smalltalk_rules = []
         self.smalltalk_intent_rules = []
         self.comprehension_rules = None
@@ -47,7 +47,7 @@ class BotScripting(object):
                 condition = rule['rule']['if']
                 action = rule['rule']['then']
                 rule = ScriptingRule(condition, action)
-                self.rules.append(rule)
+                self.insteadof_rules.append(rule)
 
             # Smalltalk-правила
             # Для них нужны скомпилированные генеративные грамматики.
@@ -98,6 +98,11 @@ class BotScripting(object):
                                 logging.error(u'Missing compiled grammar for rule %s', key)
 
                             self.smalltalk_intent_rules.append(rule)
+                        elif 'say' in action:
+                            rule = SmalltalkSayingRule(condition1)
+                            for answer1 in BotScripting.__get_node_list(action['say']):
+                                rule.add_answer(answer1)
+                            self.smalltalk_intent_rules.append(rule)
                         else:
                             raise NotImplementedError()
 
@@ -117,13 +122,14 @@ class BotScripting(object):
     def enumerate_smalltalk_intent_rules(self):
         return self.smalltalk_intent_rules
 
-    def buid_answer(self, answering_machine, interlocutor, interpreted_phrase):
-        return answering_machine.text_utils.language_resources[u'не знаю']
+    #def buid_answer(self, answering_machine, interlocutor, interpreted_phrase):
+    #    # ???
+    #    return answering_machine.text_utils.language_resources[u'не знаю']
 
     def start_conversation(self, chatbot, session):
         # Начало общения с пользователем, для которого загружена сессия session
         # со всей необходимой информацией - история прежних бесед и т.д
-        # Выберем одну из типовых фраз в файле smalltalk_opening.txt
+        # Выберем одну из типовых фраз в файле smalltalk_opening.txt, вернем ее.
         logging.info(u'BotScripting::start_conversation')
         if len(self.greetings) > 0:
             return random.choice(self.greetings)
@@ -134,29 +140,29 @@ class BotScripting(object):
         # todo: потом вынести реализацию в производный класс, чтобы тут осталась только
         # пустая заглушка метода.
 
-        language_resources = answering_machine.text_utils.language_resources
-        probe_query_str = language_resources[u'как тебя зовут']
-        probe_query = InterpretedPhrase(probe_query_str)
-        answers, answer_confidenses = answering_machine.build_answers0(bot, interlocutor, probe_query)
-        ask_name = False
-        if len(answers) > 0:
-            if answer_confidenses[0] < 0.70:
-                ask_name = True
-        else:
-            ask_name = True
-
-        if ask_name:
-            # имя собеседника неизвестно.
-            q = language_resources[u'А как тебя зовут?']
-            nq = answering_machine.get_session(bot, interlocutor).count_bot_phrase(q)
-            if nq < 3:  # Не будем спрашивать более 2х раз.
-                return q
-
+        # language_resources = answering_machine.text_utils.language_resources
+        # probe_query_str = language_resources[u'как тебя зовут']
+        # probe_query = InterpretedPhrase(probe_query_str)
+        # answers, answer_confidenses = answering_machine.build_answers0(bot, interlocutor, probe_query)
+        # ask_name = False
+        # if len(answers) > 0:
+        #     if answer_confidenses[0] < 0.70:
+        #         ask_name = True
+        # else:
+        #     ask_name = True
+        #
+        # if ask_name:
+        #     # имя собеседника неизвестно.
+        #     q = language_resources[u'А как тебя зовут?']
+        #     nq = answering_machine.get_session(bot, interlocutor).count_bot_phrase(q)
+        #     if nq < 3:  # Не будем спрашивать более 2х раз.
+        #         return q
         return None
 
-    def apply_rule(self, bot, session, user_id, interpreted_phrase):
-        for rule in self.rules:
-            if rule.check_condition(interpreted_phrase, bot.get_engine()):
-                rule.do_action(bot, session, user_id, interpreted_phrase)
-                return True
+    def get_insteadof_rules(self):
+        return self.insteadof_rules
+
+    def apply_insteadof_rule(self, bot, session, interlocutor, interpreted_phrase):
+        # Перегрузить метод, если нужно реализовать свои INSTEADOF правила.
+        # Вернуть True, если применено свое правило и оно что-то сделало.
         return False

@@ -650,7 +650,7 @@ if run_mode == 'train':
 
         logging.info('Calculate ranking accuracy...')
         rank_acc, mean_pos = calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id)
-        logging.info('Ranking accuracy: precision@1={} mean_pos={}'.format(rank_accuracy, mean_pos))
+        logging.info('Ranking accuracy: precision@1={} mean_pos={}'.format(rank_acc, mean_pos))
 
         # Для отладки - прогоним через модель весь датасет и сохраним результаты в текстовый файл.
         # y_pred = cl.predict(X_data)
@@ -721,7 +721,7 @@ if run_mode == 'query2':
         # Поиск лучшей предпосылки, релевантной введенному вопросу
 
         if True:
-            for fname in ['premises_1s.txt', 'premises_2s.txt', 'premises.txt']:
+            for fname in ['profile_1.dat']:
                 with codecs.open(os.path.join(data_folder, fname), 'r', 'utf-8') as rdr:
                     for line in rdr:
                         phrase = line.strip()
