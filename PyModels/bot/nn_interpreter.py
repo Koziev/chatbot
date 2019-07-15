@@ -56,7 +56,8 @@ class InterpreterTrellisColumn:
 
 
 def ngrams(s, n):
-    return set(itertools.izip(*[s[i:] for i in range(n)]))
+    #return set(itertools.izip(*[s[i:] for i in range(n)]))
+    return set(zip(*[s[i:] for i in range(n)]))
 
 
 class NN_Interpreter(BaseUtteranceInterpreter):

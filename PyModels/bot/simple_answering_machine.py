@@ -7,7 +7,6 @@ import logging
 import numpy as np
 import itertools
 import operator
-import random
 
 from bot.base_answering_machine import BaseAnsweringMachine
 from bot.simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -23,7 +22,7 @@ from bot.nn_enough_premises_model import NN_EnoughPremisesModel
 # from nn_synonymy_detector import NN_SynonymyDetector
 from bot.lgb_synonymy_detector import LGB_SynonymyDetector
 # from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
-from jaccard_synonymy_detector import Jaccard_SynonymyDetector
+from bot.jaccard_synonymy_detector import Jaccard_SynonymyDetector
 from bot.nn_interpreter import NN_Interpreter
 from bot.nn_req_interpretation import NN_ReqInterpretation
 from bot.modality_detector import ModalityDetector
@@ -31,7 +30,7 @@ from bot.simple_modality_detector import SimpleModalityDetectorRU
 from bot.no_information_model import NoInformationModel
 from bot.intent_detector import IntentDetector
 from generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
-from entity_extractor import EntityExtractor
+from bot.entity_extractor import EntityExtractor
 
 
 class InsteadofRuleResult(object):
@@ -51,6 +50,13 @@ class InsteadofRuleResult(object):
         res = InsteadofRuleResult()
         res.applied = False
         return res
+
+
+def same_stem2(word, key_stems):
+    for stem in key_stems:
+        if stem in word:
+            return True
+    return False
 
 
 class SimpleAnsweringMachine(BaseAnsweringMachine):
@@ -207,7 +213,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         order2anchor = dict((order, anchor) for (anchor, order) in rules)
         phrases = list(order for (anchor, order) in rules)
         phrases2 = list((self.text_utils.wordize_text(order), None, None) for (anchor, order) in rules)
-        canonized2raw = dict((f2[0], f1) for (f1, f2) in itertools.izip(phrases, phrases2))
+        #canonized2raw = dict((f2[0], f1) for (f1, f2) in itertools.izip(phrases, phrases2))
+        canonized2raw = dict((f2[0], f1) for (f1, f2) in zip(phrases, phrases2))
 
         raw_phrase2 = self.text_utils.wordize_text(raw_phrase)
         best_order, best_sim = self.synonymy_detector.get_most_similar(raw_phrase2,
@@ -361,11 +368,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # В точности такой же реплики не было, но надо проверить на перефразировки.
             bot_phrases = [(f, None, None) for f in session.get_bot_phrases()]
             if len(bot_phrases) > 0:
-                best_rel, best_phrase = self.synonymy_detector.get_most_similar(phrase, bot_phrases,
+                best_phrase, best_rel = self.synonymy_detector.get_most_similar(phrase, bot_phrases,
                                                                                 self.text_utils,
                                                                                 self.word_embeddings,
                                                                                 nb_results=1)
-                if best_rel < self.synonymy_detector.get_threshold():
+                if best_rel >= self.synonymy_detector.get_threshold():
                     found_same_replica = True
         return found_same_replica
 
@@ -395,15 +402,63 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return generated_replicas
 
+
     def generate_with_common_phrases(self, bot, session, interlocutor, phrase, base_weight):
         generated_replicas = []
 
-        phrases = [(f,) for f in bot.get_common_phrases() if f != phrase]
+        if False:
+            phrases = [(f,) for f in bot.get_common_phrases() if f != phrase]
 
-        sim_phrases = self.jsyndet.get_most_similar(phrase, phrases, self.text_utils,
-                                                    self.word_embeddings, nb_results=1)
-        for f, phrase_sim in [sim_phrases]:
-            if phrase_sim > 0.10 and f.lower() != phrase:
+            sim_phrases = self.jsyndet.get_most_similar(phrase, phrases, self.text_utils,
+                                                        self.word_embeddings, nb_results=1)
+            for f, phrase_sim in [sim_phrases]:
+                if phrase_sim > 0.08 and f.lower() != phrase:
+                    if not self.bot_replica_already_uttered(bot, session, f):
+                        # проверить, если f является репликой-ответом: знает
+                        # ли бот ответ на этот вопрос.
+                        good_replica = True
+                        if f[-1] == u'?':
+                           if self.does_bot_know_answer(f, bot, session, interlocutor):
+                               good_replica = False
+
+                        if good_replica:
+                            discourse_rel = self.calc_discourse_relevance(f, session)
+                            generated_replicas.append((f,
+                                                       phrase_sim * discourse_rel * base_weight,
+                                                       'generate_with_common_phrases(1)'))
+        else:
+            # Более тяжелый алгоритм поиск подходящей реплики: ищем такую фразу, в которой
+            # есть не менее одного существительного или глагола, общего с входной репликой.
+            # Для этого нам надо выполнить частеречную разметку.
+            phrase_words = self.text_utils.tokenize(phrase)
+            phrase_tags = self.text_utils.tag(phrase_words)
+            key_stems = set()
+            for token in phrase_tags:
+                if u'NOUN' in token[1] or u'VERB' in token[1]:
+                    if len(token[0]) >= 4:
+                        stem = token[0][:4]
+                        key_stems.add(stem)
+            common_phrase_weights = []
+            max_weight = 0
+            for phrase2 in bot.get_common_phrases():
+                words2 = self.text_utils.tokenize(phrase2)
+                stem_hits = sum(same_stem2(word, key_stems) for word in words2)
+                if stem_hits >= 1:
+                    common_phrase_weights.append((phrase2, stem_hits))
+                    if stem_hits > max_weight:
+                        max_weight = stem_hits
+
+            # Берем все фразы, у которых max_weight вхождений стемов.
+            best_phrases = [f for (f, w) in common_phrase_weights if w == max_weight]
+
+            # Теперь среди них найдем фразу, максимально похожую на исходную фразу
+            best_phrases = [(f,) for f in best_phrases]
+
+            # TODO: возможно, вместо коэффициента Жаккара лучше использовать word mover's distance
+            sim_phrases = self.jsyndet.get_most_similar(phrase, best_phrases, self.text_utils,
+                                                        self.word_embeddings, nb_results=1)
+
+            for f, phrase_sim in [sim_phrases]:
                 if not self.bot_replica_already_uttered(bot, session, f):
                     # проверить, если f является репликой-ответом: знает
                     # ли бот ответ на этот вопрос.
@@ -417,6 +472,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         generated_replicas.append((f,
                                                    phrase_sim * discourse_rel * base_weight,
                                                    'generate_with_common_phrases(1)'))
+
+
+
+
+
+
 
         # Выбираем ближайший факт
         facts = bot.facts.enumerate_facts(interlocutor)
@@ -568,13 +629,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             break
 
                     if not intent_rule_applied:
-                        # TODO: вероятность использования разных способом генерации реплик вынести
-                        # в общие настройки бота
+                        list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase, time_decay)
+                        generated_replicas.extend(list2)
 
-                        if random.random() > 0.5:
-                            list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase, time_decay)
-                            generated_replicas.extend(list2)
-                        else:
+                        if len(list2) == 0:
                             # Используем генеративную грамматику для получения возможных реплик
                             list3 = self.generate_with_generative_grammar(bot, session, interlocutor, phrase,
                                                                           time_decay)
@@ -809,7 +867,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             premise_rels2 = best_rels[:1]
                     else:
                         max_rel = max(best_rels)
-                        for premise, rel in itertools.izip(best_premises[:1], best_rels[:1]):
+                        for premise, rel in zip(best_premises[:1], best_rels[:1]):
                             if rel >= self.min_premise_relevancy and rel >= 0.4 * max_rel:
                                 premises2.append([premise])
                                 premise_rels2.append(rel)

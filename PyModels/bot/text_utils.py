@@ -78,7 +78,8 @@ class TextUtils(object):
         return u' '.join(self.tokenize(s))
 
     def ngrams(self, s, n):
-        return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)])]
+        #return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)])]
+        return [u''.join(z) for z in zip(*[s[i:] for i in range(n)])]
 
     def words2str(self, words):
         return u' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))

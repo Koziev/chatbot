@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from modality_detector import ModalityDetector
+from bot.modality_detector import ModalityDetector
 
 
 class InterpretedPhrase:

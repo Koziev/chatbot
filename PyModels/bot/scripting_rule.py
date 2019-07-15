@@ -11,7 +11,7 @@ from bot.interpreted_phrase import InterpretedPhrase
 from bot.smalltalk_rules import SmalltalkSayingRule
 from bot.smalltalk_rules import SmalltalkGeneratorRule
 from generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
-from comprehension_table import ComprehensionTable
+from bot.comprehension_table import ComprehensionTable
 
 
 class ScriptingRule(object):

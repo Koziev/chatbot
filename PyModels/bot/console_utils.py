@@ -36,5 +36,5 @@ def print_answer(prompt, answer):
 def print_tech_banner():
     print(colorama.Fore.LIGHTBLUE_EX +
           'Answering machine is running on ' +
-          platform.platform() +
+          platform.platform() + ' py={}.{}'.format(sys.version_info[0], sys.version_info[1]) +
           colorama.Fore.RESET)

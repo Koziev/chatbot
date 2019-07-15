@@ -7,7 +7,8 @@
 import numpy as np
 import logging
 import itertools
-from synonymy_detector import SynonymyDetector
+
+from bot.synonymy_detector import SynonymyDetector
 
 
 class Jaccard_SynonymyDetector(SynonymyDetector):
@@ -20,7 +21,8 @@ class Jaccard_SynonymyDetector(SynonymyDetector):
 
     @staticmethod
     def ngrams(s, n):
-        return set(u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)]))
+        #return set(u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)]))
+        return set(u''.join(z) for z in zip(*[s[i:] for i in range(n)]))
 
     @staticmethod
     def jaccard(s1, s2, shingle_len):

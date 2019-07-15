@@ -3,7 +3,7 @@
 import logging
 import io
 
-from base_faq_storage import BaseFaqStorage
+from bot.base_faq_storage import BaseFaqStorage
 
 
 class PlainFileFaqStorage(BaseFaqStorage):

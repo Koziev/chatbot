@@ -109,7 +109,8 @@ class AnswerBuilder(object):
         answers = []
         answer_rels = []
 
-        for premises, premise_rel in itertools.izip(premise_groups, premise_rels):
+        #for premises, premise_rel in itertools.izip(premise_groups, premise_rels):
+        for premises, premise_rel in zip(premise_groups, premise_rels):
             assert(len(premises) <= 1)
             premise = premises[0] if len(premises) == 1 else u''
 
