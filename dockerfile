@@ -1,6 +1,4 @@
-#FROM nitincypher/docker-ubuntu-python-pip
-#FROM ubuntu
-FROM python:2.7-slim
+FROM python:3.6-slim
 
 SHELL ["/bin/bash", "-c"]
 
@@ -9,7 +7,7 @@ ENV LANG C.UTF-8
 
 
 RUN apt-get update
-RUN apt-get install -y python python-pip 
+RUN apt-get install -y python python-pip
 RUN apt-get -y install git-core
 #RUN apt-get install python-pip
 RUN apt-get install -y liblzma-dev
@@ -32,36 +30,33 @@ RUN pip install pathlib
 RUN pip install python-crfsuite
 RUN pip install tensorflow
 RUN pip install colorama
+RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
 RUN pip install git+https://github.com/Koziev/rutokenizer
 RUN pip install git+https://github.com/Koziev/rupostagger
 RUN pip install git+https://github.com/Koziev/ruword2tags
 RUN pip install git+https://github.com/Koziev/rusyllab
 
+RUN apt-get clean
 
+WORKDIR /chatbot/ruchatbot/bot
+COPY ./ruchatbot/bot/*.py ./
 
-RUN apt-get clean 
+WORKDIR /chatbot/ruchatbot/frontend
+COPY ./ruchatbot/frontend/*.py ./
 
-WORKDIR /chatbot/PyModels/bot
-COPY ./PyModels/bot/*.py ./
+WORKDIR /chatbot/ruchatbot/bot_service
+COPY ./ruchatbot/bot_service/*.py ./
 
-WORKDIR /chatbot/PyModels/bot_service
-COPY ./PyModels/bot_service/*.py ./
+WORKDIR /chatbot/ruchatbot/utils
+COPY ./ruchatbot/utils/*.py ./
 
-WORKDIR /chatbot/PyModels/order_translator
-COPY ./PyModels/order_translator/*.py ./
+WORKDIR /chatbot/ruchatbot/generative_grammar
+COPY ./ruchatbot/generative_grammar/*.py ./
 
-WORKDIR /chatbot/PyModels/trainers
-COPY ./PyModels/trainers/*.py ./
-
-WORKDIR /chatbot/PyModels/utils
-COPY ./PyModels/utils/*.py ./
-
-WORKDIR /chatbot/PyModels/generative_grammar
-COPY ./PyModels/generative_grammar/*.py ./
-
-WORKDIR /chatbot/PyModels
-COPY ./PyModels/console_chatbot.py ./
+WORKDIR /chatbot/ruchatbot
+COPY ./ruchatbot/__init__.py ./
+COPY ./ruchatbot/qa_machine.py ./
 
 WORKDIR /chatbot/data
 COPY ./data/*.* ./
@@ -72,4 +67,5 @@ COPY ./tmp/*.* ./
 WORKDIR /chatbot/scripts
 COPY ./scripts/console_bot.sh ./
 
-CMD "/chatbot/scripts/console_bot.sh"
+WORKDIR /chatbot/scripts
+CMD "./console_bot.sh"
