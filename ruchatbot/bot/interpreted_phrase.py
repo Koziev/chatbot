@@ -12,6 +12,7 @@ class InterpretedPhrase:
         self.is_imperative = None
         self.intent = None
         self.person = None
+        self.tags = None
 
     def set_modality(self, modality, person):
         self.person = person

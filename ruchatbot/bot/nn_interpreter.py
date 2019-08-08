@@ -164,7 +164,7 @@ class NN_Interpreter(BaseUtteranceInterpreter):
     def interpret(self, phrases, text_utils, word_embeddings):
         assert(0 < len(phrases) <= self.max_nb_inputs)
 
-        phrase_words = [text_utils.tokenizer.tokenize(f) for f in text_utils.remove_terminators(phrases)]
+        phrase_words = [text_utils.tokenizer.tokenize(text_utils.remove_terminators(f)) for f in phrases]
         phrase_lemmas = [text_utils.lemmatize(f) for f in text_utils.remove_terminators(phrases)]
 
         sample = InterpreterSample(phrases, phrase_words, phrase_lemmas)

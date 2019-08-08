@@ -19,6 +19,7 @@ class BaseDialogSession(object):
         self.facts_storage = facts_storage
         self.answer_buffer = []
         self.conversation_history = []  # все фразы беседы
+        self.status = None  # если выполняется вербальная форма или сценарий
 
     def get_interlocutor(self):
         return self.interlocutor
@@ -31,6 +32,15 @@ class BaseDialogSession(object):
         assert(phrase is not None and len(phrase) > 0)
         self.answer_buffer.append(phrase)
 
+    def get_output_buffer_phrase(self):
+        return self.answer_buffer[-1] if len(self.answer_buffer) > 0 else None
+
+    def insert_into_buffer(self, phrase):
+        if len(self.answer_buffer) > 0:
+            self.answer_buffer.insert(0, phrase)
+        else:
+            self.answer_buffer.append(phrase)
+
     def extract_from_buffer(self):
         """
         Извлекает и возвращает самую старую готовую фразу
@@ -41,16 +51,6 @@ class BaseDialogSession(object):
             return u''
 
         return self.answer_buffer.pop(0)
-
-    # def store_new_fact(self, fact):
-    #     """
-    #     К списку фактов добавляется новый, полученный в результате
-    #     диалога с пользователем. В зависимости от реализации хранилища
-    #     факт может быть запомнен либо только в памяти, либо сохранен
-    #     в файлах, БД etc
-    #     :param fact:
-    #     """
-    #     self.facts_storage.store_new_fact(interlocutor=self.interlocutor, fact=fact)
 
     def add_phrase_to_history(self, interpreted_phrase):
         self.conversation_history.append(interpreted_phrase)
@@ -66,10 +66,10 @@ class BaseDialogSession(object):
             if not item.is_bot_phrase:
                 if questions and item.is_question:
                     # добавляем вопрос
-                    reslist.append((item.interpretation, timegap))
+                    reslist.append((item, timegap))
                 elif assertions and not item.is_question:
                     # добавляем не-вопрос
-                    reslist.append((item.interpretation, timegap))
+                    reslist.append((item, timegap))
         return reslist
 
     def count_bot_phrase(self, phrase_str):
@@ -93,3 +93,12 @@ class BaseDialogSession(object):
             if not item.is_bot_phrase:
                 return item
         return None
+
+    def set_status(self, new_status):
+        self.status = new_status
+
+    def form_executed(self):
+        self.status = None
+
+    def get_status(self):
+        return self.status

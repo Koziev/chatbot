@@ -34,15 +34,18 @@ def levenshtein_distance(a, b):
 # TODO: сделать базовый класс
 class IntentDetector(object):
     def __init__(self):
-        pass
+        self.model = None
+        self.nlp_transform = None
 
     def load(self, model_dir):
         model_path = os.path.join(model_dir, 'intent_classifier.model')
         with open(model_path, 'rb') as f:
             self.model = pickle.load(f)
+        self.nlp_transform = self.model['nlp_transform']
 
     def detect_intent(self, phrase_str, text_utils, word_embeddings):
         nphrase = phrase_str.lower()
+
         if nphrase in self.model['phrase2label']:
             # Фраза находится в lookup-таблице, обойдемся без классификации.
             return self.model['phrase2label'][nphrase]
@@ -69,7 +72,11 @@ class IntentDetector(object):
                 if ldist < 2:
                     return self.model['phrase2label'][top_keyphrase]
 
-        X_query = self.model['vectorizer'].transform([phrase_str])
+        if self.nlp_transform == 'lower':
+            X_query = self.model['vectorizer'].transform([phrase_str.lower()])
+        else:
+            X_query = self.model['vectorizer'].transform([phrase_str])
+
         y_query = self.model['estimator'].predict(X_query)
         intent_index = y_query[0]
         intent_name = self.model['index2label'][intent_index]

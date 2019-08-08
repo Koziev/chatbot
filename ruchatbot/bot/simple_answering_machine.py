@@ -6,6 +6,7 @@ import math
 import logging
 import numpy as np
 import operator
+import random
 
 from ruchatbot.bot.base_answering_machine import BaseAnsweringMachine
 from ruchatbot.bot.simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -22,7 +23,8 @@ from ruchatbot.bot.nn_enough_premises_model import NN_EnoughPremisesModel
 from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
 # from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
 from ruchatbot.bot.jaccard_synonymy_detector import Jaccard_SynonymyDetector
-from ruchatbot.bot.nn_interpreter import NN_Interpreter
+#from ruchatbot.bot.nn_interpreter import NN_Interpreter
+from ruchatbot.bot.nn_interpreter_new2 import NN_InterpreterNew2
 from ruchatbot.bot.nn_req_interpretation import NN_ReqInterpretation
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
@@ -30,6 +32,8 @@ from ruchatbot.bot.no_information_model import NoInformationModel
 from ruchatbot.bot.intent_detector import IntentDetector
 from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 from ruchatbot.bot.entity_extractor import EntityExtractor
+from ruchatbot.bot.running_form_status import RunningFormStatus
+from ruchatbot.bot.running_scenario import RunningScenario
 
 
 class InsteadofRuleResult(object):
@@ -120,7 +124,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.synonymy_detector.load(models_folder)
         # self.synonymy_detector = Jaccard_SynonymyDetector()
 
-        self.interpreter = NN_Interpreter()
+        #self.interpreter = NN_Interpreter()
+        self.interpreter = NN_InterpreterNew2()
         self.interpreter.load(models_folder)
 
         self.req_interpretation = NN_ReqInterpretation()
@@ -271,7 +276,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         context_phrases.append(last2_phrase.raw_phrase)
                         context_phrases.append(last_phrase.raw_phrase)
                         context_phrases.append(raw_phrase)
-                        phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
+                        phrase = self.interpreter.interpret(context_phrases, self.text_utils,
+                                                            self.word_embeddings, self.replica_grammar)
 
                         if self.intent_detector is not None:
                             interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils,
@@ -297,13 +303,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     context_phrases = list()
                     context_phrases.append(last_phrase.interpretation)
                     context_phrases.append(raw_phrase)
-                    phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings)
-                    if self.intent_detector is not None:
-                        interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils,
-                                                                                self.word_embeddings)
-                        self.logger.debug(u'intent="%s"', interpreted.intent)
+                    phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings, self.replica_grammar)
+                    if phrase:
+                        if self.intent_detector is not None:
+                            interpreted.intent = self.intent_detector.detect_intent(phrase, self.text_utils,
+                                                                                    self.word_embeddings)
+                            self.logger.debug(u'intent="%s"', interpreted.intent)
 
-                    was_interpreted = True
+                        was_interpreted = True
 
         if not interpreted.intent:
             if self.intent_detector is not None:
@@ -318,12 +325,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Попробуем найти шаблон трансляции, достаточно похожий на эту фразу.
             # Может получиться так, что введенная императивная фраза станет обычным вопросом:
             # "назови свое имя!" ==> "Как тебя зовут?"
-            translated_str = self.translate_interlocutor_replica(bot, session, phrase)
-            if translated_str is not None:
-                phrase = translated_str
-                raw_phrase = translated_str
-                phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
-                was_interpreted = True
+            if phrase:
+                translated_str = self.translate_interlocutor_replica(bot, session, phrase)
+                if translated_str is not None:
+                    phrase = translated_str
+                    raw_phrase = translated_str
+                    phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+                    was_interpreted = True
 
         if not was_interpreted:
             phrase = self.interpreter.normalize_person(raw_phrase, self.text_utils, self.word_embeddings)
@@ -335,6 +343,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         interpreted.interpretation = phrase
         interpreted.set_modality(phrase_modality, phrase_person)
 
+        # Для работы некоторых типов правил нужна грамматическая информация
+        words = self.text_utils.tokenize(phrase)
+        interpreted.tags = list(self.text_utils.tag(words, with_lemmas=True))
+
         return interpreted
 
     def say(self, session, answer):
@@ -345,15 +357,118 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         session.add_to_buffer(answer)
         session.add_phrase_to_history(answer_interpretation)
 
+    def run_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
+        if session.get_status():
+            if scenario.get_priority() <= session.get_status().get_priority():
+                self.logger.warning(u'New status priority %d is lower than priority of running status %d', scenario.get_priority(), session.get_status().get_priority())
+                return
+            else:
+                self.logger.debug(u'New scenario priority=%d is higher than currenly running=%d', scenario.get_priority(), session.get_status().get_priority())
+
+        status = RunningScenario(scenario, current_step_index=-1)
+        session.set_status(status)
+        if scenario.on_start:
+            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase)
+
+        self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+
+    def run_scenario_step(self, bot, session, interlocutor, interpreted_phrase):
+        running_scenario = session.get_status()
+        assert(isinstance(running_scenario, RunningScenario))
+        if running_scenario.scenario.is_sequential_steps():
+            # Шаги сценария выполняются в заданном порядке
+            while True:
+                new_step_index = running_scenario.current_step_index + 1
+                if new_step_index == len(running_scenario.scenario.steps):
+                    # Сценарий исчерпан
+                    if running_scenario.scenario.on_finish:
+                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase)
+                    session.set_status(None)
+                    break
+                else:
+                    running_scenario.current_step_index = new_step_index
+                    step = running_scenario.scenario.steps[new_step_index]
+                    running_scenario.passed_steps.add(new_step_index)
+                    step_ok = step.do_action(bot, session, interlocutor, interpreted_phrase)
+                    if step_ok:
+                        break
+
+        elif running_scenario.scenario.is_random():
+            # Шаги сценария выбираются в рандомном порядке, не более 1 раза каждый шаг.
+            nsteps = len(running_scenario.scenario.steps)
+            step_indeces = list(i for i in range(nsteps) if i not in running_scenario.passed_steps)
+            new_step_index = random.choice(step_indeces)
+            running_scenario.passed_steps.add(new_step_index)
+            step = running_scenario.scenario.steps[new_step_index]
+            step.do_action(bot, session, interlocutor, interpreted_phrase)
+
+            if len(running_scenario.passed_steps) == nsteps:
+                # Больше шагов нет
+                if running_scenario.scenario.on_finish:
+                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase)
+                session.set_status(None)
+        else:
+            raise NotImplementedError()
+
+    def run_form(self, form, bot, session, user_id, interpreted_phrase):
+        filled_fields = dict()
+        empty_fields = list()
+
+        # 1) извлечь значения полей из entities в активировавшей фразе
+        for field in form.fields:
+            #if False:  # ДЛЯ ОТЛАДКИ!
+            if field.from_entity:
+                entity_value = bot.extract_entity(field.from_entity, interpreted_phrase)
+                if entity_value:
+                    filled_fields[field.name] = entity_value
+                    continue
+
+            if field.from_reflection:
+                raise NotImplementedError()
+
+            empty_fields.append(field)
+
+        # 2) остались незаполненные поля?
+        if len(empty_fields) > 0:
+            # надо сменить состояние сессии на "обработка формы XXX", проверить
+            # начальное заполнение полей, задать первый уточняющий вопрос...
+            current_field = empty_fields[0]
+            status = RunningFormStatus(form, interpreted_phrase, filled_fields, current_field)
+            session.set_status(status)
+            bot.say(session, current_field.question)
+        else:
+            # Все поля формы заполнены - запускаем итоговое действие формы
+            status = RunningFormStatus(form, interpreted_phrase, filled_fields, current_field=None)
+            session.set_status(status)
+            self.form_ok(bot, session, user_id)
+
+    def form_ok(self, bot, session, interlocutor):
+        status = session.get_status()
+        assert(isinstance(status, RunningFormStatus))
+        form = status.form
+        if form.ok_action:
+            logging.debug(u'Выполнение действия формы "%s"', form.name)
+            form.compiled_ok_action.do_action(bot, session, interlocutor, None)
+        session.form_executed()
+
     def does_bot_know_answer(self, question, bot, session, interlocutor):
         """Вернет true, если бот знает ответ на вопрос question"""
         memory_phrases = list(bot.facts.enumerate_facts(interlocutor))
         best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
-                                                                             memory_phrases,
-                                                                             self.text_utils,
-                                                                             self.word_embeddings,
-                                                                             nb_results=1)
+                                                                           memory_phrases,
+                                                                           self.text_utils,
+                                                                           self.word_embeddings,
+                                                                           nb_results=1)
         return best_rel >= self.min_premise_relevancy
+
+    def find_premise(self, question, bot, session, interlocutor):
+        memory_phrases = list(bot.facts.enumerate_facts(interlocutor))
+        best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
+                                                                           memory_phrases,
+                                                                           self.text_utils,
+                                                                           self.word_embeddings,
+                                                                           nb_results=1)
+        return best_premise if best_rel >= self.min_premise_relevancy else None
 
     def calc_discourse_relevance(self, replica, session):
         """Возвращает оценку соответствия реплики replica текущему дискурсу беседы session"""
@@ -453,170 +568,145 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                    'generate_with_common_phrases(1)'))
 
 
-        # Выбираем ближайший факт
-        facts0 = bot.facts.enumerate_facts(interlocutor)
-        facts0 = [fact for fact in facts0 if fact[0].lower() != phrase]
-        facts = []
-        for fact0 in facts0:
-            words2 = self.text_utils.tokenize(fact0[0])
-            stem_hits = sum(same_stem2(word, key_stems) for word in words2)
-            if stem_hits >= 1:
-                facts.append(fact0)
+        if False:
+            # Выбираем ближайший факт
+            facts0 = bot.facts.enumerate_facts(interlocutor)
+            facts0 = [fact for fact in facts0 if fact[0].lower() != phrase]
+            facts = []
+            for fact0 in facts0:
+                words2 = self.text_utils.tokenize(fact0[0])
+                stem_hits = sum(same_stem2(word, key_stems) for word in words2)
+                if stem_hits >= 1:
+                    facts.append(fact0)
 
-        if len(facts) > 0:
-            sim_facts = self.jsyndet.get_most_similar(phrase, facts, self.text_utils,
-                                                      self.word_embeddings, nb_results=1)
-            for fact, fact_sim in [sim_facts]:
-                if fact_sim > 0.20 and fact.lower() != phrase:
-                    if not self.bot_replica_already_uttered(bot, session, fact):
-                        # Среди фактов не может быть вопросов, поэтому не проверяем на знание ответа.
-                        discourse_rel = self.calc_discourse_relevance(fact, session)
-                        generated_replicas.append(
-                            (fact, fact_sim * discourse_rel * base_weight, 'generate_with_common_phrases(2)'))
+            if len(facts) > 0:
+                sim_facts = self.jsyndet.get_most_similar(phrase, facts, self.text_utils,
+                                                          self.word_embeddings, nb_results=1)
+                for fact, fact_sim in [sim_facts]:
+                    if fact_sim > 0.20 and fact.lower() != phrase:
+                        if not self.bot_replica_already_uttered(bot, session, fact):
+                            # Среди фактов не может быть вопросов, поэтому не проверяем на знание ответа.
+                            discourse_rel = self.calc_discourse_relevance(fact, session)
+                            generated_replicas.append(
+                                (fact, fact_sim * discourse_rel * base_weight, 'generate_with_common_phrases(2)'))
 
         return generated_replicas
 
-    def apply_insteadof_rule(self, bot, session, interlocutor, interpreted_phrase):
-        if bot.has_scripting():
-            external_rule_applied = bot.get_scripting().apply_insteadof_rule(bot, session, interlocutor, interpreted_phrase)
-            if external_rule_applied:
-                return InsteadofRuleResult.GetTrue(True)
-
-            for rule in bot.get_scripting().get_insteadof_rules():
-                if rule.check_condition(interpreted_phrase, self):
-                    replica_is_generated = rule.do_action(bot, session, interlocutor, interpreted_phrase)
-                    return InsteadofRuleResult.GetTrue(replica_is_generated)
+    def apply_insteadof_rule(self, rules, bot, session, interlocutor, interpreted_phrase):
+        for rule in rules:
+            rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+            if rule_result.condition_success:
+                return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
 
         return InsteadofRuleResult.GetFalse()
 
-    def generate_smalltalk_replica(self, bot, session, interlocutor):
+    def run_smalltalk_action(self, rule, bot, session, interlocutor, phrase, weight_factor):
+        generated_replicas = []
+        if rule.is_generator():
+            # Используем скомпилированную грамматику для генерации фраз..
+            words = phrase.split()
+            all_generated_phrases = rule.compiled_grammar.generate(words, self.text_utils.known_words)
+            if len(all_generated_phrases) > 0:
+                # Уберем вопросы, которые мы уже задавали, оставим top
+                top = sorted(all_generated_phrases, key=lambda z: -z.get_rank())[:50]
+                top = list(filter(lambda z: session.count_bot_phrase(z.get_str()) == 0, top))
+
+                # Выберем рандомно одну из фраз
+                px = [z.get_rank() for z in top]
+                sum_p = sum(px)
+                px = [p / sum_p for p in px]
+                best = np.random.choice(top, 1, p=px)[0]
+                replica = best.get_str()
+
+                discourse_rel = self.calc_discourse_relevance(replica, session)
+
+                if not self.bot_replica_already_uttered(bot, session, replica):
+                    # проверить, если f является репликой-ответом: знает
+                    # ли бот ответ на этот вопрос.
+                    good_replica = True
+                    if replica[-1] == u'?':
+                        if self.does_bot_know_answer(replica, bot, session, interlocutor):
+                            good_replica = False
+
+                    if good_replica:
+                        generated_replicas.append((replica,
+                                                   best.get_rank() * discourse_rel * weight_factor,
+                                                   'assertion(1)'))
+
+        else:
+            # Текст формируемой реплики указан буквально.
+            # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
+            # поэтому их следует сначала нормализовать.
+            for replica in rule.answers:
+                if not self.bot_replica_already_uttered(bot, session, replica):
+                    # проверить, если f является репликой-ответом: знает
+                    # ли бот ответ на этот вопрос.
+                    good_replica = True
+                    if replica[-1] == u'?':
+                        if self.does_bot_know_answer(replica, bot, session, interlocutor):
+                            good_replica = False
+
+                    if good_replica:
+                        discourse_rel = self.calc_discourse_relevance(replica, session)
+                        generated_replicas.append((replica,
+                                                   discourse_rel * weight_factor,
+                                                   'assertion(2)'))
+
+        return generated_replicas
+
+    def generate_smalltalk_replica(self, smalltalk_rules, bot, session, interlocutor):
         generated_replicas = []  # список кортежей (подобранная_реплика_бота, вес_реплики)
 
         if bot.enable_smalltalk and bot.has_scripting():
             # подбираем подходящую реплику в ответ на не-вопрос собеседника (обычно это
             # ответ на наш вопрос, заданный ранее).
-            smalltalk_rules = bot.get_scripting().enumerate_smalltalk_rules()
+
+            text_rules = smalltalk_rules.enumerate_text_rules()
+            complex_rules = smalltalk_rules.enumerate_complex_rules()
 
             interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=True)
             for phrase, timegap in interlocutor_phrases[:1]:  # 05.06.2019 берем одну последнюю фразу
-                best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase,
+                time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
+                # Проверяем условия для сложных правил.
+                for rule in complex_rules:
+                    if rule.check_condition(bot, session, interlocutor, phrase, self):
+                        rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, time_decay)
+                        generated_replicas.extend(rx)
+                        break
+
+                # Правила с кондиктором text проверяем все сразу для эффективности.
+                best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase.interpretation,
                                                                                  [(item.get_condition_text(), -1, -1)
-                                                                                  for item in smalltalk_rules],
+                                                                                  for item in text_rules],
                                                                                  self.text_utils,
                                                                                  self.word_embeddings)
-                time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
 
                 if best_rel > 0.7:
-                    for item in smalltalk_rules:
-                        if item.get_condition_text() == best_premise:
-
+                    for rule in text_rules:
+                        if rule.get_condition_text() == best_premise:
                             # Используем это правило для генерации реплики.
                             # Правило может быть простым, с явно указанной фразой, либо
                             # содержать набор шаблонов генерации.
-
-                            if item.is_generator():
-                                # Используем скомпилированную грамматику для генерации фраз..
-                                words = phrase.split()
-                                all_generated_phrases = item.compiled_grammar.generate(words,
-                                                                                       self.text_utils.known_words)
-                                if len(all_generated_phrases) > 0:
-                                    # Уберем вопросы, которые мы уже задавали, оставим top
-                                    top = sorted(all_generated_phrases, key=lambda z: -z.get_rank())[:50]
-                                    top = filter(lambda z: session.count_bot_phrase(z.get_str()) == 0, top)
-
-                                    # Выберем рандомно одну из фраз
-                                    px = [z.get_rank() for z in top]
-                                    sum_p = sum(px)
-                                    px = [p / sum_p for p in px]
-                                    best = np.random.choice(top, 1, p=px)[0]
-                                    replica = best.get_str()
-
-                                    discourse_rel = self.calc_discourse_relevance(replica, session)
-
-                                    if not self.bot_replica_already_uttered(bot, session, replica):
-                                        # проверить, если f является репликой-ответом: знает
-                                        # ли бот ответ на этот вопрос.
-                                        good_replica = True
-                                        if replica[-1] == u'?':
-                                            if self.does_bot_know_answer(replica, bot, session, interlocutor):
-                                                good_replica = False
-
-                                        if good_replica:
-                                            generated_replicas.append((replica,
-                                                                       best.get_rank() * discourse_rel * time_decay,
-                                                                       'assertion(1)'))
-
-                            else:
-                                # Текст формируемой реплики указан буквально.
-                                # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-                                # поэтому их следует сначала нормализовать.
-                                for replica in item.answers:
-                                    if not self.bot_replica_already_uttered(bot, session, replica):
-                                        # проверить, если f является репликой-ответом: знает
-                                        # ли бот ответ на этот вопрос.
-                                        good_replica = True
-                                        if replica[-1] == u'?':
-                                            if self.does_bot_know_answer(replica, bot, session, interlocutor):
-                                                good_replica = False
-
-                                        if good_replica:
-                                            discourse_rel = self.calc_discourse_relevance(replica, session)
-                                            generated_replicas.append((replica,
-                                                                       discourse_rel * time_decay,
-                                                                       'assertion(2)'))
-
+                            rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, best_rel * time_decay)
+                            generated_replicas.extend(rx)
                             break
                 else:
-                    # Проверяем smalltalk-правила, использующие intent фразы
+                    # Проверяем smalltalk-правила, использующие intent фразы или другие условия
                     intent_rule_applied = False
                     last_interlocutor_utterance = session.get_last_interlocutor_utterance()
-                    for item in bot.get_scripting().enumerate_smalltalk_intent_rules():
-                        #if item.condition_text == interpreted_phrase.intent:
-                        if item.get_condition_text == last_interlocutor_utterance.intent:
+                    for rule in complex_rules:
+                        if rule.check_condition(bot, session, interlocutor, last_interlocutor_utterance, self):
                             intent_rule_applied = True
-                            if item.is_generator():
-                                # Используем скомпилированную грамматику для генерации фраз..
-                                words = phrase.split()
-                                all_generated_phrases = item.compiled_grammar.generate(words,
-                                                                                       self.text_utils.known_words)
-                                if len(all_generated_phrases) > 0:
-                                    # Уберем вопросы, которые мы уже задавали, оставим top
-                                    top = sorted(all_generated_phrases, key=lambda z: -z.get_rank())[:50]
-                                    top = filter(lambda z: session.count_bot_phrase(z.get_str()) == 0, top)
-
-                                    # Выберем рандомно одну из фраз
-                                    px = [z.get_rank() for z in top]
-                                    sum_p = sum(px)
-                                    px = [p / sum_p for p in px]
-                                    best = np.random.choice(top, 1, p=px)[0]
-                                    replica = best.get_str()
-                            else:
-                                # Текст реплики задан явно:
-                                replica = item.pick_random_answer()
-
-                            discourse_rel = self.calc_discourse_relevance(replica, session)
-
-                            if not self.bot_replica_already_uttered(bot, session, replica):
-                                # проверить, если f является репликой-ответом: знает
-                                # ли бот ответ на этот вопрос.
-                                good_replica = True
-                                if replica[-1] == u'?':
-                                    if self.does_bot_know_answer(replica, bot, session, interlocutor):
-                                        good_replica = False
-
-                                if good_replica:
-                                    generated_replicas.append(
-                                        (replica, best.get_rank() * discourse_rel * time_decay, 'assertion(3)'))
-
-                            break
+                            rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, time_decay)
+                            generated_replicas.extend(rx)
 
                     if not intent_rule_applied:
-                        list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase, time_decay)
+                        list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase.interpretation, time_decay)
                         generated_replicas.extend(list2)
 
                         if len(list2) == 0:
                             # Используем генеративную грамматику для получения возможных реплик
-                            list3 = self.generate_with_generative_grammar(bot, session, interlocutor, phrase,
+                            list3 = self.generate_with_generative_grammar(bot, session, interlocutor, phrase.interpretation,
                                                                           time_decay)
                             generated_replicas.extend(list3)
 
@@ -688,6 +778,78 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # общения, поэтому результат интерпретации сразу добавляем в историю.
         session.add_phrase_to_history(interpreted_phrase)
 
+        was_running_session = False
+        if session.get_status():
+            was_running_session = True
+            if not interpreted_phrase.is_question:
+                if isinstance(session.get_status(), RunningFormStatus):
+                    # Продолжается обработка вербальной формы.
+                    # Был задан вопрос для заполнения поля формы.
+                    # Для простоты считаем, что пользователь ответил нормально и его ответ
+                    # можно использовать для заполнения
+                    running_form = session.get_status()
+                    if running_form.current_field.from_entity:
+                        field_value = bot.extract_entity_from_str(running_form.current_field.from_entity, interpreted_phrase.raw_phrase)
+                        if not field_value:
+                            # для простоты считаем, что весь исходный ответ пользователя заполняет поле формы.
+                            field_value = interpreted_phrase.raw_phrase
+                        running_form.fields[running_form.current_field.name] = field_value
+
+                    # Остались еще незаполненные поля?
+                    for field in running_form.form.fields:
+                        if field.name not in running_form.fields:
+                            # Зададим вопрос для заполнения поля
+                            running_form.set_current_field(field)
+                            bot.say(session, field.question)
+                            return
+
+                    # Все поля заполнены
+                    self.form_ok(bot, session, interlocutor)
+                    return
+                elif isinstance(session.get_status(), RunningScenario):
+                    # Если в сценарии есть правила
+                    do_next_step = True
+                    rule_applied = False
+                    rules = session.get_status().get_insteadof_rules()
+                    if rules:
+                        insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor,
+                                                                          interpreted_phrase)
+                        rule_applied = insteadof_rule_result.applied
+                        if rule_applied:
+                            if session.get_output_buffer_phrase():
+                                if session.get_output_buffer_phrase()[-1] == '?':
+                                    # insteadof-правило сгенерировано вопрос, поэтому следующий шаг сценария
+                                    # пока не запускаем
+                                    do_next_step = False
+
+                    replica = None
+                    if not rule_applied:
+                        # генерируем smalltalk-реплику для текущего контекста
+                        if bot.enable_smalltalk:
+                            if session.get_status().get_smalltalk_rules():
+                                replica = self.generate_smalltalk_replica(session.get_status().get_smalltalk_rules(),
+                                                                          bot, session, interlocutor)
+                            else:
+                                replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(),
+                                                                          bot, session, interlocutor)
+
+                    # Отрабатывает шаг сценария
+                    if do_next_step:
+                        self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+
+                    if replica:
+                        if replica[-1] == '?':
+                            # Если small-talk реплика является вопросом, то надо проверить,
+                            # что шаг сценария не сгенерировал тоже вопрос. Два вопроса подряд от бота
+                            # мы не будем выдавать, оставим только вопрос сценария.
+                            if session.get_output_buffer_phrase():
+                                if session.get_output_buffer_phrase()[-1] != '?':
+                                    session.add_to_buffer(replica)
+                        else:
+                            # Вставляем эту реплику перед фразой шага, чтобы вопрос сценария не был
+                            # экранирован smalltalk-репликой.
+                            session.insert_into_buffer(replica)
+
         if interpreted_phrase.is_imperative:
             self.logger.debug(u'Processing as imperative: "%s"', interpreted_phrase.interpretation)
             # Обработка приказов (императивов).
@@ -703,25 +865,27 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             for answer in answers:
                 self.say(session, answer)
 
-            # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
-            # Например, для смены темы разговора.
-            replica_generated = False
-            if len(answers) > 0 and bot.has_scripting():
-                additional_speech = bot.scripting.generate_after_answer(bot,
-                                                                        self,
-                                                                        interlocutor,
-                                                                        interpreted_phrase,
-                                                                        answers[-1])
-                if additional_speech is not None:
-                    self.say(session, additional_speech)
-                    replica_generated = True
+            # В некоторых случаях генерация реплики после ответа может быть нежелательна,
+            # например для FAQ-бота. Поэтому используем флаг в конфиге бота.
+            if bot.replica_after_answering:
+                # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
+                # Например, для смены темы разговора.
+                replica_generated = False
+                if len(answers) > 0 and bot.has_scripting():
+                    additional_speech = bot.scripting.generate_after_answer(bot,
+                                                                            self,
+                                                                            interlocutor,
+                                                                            interpreted_phrase,
+                                                                            answers[-1])
+                    if additional_speech is not None:
+                        self.say(session, additional_speech)
+                        replica_generated = True
 
-            if not replica_generated:
-                replica = self.generate_smalltalk_replica(bot, session, interlocutor)
-                if replica:
-                    self.say(session, replica)
-                    replica_generated = True
-
+                if not replica_generated:
+                    replica = self.generate_smalltalk_replica(bot, session, interlocutor)
+                    if replica:
+                        self.say(session, replica)
+                    replica = None
         else:
             self.logger.debug(u'Processing as assertion: "%s"', interpreted_phrase.interpretation)
 
@@ -729,8 +893,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Пробуем применить общие правила, которые опираются в том числе на
             # intent реплики или ее текст.
             #input_processed = bot.apply_rule(session, interlocutor, interpreted_phrase)
-            insteadof_rule_result = self.apply_insteadof_rule(bot, session, interlocutor, interpreted_phrase)
-            input_processed = insteadof_rule_result.applied
+            input_processed = False
+            if not session.get_status() and bot.has_scripting():
+                rules = bot.get_scripting().get_insteadof_rules()
+                if rules:
+                    insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor, interpreted_phrase)
+                    input_processed = insteadof_rule_result.applied
 
             # TODO: в принципе возможны два варианты последствий срабатывания
             # правил. 1) считаем, что правило полностью выполнило все действия для
@@ -757,11 +925,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Теперь генерация реплики для случая, когда реплика собеседника - не-вопрос.
             # 13.07.2019 если применено INSTEADOF-правило, но оно не сгенерировало никакую ответную реплику,
             # то есть резон сказать что-то на базе common_phrases
-            if not input_processed or not insteadof_rule_result.replica_is_generated:
-                replica = self.generate_smalltalk_replica(bot, session, interlocutor)
-                if replica:
-                    answer = replica
-                    answer_generated = True
+            if not was_running_session:
+                if not input_processed or not insteadof_rule_result.replica_is_generated:
+                    replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
+                    if replica:
+                        answer = replica
+                        answer_generated = True
 
             if answer_generated:
                 self.say(session, answer)
@@ -772,7 +941,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Пробуем применить общие правила, которые опираются в том числе на
         # intent реплики или ее текст.
-        order_processed = self.apply_insteadof_rule(bot, session, interlocutor, interpreted_phrase)
+        order_processed = False
+        if bot.has_scripting():
+            order_processed = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(), bot, session, interlocutor, interpreted_phrase)
+
         if order_processed:
             return True
         else:

@@ -4,8 +4,9 @@
 	"rules": "$DATA/rules.yaml",
 	"smalltalk_generative_rules": "$MODELS/smalltalk_generative_grammars.bin",
 	
-	"enable_smalltalk": true,
-	"enable_rules": true,
-	"force_question_answering": false
-
+	"smalltalk_enabled": true,
+	"rules_enabled": true,
+	"force_question_answering": false,
+	"replica_after_answering": false,
+	"premise_is_answer": false
 }	

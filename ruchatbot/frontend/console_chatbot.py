@@ -5,6 +5,7 @@
 
 import os
 import argparse
+import logging
 
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
@@ -17,7 +18,6 @@ from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 
 
-
 def on_order(order_anchor_str, bot, session):
     bot.say(session, u'Выполняю команду \"{}\"'.format(order_anchor_str))
     # Всегда возвращаем True, как будто можем выполнить любой приказ.
@@ -25,7 +25,7 @@ def on_order(order_anchor_str, bot, session):
     return True
 
 
-def on_weather_forecast(bot, session, user_id, interpreted_phrase):
+def on_weather_forecast(bot, session, user_id, interpreted_phrase, verb_form_fields):
     """
     Обработчик запросов для прогноза погоды.
     Вызывается ядром чатбота.
@@ -35,21 +35,26 @@ def on_weather_forecast(bot, session, user_id, interpreted_phrase):
     return u'Прогноз погоды на момент времени "{}" сгенерирован в функции on_weather_forecast для демонстрации'.format(when_arg)
 
 
-def on_check_emails(bot, session, user_id, interpreted_phrase):
+def on_check_emails(bot, session, user_id, interpreted_phrase, verb_form_fields):
     """
     Обработчик запросов на проверку электронной почты (реплики типа "Нет ли новых писем?")
     """
     return u'Фиктивная проверка почты в функции on_check_email'
 
 
-def on_alarm_clock(bot, session, user_id, interpreted_phrase):
+def on_alarm_clock(bot, session, user_id, interpreted_phrase, verb_form_fields):
     when_arg = bot.extract_entity(u'когда', interpreted_phrase)
     return u'Фиктивный будильник для "{}"'.format(when_arg)
 
 
-def on_buy_pizza(bot, session, user_id, interpreted_phrase):
-    meal_arg = bot.extract_entity(u'объект', interpreted_phrase)
-    count_arg = bot.extract_entity(u'количество', interpreted_phrase)
+def on_buy_pizza(bot, session, user_id, interpreted_phrase, verb_form_fields):
+    if interpreted_phrase:
+        meal_arg = bot.extract_entity(u'объект', interpreted_phrase)
+        count_arg = bot.extract_entity(u'количество', interpreted_phrase)
+    else:
+        meal_arg = verb_form_fields['что_заказывать']
+        count_arg = verb_form_fields['количество_порций']
+
     return u'Заказываю: что="{}", сколько="{}"'.format(meal_arg, count_arg)
 
 
@@ -72,6 +77,8 @@ def main():
     tmp_folder = os.path.expanduser(args.tmp_folder)
 
     init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'), args.debugging)
+
+    logging.debug('Starting bot...')
 
     # Создаем необходимое окружение для бота.
     # Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
@@ -107,9 +114,7 @@ def main():
                          facts=profile_facts,
                          faq=faq_storage,
                          scripting=scripting,
-                         enable_scripting=profile.rules_enabled,
-                         enable_smalltalk=profile.smalltalk_enabled,
-                         force_question_answering=profile.force_question_answering)
+                         profile=profile)
 
     bot.on_process_order = on_order
 

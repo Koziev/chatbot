@@ -30,3 +30,11 @@ class BotProfile(object):
     @property
     def force_question_answering(self):
         return self.profile.get('force_question_answering', False)
+
+    @property
+    def replica_after_answering(self):
+        return self.profile.get('replica_after_answering', True)
+
+    @property
+    def premise_is_answer(self):
+        return self.profile.get('premise_is_answer', False)

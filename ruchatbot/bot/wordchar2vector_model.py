@@ -12,16 +12,8 @@ import os
 import json
 import logging
 
-import keras.callbacks
-from keras.layers.core import Activation, RepeatVector, Dense, Masking
-from keras.layers import recurrent
-from keras.callbacks import ModelCheckpoint, EarlyStopping
-from keras.layers import Embedding
-from keras.layers.wrappers import Bidirectional
-from keras.layers import Dense, Dropout, Input, Permute, Flatten, Reshape
-from keras.layers import Conv1D, GlobalMaxPooling1D, GlobalAveragePooling1D
-from keras.layers import TimeDistributed
-from keras.models import Model
+# Для генерации символьных эмбеддингов новых слов нужна будет
+# обученная модель wordchar2vec.
 from keras.models import model_from_json
 
 

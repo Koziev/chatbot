@@ -9,7 +9,6 @@ ENV LANG C.UTF-8
 RUN apt-get update
 RUN apt-get install -y python python-pip
 RUN apt-get -y install git-core
-#RUN apt-get install python-pip
 RUN apt-get install -y liblzma-dev
 
 RUN pip install --upgrade pip
@@ -19,12 +18,11 @@ RUN pip install git+https://github.com/Koziev/rulemma
 RUN pip uninstall -y numpy
 RUN yes | apt-get install python-numpy
 
-
 RUN pip install xgboost
 RUN pip install lightgbm
 RUN pip install keras
 RUN pip install --upgrade scikit-learn
-RUN pip install pymystem3
+#RUN pip install pymystem3
 RUN pip install gensim
 RUN pip install pathlib
 RUN pip install python-crfsuite

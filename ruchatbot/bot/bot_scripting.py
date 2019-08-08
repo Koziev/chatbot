@@ -10,9 +10,12 @@ import pickle
 from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
 from ruchatbot.bot.smalltalk_rules import SmalltalkSayingRule
 from ruchatbot.bot.smalltalk_rules import SmalltalkGeneratorRule
+from ruchatbot.bot.smalltalk_rules import SmalltalkRules
 from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 from ruchatbot.bot.comprehension_table import ComprehensionTable
 from ruchatbot.bot.scripting_rule import ScriptingRule
+from ruchatbot.bot.verbal_form import VerbalForm
+from ruchatbot.bot.scenario import Scenario
 
 
 class BotScripting(object):
@@ -22,8 +25,9 @@ class BotScripting(object):
         self.goodbyes = []
         self.insteadof_rules = []
         self.smalltalk_rules = []
-        self.smalltalk_intent_rules = []
         self.comprehension_rules = None
+        self.forms = []  # список экземпляров VerbalForm
+        self.scenarios = []  # список экземпляров Scenario
 
     @staticmethod
     def __get_node_list(node):
@@ -41,16 +45,12 @@ class BotScripting(object):
             if 'goodbye' in data:
                 self.goodbyes = data['goodbye']
 
-            # INSTEAD-OF правила
-            for rule in data['rules']:
-                # Пока делаем самый простой формат правил - с одним условием и одним актором.
-                condition = rule['rule']['if']
-                action = rule['rule']['then']
-                rule = ScriptingRule(condition, action)
-                self.insteadof_rules.append(rule)
+            if 'forms' in data:
+                for form_node in data['forms']:
+                    form = VerbalForm.from_yaml(form_node['form'])
+                    self.forms.append(form)
 
-            # Smalltalk-правила
-            # Для них нужны скомпилированные генеративные грамматики.
+            # Для smalltalk-правил нужны скомпилированные генеративные грамматики.
             smalltalk_rule2grammar = dict()
             with open(compiled_grammars_path, 'rb') as f:
                 n_rules = pickle.load(f)
@@ -60,55 +60,21 @@ class BotScripting(object):
                     grammar.set_dictionaries(text_utils.gg_dictionaries)
                     smalltalk_rule2grammar[key] = grammar
 
-            for rule in data['smalltalk_rules']:
-                # Пока делаем самый простой формат правил - с одним условием и одним актором.
-                condition = rule['rule']['if']
-                action = rule['rule']['then']
+            if 'scenarios' in data:
+                for scenario_node in data['scenarios']:
+                    self.scenarios.append(Scenario.load_yaml(scenario_node['scenario'], smalltalk_rule2grammar, text_utils))
 
-                # Простые правила, которые задают срабатывание по тексту фразы, добавляем в отдельный
-                # список, чтобы обрабатывать в модели синонимичности одним пакетом.
-                if 'text' in condition:
-                    for condition1 in BotScripting.__get_node_list(condition['text']):
-                        if 'say' in action:
-                            rule = SmalltalkSayingRule(condition1)
-                            for answer1 in BotScripting.__get_node_list(action['say']):
-                                rule.add_answer(answer1)
-                            self.smalltalk_rules.append(rule)
-                        elif 'generate' in action:
-                            generative_templates = list(BotScripting.__get_node_list(action['generate']))
-                            rule = SmalltalkGeneratorRule(condition1, generative_templates)
-                            key = u'text' + u'|' + condition1
-                            if key in smalltalk_rule2grammar:
-                                rule.compiled_grammar = smalltalk_rule2grammar[key]
-                            else:
-                                logging.error(u'Missing compiled grammar for rule %s', key)
+            # INSTEAD-OF правила
+            for rule in data['rules']:
+                try:
+                    rule = ScriptingRule.from_yaml(rule['rule'])
+                    self.insteadof_rules.append(rule)
+                except Exception as ex:
+                    logging.error(ex)
+                    raise ex
 
-                            self.smalltalk_rules.append(rule)
-                        else:
-                            logging.error(u'"%s" statement is not implemented', action)
-                            raise NotImplementedError()
-                elif 'intent' in condition:
-                    for condition1 in BotScripting.__get_node_list(condition['intent']):
-                        if 'generate' in action:
-                            generative_templates = list(BotScripting.__get_node_list(action['generate']))
-                            rule = SmalltalkGeneratorRule(condition1, generative_templates)
-                            key = u'intent' + u'|' + condition1
-                            if key in smalltalk_rule2grammar:
-                                rule.compiled_grammar = smalltalk_rule2grammar[key]
-                            else:
-                                logging.error(u'Missing compiled grammar for rule %s', key)
-
-                            self.smalltalk_intent_rules.append(rule)
-                        elif 'say' in action:
-                            rule = SmalltalkSayingRule(condition1)
-                            for answer1 in BotScripting.__get_node_list(action['say']):
-                                rule.add_answer(answer1)
-                            self.smalltalk_intent_rules.append(rule)
-                        else:
-                            raise NotImplementedError()
-
-                else:
-                    raise NotImplementedError()
+            self.smalltalk_rules = SmalltalkRules()
+            self.smalltalk_rules.load_yaml(data['smalltalk_rules'], smalltalk_rule2grammar, text_utils)
 
             self.comprehension_rules = ComprehensionTable()
             self.comprehension_rules.load_yaml_data(data)
@@ -117,15 +83,8 @@ class BotScripting(object):
             for common_phrase in data['common_phrases']:
                 self.common_phrases.append(common_phrase)
 
-    def enumerate_smalltalk_rules(self):
+    def get_smalltalk_rules(self):
         return self.smalltalk_rules
-
-    def enumerate_smalltalk_intent_rules(self):
-        return self.smalltalk_intent_rules
-
-    #def buid_answer(self, answering_machine, interlocutor, interpreted_phrase):
-    #    # ???
-    #    return answering_machine.text_utils.language_resources[u'не знаю']
 
     def start_conversation(self, chatbot, session):
         # Начало общения с пользователем, для которого загружена сессия session
@@ -162,8 +121,3 @@ class BotScripting(object):
 
     def get_insteadof_rules(self):
         return self.insteadof_rules
-
-    def apply_insteadof_rule(self, bot, session, interlocutor, interpreted_phrase):
-        # Перегрузить метод, если нужно реализовать свои INSTEADOF правила.
-        # Вернуть True, если применено свое правило и оно что-то сделало.
-        return False

@@ -12,8 +12,9 @@ import os
 import io
 import yaml
 
-from pymystem3 import Mystem
+#from pymystem3 import Mystem
 import rupostagger
+import rulemma
 
 from ruchatbot.utils.tokenizer import Tokenizer
 from ruchatbot.bot.word2lemmas import Word2Lemmas
@@ -30,12 +31,14 @@ class TextUtils(object):
     def __init__(self):
         self.tokenizer = Tokenizer()
         self.tokenizer.load()
-        self.lemmatizer = Mystem()
         self.lexicon = Word2Lemmas()
         self.language_resources = LanguageResources()
         self.postagger = rupostagger.RuPosTagger()
         self.gg_dictionaries = GenerativeGrammarDictionaries()
         self.known_words = set()
+        #self.lemmatizer = Mystem()
+        self.lemmatizer = rulemma.Lemmatizer()
+        self.lemmatizer.load()
 
     def load_dictionaries(self, data_folder, models_folder):
         # Общий словарь для генеративных грамматик
@@ -62,9 +65,12 @@ class TextUtils(object):
                 word = line.strip()
                 self.known_words.add(word)
 
-    def tag(self, words):
+    def tag(self, words, with_lemmas=False):
         """ Частеречная разметка для цепочки слов words """
-        return self.postagger.tag(words)
+        if with_lemmas:
+            return self.lemmatizer.lemmatize(self.postagger.tag(words))
+        else:
+            return self.postagger.tag(words)
 
     def canonize_text(self, s):
         """ Удаляем два и более пробелов подряд, заменяя на один """
@@ -88,10 +94,15 @@ class TextUtils(object):
     def tokenize(self, s):
         return self.tokenizer.tokenize(s)
 
+    def extract_lemma(self, token):
+        return token[0] if token[1] == 'PRON' else token[2]
+
     def lemmatize(self, s):
         words = self.tokenizer.tokenize(s)
-        wx = u' '.join(words)
-        return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip()) > 0]
+        #wx = u' '.join(words)
+        #return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip()) > 0]
+        tokens = self.lemmatizer.lemmatize(self.postagger.tag(words))
+        return [self.extract_lemma(t) for t in tokens]
 
     def lpad_wordseq(self, words, n):
         """ Слева добавляем пустые слова """

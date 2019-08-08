@@ -9,11 +9,7 @@ class BotPersonality:
     поведение экземпляра бота и его характер. Базовые модели типа детектора
     синонимичности и релевантности хранятся в общем для всех экземпляров движке
     чатбота (SimpleAnsweringMachine)"""
-    def __init__(self, bot_id, engine, facts,
-                 faq=None, scripting=None,
-                 enable_smalltalk=False,
-                 enable_scripting=False,
-                 force_question_answering=False):
+    def __init__(self, bot_id, engine, facts, profile, faq=None, scripting=None):
         if bot_id is None or bot_id == '':
             self.bot_id = str(uuid.uuid4())
         else:
@@ -23,12 +19,15 @@ class BotPersonality:
         self.facts = facts
         self.faq = faq
         self.scripting = scripting
-        self.enable_smalltalk = enable_smalltalk
-        self.enable_scripting = enable_scripting
-        self.premise_is_answer = False
+
+        self.enable_scripting = profile.rules_enabled
+        self.enable_smalltalk = profile.smalltalk_enabled
+        self.force_question_answering = profile.force_question_answering
+        self.premise_is_answer = profile.premise_is_answer
+        self.replica_after_answering = profile.replica_after_answering
+
         self.event_handlers = dict()
         self.on_process_order = None
-        self.force_question_answering = force_question_answering
 
     def get_bot_id(self):
         return self.bot_id
@@ -42,8 +41,11 @@ class BotPersonality:
     def get_engine(self):
         return self.engine
 
-    def extract_entity(self, entity_name, phrase):
-        return self.engine.extract_entity(entity_name, phrase.interpretation)
+    def extract_entity(self, entity_name, interpreted_phrase):
+        return self.extract_entity_from_str(entity_name, interpreted_phrase.interpretation)
+
+    def extract_entity_from_str(self, entity_name, phrase_str):
+        return self.engine.extract_entity(entity_name, phrase_str)
 
     def get_comprehension_templates(self):
         return self.scripting.comprehension_rules
@@ -75,14 +77,33 @@ class BotPersonality:
     def add_event_handler(self, event_name, handler):
         self.event_handlers[event_name] = handler
 
-    def invoke_callback(self, event_name, session, user_id, interpreted_phrase):
+    def invoke_callback(self, event_name, session, user_id, interpreted_phrase, verb_form_fields):
         if self.event_handlers is not None:
             if event_name in self.event_handlers:
-                return self.event_handlers[event_name](self, session, user_id, interpreted_phrase)
+                return self.event_handlers[event_name](self, session, user_id, interpreted_phrase, verb_form_fields)
             elif u'*' in self.event_handlers:
-                return self.event_handlers[u'*'](event_name, self, session, user_id, interpreted_phrase)
+                return self.event_handlers[u'*'](event_name, self, session, user_id, interpreted_phrase, verb_form_fields)
             else:
                 logging.error(u'No handler for callback event "{}"'.format(event_name))
 
+    def run_form(self, form_actor, session, user_id, interpreted_phrase):
+        for form in self.scripting.forms:
+            if form.name == form_actor.form_name:
+                self.engine.run_form(form, self, session, user_id, interpreted_phrase)
+                return
+
+        raise KeyError(form_actor)
+
+    def run_scenario(self, scenario_actor, session, user_id, interpreted_phrase):
+        for scenario in self.scripting.scenarios:
+            if scenario.name == scenario_actor.scenario_name:
+                self.engine.run_scenario(scenario, self, session, user_id, interpreted_phrase)
+                return
+
+        raise KeyError(scenario_actor)
+
     def get_common_phrases(self):
         return self.scripting.common_phrases
+
+    def does_bot_know_answer(self, question, session, interlocutor):
+        return self.engine.does_bot_know_answer(question, self, session, interlocutor)

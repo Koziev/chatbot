@@ -873,7 +873,7 @@ class GT_Replaceable(GT_Item):
             elif tag == u'прош':
                 self.tags.append((u'ВРЕМЯ', u'ПРОШЕДШЕЕ'))
             elif tag == u'1':
-                self.tags.append((u'ЛИЦО', u'2'))
+                self.tags.append((u'ЛИЦО', u'1'))
             elif tag == u'2':
                 self.tags.append((u'ЛИЦО', u'2'))
             elif tag == u'3':
@@ -1239,7 +1239,8 @@ class GenerativeTemplate(object):
         self.items = []
 
     def __repr__(self):
-        return u' '.join(unicode(item) for item in self.items)
+        #return u' '.join(unicode(item) for item in self.items)
+        return u' '.join(str(item) for item in self.items)
 
     def generate(self, topic_words, gren, thesaurus, lexicon, ngrams):
         forms_in_slots = [item.generate(topic_words, gren) for item in self.items]
@@ -1317,7 +1318,6 @@ class GenerativeTemplates(object):
         nb_nodes, nb_terminals = self.flow_root.stat()
         print('nb_nodes={} nb_terminals={}'.format(nb_nodes, nb_terminals))
 
-
     @staticmethod
     def beam_searcher(forms_in_slots, thesaurus, lexicon, ngrams, generated_phrases):
         paths = beam_search(forms_in_slots, thesaurus, lexicon, ngrams)
@@ -1327,7 +1327,6 @@ class GenerativeTemplates(object):
         for path, proba in paths:
             phrase = GeneratedPhrase(path, proba)
             generated_phrases[phrase] = max(generated_phrases.get(phrase, -1e8), proba)
-
 
     def generate_phrases(self, topic_words, grdict, thesaurus, lexicon, all_ngrams):
         all_generated_phrases = dict()  # сгенерированные фразы и их веса
@@ -1341,10 +1340,12 @@ class GenerativeTemplates(object):
         else:
             # Перебор всех шаблонов
             for template in self.templates:
-                generated_phrases = template.generate(topic_words, grdict, all_ngrams)
-                all_generated_phrases.update(generated_phrases)
+                generated_phrases = template.generate(topic_words, grdict, thesaurus, lexicon, all_ngrams)
+                for phrase in generated_phrases:
+                    all_generated_phrases[phrase] = max(all_generated_phrases.get(phrase, 0.0), phrase.get_rank())
 
         return list(all_generated_phrases.keys())
+
 
 
 class BeamSearchItem(object):
@@ -1695,6 +1696,9 @@ class GenerativeGrammarEngine(object):
         return self.generate2([(word, 1.0) for word in words_bag], known_words, use_assocs)
 
     def generate2(self, words_p_bag, known_words, use_assocs=False):
+        return self.generate_by_templates(self.templates, words_p_bag, known_words, use_assocs)
+
+    def generate_by_templates(self, templates, words_p_bag, known_words, use_assocs):
         topic_words = list()
         for word, proba in words_p_bag:
             topic_word = construct_topic_word(word, None, proba, known_words,
@@ -1713,11 +1717,11 @@ class GenerativeGrammarEngine(object):
                                               None, False)
             topic_words.append(topic_word)
 
-        all_generated_phrases = self.templates.generate_phrases(topic_words,
-                                                                self.dictionaries.grdict,
-                                                                self.dictionaries.thesaurus,
-                                                                self.dictionaries.lexicon,
-                                                                self.dictionaries.all_ngrams)
+        all_generated_phrases = templates.generate_phrases(topic_words,
+                                                           self.dictionaries.grdict,
+                                                           self.dictionaries.thesaurus,
+                                                           self.dictionaries.lexicon,
+                                                           self.dictionaries.all_ngrams)
 
         weighted_phrases = []
         phrases_set = set()
@@ -1740,6 +1744,11 @@ class GenerativeGrammarEngine(object):
                 weighted_phrases.append(phrase)
 
         return weighted_phrases
+
+    def generate_by_terms(self, template_str, words_p_bag, known_words, use_assocs):
+        tmp_templates = GenerativeTemplates()
+        tmp_templates.parse(template_str, self.macros, self.named_sets, self.max_rule_len, self.dictionaries.grdict)
+        return self.generate_by_templates(tmp_templates, words_p_bag, known_words, use_assocs)
 
 
 if __name__ == "__main__":

@@ -1,75 +1,92 @@
 # -*- coding: utf-8 -*-
 
-import random
-import logging
-import yaml
-import io
-import pickle
+from abc import abstractmethod
+from ruchatbot.bot.actors import ActorBase
+from ruchatbot.bot.base_rule_condition import BaseRuleCondition
 
-from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
-from ruchatbot.bot.smalltalk_rules import SmalltalkSayingRule
-from ruchatbot.bot.smalltalk_rules import SmalltalkGeneratorRule
-from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
-from ruchatbot.bot.comprehension_table import ComprehensionTable
+
+class ScriptingRuleResult(object):
+    def __init__(self):
+        self.replica_is_generated = None
+        self.condition_success = False
+
+    @staticmethod
+    def unmatched():
+        return ScriptingRuleResult()
+
+    @staticmethod
+    def matched(replica_is_generated):
+        res = ScriptingRuleResult()
+        res.condition_success = True
+        res.replica_is_generated = replica_is_generated
+        return res
 
 
 class ScriptingRule(object):
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def from_yaml(yaml_node):
+        if 'if' in yaml_node:
+            condition = yaml_node['if']
+            action = yaml_node['then']
+            rule = ScriptingRuleIf(condition, action)
+            return rule
+        elif 'switch' in yaml_node:
+            rule = ScriptingRuleSwitch(yaml_node)
+            return rule
+        else:
+            raise NotImplementedError()
+
+    @abstractmethod
+    def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
+        raise NotImplementedError()
+
+
+class ScriptingRuleIf(ScriptingRule):
     def __init__(self, condition, action):
-        self.condition = condition
+        self.condition = BaseRuleCondition.from_yaml(condition)
         self.action = action
+        self.compiled_action = ActorBase.from_yaml(action)
 
-    def check_condition(self, interpreted_phrase, answering_engine):
-        if u'intent' in self.condition:
-            return self.condition[u'intent'] == interpreted_phrase.intent
-        elif u'text' in self.condition:
-            if isinstance(self.condition[u'text'], list) or isinstance(self.condition[u'text'], str):
-                text_utils = answering_engine.get_text_utils()
-                word_embeddings = answering_engine.get_word_embeddings()
-
-                # TODO: Эти приготовления будут выполняться при каждом запуске правила, надо бы
-                # вынести их в конструктор правила.
-                if isinstance(self.condition[u'text'], list):
-                    etalons = self.condition[u'text']
-                else:
-                    etalons = [self.condition[u'text']]
-
-                etalons = list((text_utils.wordize_text(etalon), None, None) for etalon in etalons)
-
-                input_text = text_utils.wordize_text(interpreted_phrase.interpretation)
-                syn = answering_engine.get_synonymy_detector()
-                best_etalon, best_sim = syn.get_most_similar(input_text,
-                                                             etalons,
-                                                             text_utils,
-                                                             word_embeddings,
-                                                             nb_results=1)
-
-                return best_sim >= syn.get_threshold()
-            else:
-                logging.error(u'Conditonal statement "%s" can not be processed', self.condition[u'text'])
-                raise NotImplementedError()
-        else:
-            raise NotImplementedError()
-
-    def do_action(self, bot, session, user_id, interpreted_phrase):
+    def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         """Вернет True, если правило сформировало ответную реплику."""
-        if u'say' in self.action:
-            if isinstance(self.action[u'say'], list):
-                bot.say(session, random.choice(self.action[u'say']))
-            else:
-                bot.say(session, self.action[u'say'])
-            return True
-        elif u'answer' in self.action:
-            if isinstance(self.action[u'answer'], list):
-                bot.push_phrase(user_id, random.choice(self.action[u'answer']), True)
-            else:
-                bot.push_phrase(user_id, self.action[u'answer'], True)
-            return True
-        elif u'callback' in self.action:
-            resp = bot.invoke_callback(self.action[u'callback'], session, user_id, interpreted_phrase)
-            if resp:
-                bot.say(session, resp)
-            return True
-        elif u'nothing' in self.action:
-            return False
+        if self.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+            replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase)
+            return ScriptingRuleResult.matched(replica_generated)
         else:
-            raise NotImplementedError()
+            return ScriptingRuleResult.unmatched()
+
+
+class ScriptingRuleSwitch(ScriptingRule):
+    def __init__(self, yaml_node):
+        self.condition1 = BaseRuleCondition.from_yaml(yaml_node['switch']['question'])
+        self.case_handlers = []
+        self.default_handler = None
+        answers = yaml_node['switch']['answers']
+        for answer_case in answers:
+            if 'if' in answer_case:
+                case_handler = ScriptingRuleIf(answer_case['if'], answer['then'])
+                self.case_handlers.append(case_handler)
+            elif 'default' in answer_case:
+                self.default_handler = ActorBase.from_yaml(answer_case['default'])
+            else:
+                raise NotImplementedError()
+
+    def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
+        if self.condition1.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+            # Главное условие (проверка заданного вопроса) успешно проверено, теперь ищем подходящий
+            # обработчик для ответа.
+            for case_handler in self.case_handlers:
+                assert(isinstance(case_handler, ScriptingRuleIf))
+                if case_handler.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+                    replica_generated = case_handler.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase)
+                    return ScriptingRuleResult.matched(replica_generated)
+
+            if self.default_handler:
+                # Ни один из обработчиков не отработал, запускаем default-обработчик
+                replica_generated = self.default_handler.do_action(bot, session, interlocutor, interpreted_phrase)
+                return ScriptingRuleResult.matched(replica_generated)
+
+        return ScriptingRuleResult.unmatched()
