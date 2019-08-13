@@ -28,6 +28,10 @@ class BotProfile(object):
         return self.profile.get('smalltalk_enabled', True)
 
     @property
+    def generative_smalltalk_enabled(self):
+        return self.profile.get('generative_smalltalk_enabled', True)
+
+    @property
     def force_question_answering(self):
         return self.profile.get('force_question_answering', False)
 

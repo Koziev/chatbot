@@ -27,7 +27,11 @@ def input_kbd(prompt):
             logging.exception('Error occured when decoding raw_input string')
             return u''
     else:
-        return input(prompt.strip() + u' ').strip()
+        try:
+            return input(prompt.strip() + u' ').strip()
+        except Exception as ex:
+            logging.exception('Error occured when decoding raw_input string')
+            return u''
 
 
 def print_error(error_msg):

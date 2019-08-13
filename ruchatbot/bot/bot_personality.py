@@ -25,6 +25,7 @@ class BotPersonality:
         self.force_question_answering = profile.force_question_answering
         self.premise_is_answer = profile.premise_is_answer
         self.replica_after_answering = profile.replica_after_answering
+        self.generative_smalltalk_enabled = profile.generative_smalltalk_enabled
 
         self.event_handlers = dict()
         self.on_process_order = None

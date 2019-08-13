@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from collections import deque
+
 
 class BaseDialogSession(object):
     """
@@ -19,7 +21,10 @@ class BaseDialogSession(object):
         self.facts_storage = facts_storage
         self.answer_buffer = []
         self.conversation_history = []  # все фразы беседы
-        self.status = None  # если выполняется вербальная форма или сценарий
+
+        self.status = None  # экземпляр производного от RunningDialogStatus класса,
+                            # если выполняется вербальная форма или сценарий
+        self.deferred_running_items = deque()
 
     def get_interlocutor(self):
         return self.interlocutor
@@ -95,7 +100,17 @@ class BaseDialogSession(object):
         return None
 
     def set_status(self, new_status):
-        self.status = new_status
+        if new_status is None:
+            # Если в стеке отложенных сценариев есть что-то, запускаем его.
+            if len(self.deferred_running_items) > 0:
+                self.status = self.deferred_running_items.pop()
+            else:
+                self.status = None
+        else:
+            self.status = new_status
+
+    def defer_status(self, new_status):
+        self.deferred_running_items.append(new_status)
 
     def form_executed(self):
         self.status = None

@@ -331,6 +331,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     phrase = translated_str
                     raw_phrase = translated_str
                     phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+                    if phrase_person == 2:
+                        phrase_person = 1
                     was_interpreted = True
 
         if not was_interpreted:
@@ -361,9 +363,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if session.get_status():
             if scenario.get_priority() <= session.get_status().get_priority():
                 self.logger.warning(u'New status priority %d is lower than priority of running status %d', scenario.get_priority(), session.get_status().get_priority())
+                session.defer_status(scenario)
                 return
             else:
                 self.logger.debug(u'New scenario priority=%d is higher than currenly running=%d', scenario.get_priority(), session.get_status().get_priority())
+        else:
+            self.logger.debug(u'Start scenario "%s"', scenario.name)
 
         status = RunningScenario(scenario, current_step_index=-1)
         session.set_status(status)
@@ -393,7 +398,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     if step_ok:
                         break
 
-        elif running_scenario.scenario.is_random():
+        elif running_scenario.scenario.is_random_steps():
             # Шаги сценария выбираются в рандомном порядке, не более 1 раза каждый шаг.
             nsteps = len(running_scenario.scenario.steps)
             step_indeces = list(i for i in range(nsteps) if i not in running_scenario.passed_steps)
@@ -491,6 +496,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return found_same_replica
 
     def generate_with_generative_grammar(self, bot, session, interlocutor, phrase, base_weight):
+        if not bot.generative_smalltalk_enabled:
+            return []
+
         # Используем генеративную грамматику для получения возможных реплик
         self.logger.debug('Using replica_grammar to generate replicas...')
         generated_replicas = []

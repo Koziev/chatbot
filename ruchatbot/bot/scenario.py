@@ -25,7 +25,11 @@ class Scenario(object):
         else:
             scenario.priority = 10
 
-        scenario.steps_policy = yaml_node['steps_policy']  # TODO - сделать проверку значения
+        if 'steps_policy' in yaml_node:
+            scenario.steps_policy = yaml_node['steps_policy']  # TODO - сделать проверку значения
+        else:
+            scenario.steps_policy = 'sequential'
+
         for step_node in yaml_node['steps']:
             step = ActorBase.from_yaml(step_node)
             scenario.steps.append(step)

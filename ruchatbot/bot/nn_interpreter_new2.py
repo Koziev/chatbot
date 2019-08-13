@@ -81,6 +81,9 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
             self.model = model_from_json(f.read(), {'CRF': CRF})
             self.model.load_weights(weights_path)
 
+        self.interpret_pointer_words = set((u'твой твоя твое твои твоего твоей твоим твоими твоих твоем твоему твоей ' +
+                                        u'мой моя мое мои моего моей моих моими моим моем моему').split())
+
         super(NN_InterpreterNew2, self).load(models_folder)
 
     def pad_wordseq(self, words, n):
@@ -151,7 +154,13 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
             #print('{}\n\n'.format(u' '.join(terms)))
 
         # Используем полученный список команд генеративной грамматики в terms
-        words_bag = [(w, 1.0) for w in (question_words + short_answer_words)]
+        words_bag = [(w, 1.0)
+                     for w
+                     in (question_words + short_answer_words)
+                     if not text_utils.is_question_word(w) and not w in self.interpret_pointer_words]
+
+        words_bag.extend((w, 1.0) for w in self.interpret_pointer_words)
+
         template_str = u' '.join(terms).strip()
         all_generated_phrases = generative_grammar.generate_by_terms(template_str,
                                                                      words_bag,

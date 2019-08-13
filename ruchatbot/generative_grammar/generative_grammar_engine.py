@@ -872,6 +872,8 @@ class GT_Replaceable(GT_Item):
                 self.tags.append((u'ВРЕМЯ', u'НАСТОЯЩЕЕ'))
             elif tag == u'прош':
                 self.tags.append((u'ВРЕМЯ', u'ПРОШЕДШЕЕ'))
+            elif tag == u'буд':
+                self.tags.append((u'ВРЕМЯ', u'БУДУЩЕЕ'))
             elif tag == u'1':
                 self.tags.append((u'ЛИЦО', u'1'))
             elif tag == u'2':

@@ -5,6 +5,7 @@
 	"smalltalk_generative_rules": "$MODELS/smalltalk_generative_grammars.bin",
 	
 	"smalltalk_enabled": true,
+	"generative_smalltalk_enabled": false,
 	"rules_enabled": true,
 	"force_question_answering": false,
 	"replica_after_answering": false,
