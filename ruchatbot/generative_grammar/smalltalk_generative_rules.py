@@ -23,19 +23,41 @@ class SmalltalkGenerativeRules(object):
             return [node]
 
     @staticmethod
+    def collect_rule_nodes(yaml_node):
+        res = []
+
+        if isinstance(yaml_node, list):
+            for item in yaml_node:
+                res.extend(SmalltalkGenerativeRules.collect_rule_nodes(item))
+        elif isinstance(yaml_node, dict):
+            if 'rule' in yaml_node:
+                res.append(yaml_node)
+
+            for node_key, node_inner in yaml_node.items():
+                r = SmalltalkGenerativeRules.collect_rule_nodes(node_inner)
+                res.extend(r)
+
+        return res
+
+    @staticmethod
     def compile_yaml(yaml_filepath, output_filepath, gg_dictionaries):
         smalltalk_rule2grammar = dict()
 
         with io.open(yaml_filepath, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
 
-            for rule in data['smalltalk_rules']:
+            # Нам нужно найти все упоминания актора "generate". Он может быть
+            # в резолютивной части правил на разных уровнях, поэтому просто рекурсивно обойтем
+            # все дерево узлов yaml.
+            rules = SmalltalkGenerativeRules.collect_rule_nodes(data)
+
+            for rule in rules:  #data['smalltalk_rules']:
                 condition = rule['rule']['if']
                 action = rule['rule']['then']
 
                 # Простые правила, которые задают срабатывание по тексту фразы, добавляем в отдельный
                 # список, чтобы обрабатывать в модели синонимичности одним пакетом.
-                if 'generate' in action:
+                if isinstance(action, dict) and 'generate' in action:
                     condition_keyword = None
                     if 'text' in condition:
                         condition_keyword = u'text'

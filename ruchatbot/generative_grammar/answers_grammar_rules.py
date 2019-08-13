@@ -45,7 +45,8 @@ def compile_grammar(grammar, max_len):
     grammar.add_word(u'к', u'ПРЕДЛОГ')
     grammar.add_word(u'по', u'ПРЕДЛОГ')
 
-
+    #grammar.add_word(u'мой', u'ПРИЛАГАТЕЛЬНОЕ')
+    #grammar.add_word(u'твой', u'ПРИЛАГАТЕЛЬНОЕ')
 
 
     # правое родительное дополнение для существительных

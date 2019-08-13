@@ -884,6 +884,8 @@ class GT_Replaceable(GT_Item):
                 self.tags.append((u'КРАТКИЙ', u'1'))
             elif tag == u'положит':
                 self.tags.append((u'СТЕПЕНЬ', u'АТРИБ'))
+            elif tag == u'атриб':
+                self.tags.append((u'СТЕПЕНЬ', 'АТРИБ'))
             elif tag == u'сравн':
                 self.tags.append((u'СТЕПЕНЬ', u'СРАВН'))
             elif tag == u'превосх':
@@ -933,9 +935,7 @@ class GT_Replaceable(GT_Item):
 
         for topic_word in topic_words:
             for variant in topic_word.get_variants(self.part_of_speech):
-                #if variant.word in gren:
                 for tagset in variant.tagsets:
-                    #if (u'ЧАСТЬ_РЕЧИ', variant.part_of_speech) in tagset:
                     if all((tag in tagset) for tag in self.tags):
                         selected_forms.append(GT_GeneratedWord(variant.word, variant.weight, [variant.part_of_speech]))
                         break
