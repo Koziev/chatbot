@@ -1053,7 +1053,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Не удалось найти предпосылку для формирования ответа.
 
             # Попробуем обработать вопрос правилами.
-            res = self.apply_insteadof_rule(bot, session, interlocutor, interpreted_phrase)
+            res = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
+                                            bot, session, interlocutor, interpreted_phrase)
             if not res.applied:
                 # Правила не сработали, значит выдаем реплику "Информации нет"
                 answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
