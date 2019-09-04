@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="ruchatbot",
-    version="0.0.0.23",
+    version="0.0.2.2",
     author="Ilya Koziev",
     author_email="inkoziev@gmail.com",
     description="Chatbot, NLU, dialogue management",
