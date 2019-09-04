@@ -93,15 +93,20 @@ class BotPersonality:
                 self.engine.run_form(form, self, session, user_id, interpreted_phrase)
                 return
 
-        raise KeyError(form_actor)
+        raise KeyError(form_actor.form_name)
 
     def run_scenario(self, scenario_actor, session, user_id, interpreted_phrase):
         for scenario in self.scripting.scenarios:
             if scenario.name == scenario_actor.scenario_name:
-                self.engine.run_scenario(scenario, self, session, user_id, interpreted_phrase)
+                if scenario_actor.mode == 'replace':
+                    self.engine.run_scenario(scenario, self, session, user_id, interpreted_phrase)
+                elif scenario_actor.mode == 'call':
+                    self.engine.call_scenario(scenario, self, session, user_id, interpreted_phrase)
+                else:
+                    raise NotImplementedError()
                 return
 
-        raise KeyError(scenario_actor)
+        raise KeyError(scenario_actor.scenario_name)
 
     def get_common_phrases(self):
         return self.scripting.common_phrases

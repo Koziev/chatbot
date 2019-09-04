@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
 
+import logging
+
 from ruchatbot.bot.actors import ActorBase
 
 
 class VerbalFormField(object):
+    """Описание одного поля в форме"""
     def __init__(self):
         self.name = None
+        self.source = None  # будет ли слот заполнен результатом NER или сырым ответом пользователя
         self.from_entity = None  # имя entity для заполнения
         self.from_reflection = None  # текст вопроса, который бот задаст себе, для поиска ответа
         self.question = None  # текст вопроса к пользователю
 
 
 class VerbalForm(object):
+    """Вербальная форма - формализованная сценарий ввода набора данных пользователем"""
     def __init__(self):
         self.name = None
         self.fields = []
@@ -35,11 +40,22 @@ class VerbalForm(object):
                 field.question = field_node['question']
                 if 'from_entity' in field_node:
                     field.from_entity = field_node['from_entity']
-                if 'from_reflection' in field_node:
+                    field.source = 'entity'
+                elif 'from_reflection' in field_node:
                     field.from_reflection = field_node['from_reflection']
+                    field.source = 'reflection'
+                elif 'source' in field_node:
+                    field.source = field_node['source']
+                    if field.source not in ('raw_response', 'entity', 'reflection'):
+                        logging.error(u'Unknown field source "%s"', field.source)
+                        raise RuntimeError()
+                else:
+                    # TODO: сделать внятную диагностику
+                    raise NotImplementedError()
+
                 form.fields.append(field)
 
-        # TODO: сделать загрузку instead-of и smalltalk правил
+        # TODO: сделать загрузку instead-of и smalltalk правил, которые будут проверяться при работе форму.
         #self.insteadof_rules
 
         return form

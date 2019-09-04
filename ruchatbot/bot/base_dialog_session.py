@@ -109,6 +109,19 @@ class BaseDialogSession(object):
         else:
             self.status = new_status
 
+    def call_scenario(self, running_scenario):
+        if self.status is None:
+            self.status = running_scenario
+        else:
+            self.deferred_running_items.append(self.status)
+            self.status = running_scenario
+
+    def exit_scenario(self):
+        if len(self.deferred_running_items) > 0:
+            self.status = self.deferred_running_items.pop()
+        else:
+            self.status = None
+
     def defer_status(self, new_status):
         self.deferred_running_items.append(new_status)
 

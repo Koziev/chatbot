@@ -124,3 +124,14 @@ class TextUtils(object):
             .replace(u' .', u'.').replace(u'( ', u'(').replace(u' )', u')')
         s = s[0].upper() + s[1:]
         return s
+
+    def detect_person0(self, words):
+        if any((word in (u'ты', u'тебя', u'тебе')) for word in words):
+            return 2
+
+        if any((word in (u'я', u'мне', u'меня')) for word in words):
+            return 1
+
+        return -1
+
+

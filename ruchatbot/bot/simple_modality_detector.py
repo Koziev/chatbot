@@ -19,6 +19,11 @@ class SimpleModalityDetectorRU(ModalityDetector):
         """
         person = -1
 
+        words = text_utils.tokenize(phrase)
+
+        if person == -1:
+            person = text_utils.detect_person0(words)
+
         if len(phrase) == 0:
             return ModalityDetector.undefined, person
         elif phrase[-1] == u'?':
@@ -29,8 +34,6 @@ class SimpleModalityDetectorRU(ModalityDetector):
         # 1) Закажи пиццу!
         # 2) Ты молодец!
         # Поэтому нам нужны результаты частеречной разметки, чтобы разделить эти случаи.
-
-        words = text_utils.tokenize(phrase)
 
         # Проверяем наличие вопросительных слов, которые могут быть в любом месте фразы: "а ты кто"
         if any(text_utils.is_question_word(word) for word in words):
@@ -51,7 +54,7 @@ class SimpleModalityDetectorRU(ModalityDetector):
         if any((u'Mood=Imp' in tag) for (word, tag) in tags):
             return ModalityDetector.imperative, person
 
-        if any((u'Person=2' in tag) for (word, tag) in tags) or any((word in (u'ты', u'тебя')) for (word, tag) in tags):
+        if any((u'Person=2' in tag) for (word, tag) in tags):
             person = 2
 
         return ModalityDetector.assertion, person

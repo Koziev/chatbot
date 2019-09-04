@@ -81,6 +81,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.min_premise_relevancy = 0.6
         self.min_faq_relevancy = 0.7
 
+    def get_text_utils(self):
+        return self.text_utils
+
     def get_model_filepath(self, models_folder, old_filepath):
         """
         Для внутреннего использования - корректирует абсолютный путь
@@ -245,6 +248,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         else:
             return None
 
+    def select_relevant_replica(self, replicas, session, interlocutor):
+        # TODO: использовать модель оценки уместности для взвешивания реплик
+        if replicas:
+            if len(replicas) == 1:
+                return replicas[0].get_str()
+            else:
+                return sorted(replicas, key=lambda z: -z.get_rank())[0].get_str()
+        else:
+            return None
+
+
+
+
     def interpret_phrase(self, bot, session, raw_phrase, internal_issuer):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
@@ -360,13 +376,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         session.add_phrase_to_history(answer_interpretation)
 
     def run_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
+        """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
+        будет полностью прекращен."""
         if session.get_status():
             if scenario.get_priority() <= session.get_status().get_priority():
                 self.logger.warning(u'New status priority %d is lower than priority of running status %d', scenario.get_priority(), session.get_status().get_priority())
                 session.defer_status(scenario)
                 return
             else:
-                self.logger.debug(u'New scenario priority=%d is higher than currenly running=%d', scenario.get_priority(), session.get_status().get_priority())
+                self.logger.debug(u'New scenario priority=%d is higher than currently running=%d',
+                                  scenario.get_priority(), session.get_status().get_priority())
         else:
             self.logger.debug(u'Start scenario "%s"', scenario.name)
 
@@ -376,6 +395,21 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase)
 
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+
+    def call_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
+        """Запуск вложенного сценария, при этом текущий сценарий приостанавливается до окончания нового."""
+        status = RunningScenario(scenario, current_step_index=-1)
+        session.call_scenario(status)
+        if scenario.on_start:
+            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase)
+
+        self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+
+    def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
+        session.exit_scenario()
+        if session.get_status():
+            if isinstance(session.get_status(), RunningScenario):
+                self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def run_scenario_step(self, bot, session, interlocutor, interpreted_phrase):
         running_scenario = session.get_status()
@@ -388,7 +422,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     # Сценарий исчерпан
                     if running_scenario.scenario.on_finish:
                         running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase)
-                    session.set_status(None)
+                    self.exit_scenario(bot, session, interlocutor, interpreted_phrase)
                     break
                 else:
                     running_scenario.current_step_index = new_step_index
@@ -411,7 +445,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Больше шагов нет
                 if running_scenario.scenario.on_finish:
                     running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase)
-                session.set_status(None)
+                self.exit_scenario(bot, session, interlocutor, interpreted_phrase)
         else:
             raise NotImplementedError()
 
@@ -422,13 +456,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # 1) извлечь значения полей из entities в активировавшей фразе
         for field in form.fields:
             #if False:  # ДЛЯ ОТЛАДКИ!
-            if field.from_entity:
+            if field.source == 'entity':
                 entity_value = bot.extract_entity(field.from_entity, interpreted_phrase)
                 if entity_value:
                     filled_fields[field.name] = entity_value
                     continue
-
-            if field.from_reflection:
+            elif field.source == 'reflection':
                 raise NotImplementedError()
 
             empty_fields.append(field)
@@ -786,8 +819,41 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # общения, поэтому результат интерпретации сразу добавляем в историю.
         session.add_phrase_to_history(interpreted_phrase)
 
+        input_processed = False
+        if interpreted_phrase.is_assertion and not is_question2:
+            self.logger.debug(u'Processing as assertion: "%s"', interpreted_phrase.interpretation)
+
+            # Обработка прочих фраз. Обычно это просто утверждения (новые факты, болтовня).
+            # Пробуем применить общие правила, которые опираются в том числе на
+            # intent реплики или ее текст.
+            #input_processed = bot.apply_rule(session, interlocutor, interpreted_phrase)
+            if not session.get_status() and bot.has_scripting():
+                rules = bot.get_scripting().get_insteadof_rules()
+                if rules:
+                    insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor, interpreted_phrase)
+                    input_processed = insteadof_rule_result.applied
+
+            # TODO: в принципе возможны два варианта последствий срабатывания
+            # правил. 1) считаем, что правило полностью выполнило все действия для
+            # утверждения, в том числе сохранило в базе знаний новый факт, если это
+            # необходимо. 2) полагаем, что правило что-то сделало, но факт в базу мы должны
+            # добавить сами.
+            # Возможно, надо явно задавать в правилах эти особенности (INSTEAD-OF или BEFORE)
+            # Пока считаем, что правило сделало все, что требовалось.
+
+            if not input_processed:
+                # Утверждение добавляем как факт в базу знаний, в раздел для
+                # текущего собеседника.
+                # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
+                # для текущего собеседника.
+                fact_person = '3'
+                fact = interpreted_phrase.interpretation
+                if self.trace_enabled:
+                    self.logger.info(u'Adding "%s" to knowledge base', fact)
+                bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
+
         was_running_session = False
-        if session.get_status():
+        if not input_processed and session.get_status():
             was_running_session = True
             if not interpreted_phrase.is_question:
                 if isinstance(session.get_status(), RunningFormStatus):
@@ -796,12 +862,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     # Для простоты считаем, что пользователь ответил нормально и его ответ
                     # можно использовать для заполнения
                     running_form = session.get_status()
-                    if running_form.current_field.from_entity:
+                    if running_form.current_field.source == 'entity':
                         field_value = bot.extract_entity_from_str(running_form.current_field.from_entity, interpreted_phrase.raw_phrase)
                         if not field_value:
                             # для простоты считаем, что весь исходный ответ пользователя заполняет поле формы.
                             field_value = interpreted_phrase.raw_phrase
                         running_form.fields[running_form.current_field.name] = field_value
+                    elif running_form.current_field.source == 'raw_response':
+                        field_value = interpreted_phrase.raw_phrase
+                        running_form.fields[running_form.current_field.name] = field_value
+                    else:
+                        raise NotImplementedError()
 
                     # Остались еще незаполненные поля?
                     for field in running_form.form.fields:
@@ -847,12 +918,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                     if replica:
                         if replica[-1] == '?':
-                            # Если small-talk реплика является вопросом, то надо проверить,
+                            # Если smalltalk реплика является вопросом, то надо проверить,
                             # что шаг сценария не сгенерировал тоже вопрос. Два вопроса подряд от бота
                             # мы не будем выдавать, оставим только вопрос сценария.
                             if session.get_output_buffer_phrase():
                                 if session.get_output_buffer_phrase()[-1] != '?':
                                     session.add_to_buffer(replica)
+                            else:
+                                session.add_to_buffer(replica)
                         else:
                             # Вставляем эту реплику перед фразой шага, чтобы вопрос сценария не был
                             # экранирован smalltalk-репликой.
@@ -868,71 +941,49 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 order_processed = True
         elif interpreted_phrase.is_question or is_question2:
             self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
-            # Обрабатываем вопрос собеседника (либо результат трансляции императива).
-            answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
-            for answer in answers:
-                self.say(session, answer)
 
-            # В некоторых случаях генерация реплики после ответа может быть нежелательна,
-            # например для FAQ-бота. Поэтому используем флаг в конфиге бота.
-            if bot.replica_after_answering:
-                # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
-                # Например, для смены темы разговора.
-                replica_generated = False
-                if len(answers) > 0 and bot.has_scripting():
-                    additional_speech = bot.scripting.generate_after_answer(bot,
-                                                                            self,
-                                                                            interlocutor,
-                                                                            interpreted_phrase,
-                                                                            answers[-1])
-                    if additional_speech is not None:
-                        self.say(session, additional_speech)
-                        replica_generated = True
-
-                if not replica_generated:
-                    replica = self.generate_smalltalk_replica(bot, session, interlocutor)
-                    if replica:
-                        self.say(session, replica)
-                    replica = None
-        else:
-            self.logger.debug(u'Processing as assertion: "%s"', interpreted_phrase.interpretation)
-
-            # Обработка прочих фраз. Обычно это просто утверждения (новые факты, болтовня).
-            # Пробуем применить общие правила, которые опираются в том числе на
-            # intent реплики или ее текст.
-            #input_processed = bot.apply_rule(session, interlocutor, interpreted_phrase)
+            replica = None
             input_processed = False
+
             if not session.get_status() and bot.has_scripting():
                 rules = bot.get_scripting().get_insteadof_rules()
                 if rules:
                     insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor, interpreted_phrase)
                     input_processed = insteadof_rule_result.applied
 
-            # TODO: в принципе возможны два варианты последствий срабатывания
-            # правил. 1) считаем, что правило полностью выполнило все действия для
-            # утверждения, в том числе сохранило в базе знаний новый факт, если это
-            # необходимо. 2) полагаем, что правило что-то сделало, но факт в базу мы должны
-            # добавить сами.
-            # Возможно, надо явно задавать в правилах эти особенности (INSTEAD-OF или BEFORE)
-            # Пока считаем, что правило сделало все, что требовалось.
-
-            answer_generated = False
-            answer = None
-
             if not input_processed:
-                # Утверждение добавляем как факт в базу знаний, в раздел для
-                # текущего собеседника.
-                # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
-                # для текущего собеседника.
-                fact_person = '3'
-                fact = interpreted_phrase.interpretation
-                if self.trace_enabled:
-                    self.logger.info(u'Adding "%s" to knowledge base', fact)
-                bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
+                # Обрабатываем вопрос собеседника (либо результат трансляции императива).
+                answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
+                for answer in answers:
+                    self.say(session, answer)
 
+                # В некоторых случаях генерация реплики после ответа может быть нежелательна,
+                # например для FAQ-бота. Поэтому используем флаг в конфиге бота.
+                if bot.replica_after_answering:
+                    # Возможно, кроме ответа на вопрос, надо выдать еще какую-то реплику.
+                    # Например, для смены темы разговора.
+                    replica_generated = False
+                    if len(answers) > 0 and bot.has_scripting():
+                        additional_speech = bot.scripting.generate_after_answer(bot,
+                                                                                self,
+                                                                                interlocutor,
+                                                                                interpreted_phrase,
+                                                                                answers[-1])
+                        if additional_speech is not None:
+                            self.say(session, additional_speech)
+                            replica_generated = True
+
+                    if not replica_generated:
+                        replica = self.generate_smalltalk_replica(bot, session, interlocutor)
+                        if replica:
+                            self.say(session, replica)
+                        replica = None
+        elif interpreted_phrase.is_assertion:
             # Теперь генерация реплики для случая, когда реплика собеседника - не-вопрос.
             # 13.07.2019 если применено INSTEADOF-правило, но оно не сгенерировало никакую ответную реплику,
             # то есть резон сказать что-то на базе common_phrases
+            answer_generated = False
+            answer = None
             if not was_running_session:
                 if not input_processed or not insteadof_rule_result.replica_is_generated:
                     replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
@@ -1036,10 +1087,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                     if len(premises2) > 0:
                         # генерация ответа на основе выбранной предпосылки.
-                        answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
-                                                                                     interpreted_phrase.interpretation,
-                                                                                     self.text_utils,
-                                                                                     self.word_embeddings)
+                        # 28.08.2019 для вопросов к боту в качестве ответа будем выдавать полный текст найденного
+                        # факта.
+                        if interpreted_phrase.person == 2 and len(premises2) == 1 and len(premises2[0]) == 1:
+                            answers.append(premises2[0][0])
+                            answer_rels.append(1.0)
+                        else:
+                            answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                         interpreted_phrase.interpretation,
+                                                                                         self.text_utils,
+                                                                                         self.word_embeddings)
 
         if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если

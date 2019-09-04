@@ -3,6 +3,7 @@
 import random
 
 from ruchatbot.bot.running_form_status import RunningFormStatus
+from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
 
 
 class ActorBase(object):
@@ -22,6 +23,8 @@ class ActorBase(object):
             return ActorForm.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'scenario':
             return ActorScenario.from_yaml(yaml_node[actor_keyword])
+        elif actor_keyword == 'generate':
+            return ActorGenerate.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'nothing':
             return ActorNothing()
         else:
@@ -218,14 +221,87 @@ class ActorScenario(ActorBase):
     def __init__(self):
         super(ActorScenario, self).__init__('scenario')
         self.scenario_name = None
+        self.mode = 'replace'
 
     @staticmethod
     def from_yaml(yaml_node):
         actor = ActorScenario()
-        assert(isinstance(yaml_node, str))
-        actor.scenario_name = str(yaml_node)
+        if isinstance(yaml_node, str):
+            actor.scenario_name = str(yaml_node)
+        elif isinstance(yaml_node, dict):
+            actor.scenario_name = yaml_node['name']
+            if 'mode' in yaml_node:
+                actor.mode = yaml_node['mode']
+                assert actor.mode in ('replace', 'call')
+        else:
+            raise NotImplementedError()
+
         return actor
 
     def do_action(self, bot, session, interlocutor, interpreted_phrase):
         bot.run_scenario(self, session, interlocutor, interpreted_phrase)
         return True
+
+
+class ActorGenerate(ActorBase):
+    """Генерация реплики по заданому шаблону и вывод результата от имени бота."""
+    def __init__(self):
+        super(ActorGenerate, self).__init__('generate')
+        self.templates = []
+        self.wordbag_questions = []
+        self.wordbag_words = []
+
+    @staticmethod
+    def from_yaml(yaml_node):
+        actor = ActorGenerate()
+
+        if isinstance(yaml_node, dict):
+            # Расширенный формат.
+            for inner_keyword in yaml_node.keys():
+                if 'templates' == inner_keyword:
+                    for template in yaml_node['templates']:
+                        actor.templates.append(template)
+                elif 'template' == inner_keyword:
+                    actor.templates.append(yaml_node[inner_keyword])
+                elif 'wordbag_question' == inner_keyword:
+                    actor.wordbag_questions.append(yaml_node[inner_keyword])
+                elif 'wordbag_word' == inner_keyword:
+                    actor.wordbag_words.append(yaml_node[inner_keyword])
+                else:
+                    raise NotImplementedError()
+        elif isinstance(yaml_node, str):
+            raise NotImplementedError()
+
+        return actor
+
+    def do_action(self, bot, session, interlocutor, interpreted_phrase):
+        uttered = False
+
+        wordbag = []
+        for question in self.wordbag_questions:
+            if bot.get_engine().does_bot_know_answer(question, bot, session, interlocutor):
+                interpreted_phrase2 = InterpretedPhrase(question)
+                answers = bot.get_engine().build_answers(session, bot, interlocutor, interpreted_phrase2)
+                for answer in answers:
+                    tokens = bot.get_engine().get_text_utils().tokenize(answer)
+                    wordbag.extend((word, 1.0) for word in tokens)
+
+        wordbag.extend((word, 1.0) for word in self.wordbag_words)
+
+        if len(wordbag) > 0:
+            replicas = []
+            for template_str in self.templates:
+                replicas1 = bot.get_engine().replica_grammar.generate_by_terms(template_str,
+                                                                               wordbag,
+                                                                               bot.get_engine().get_text_utils().known_words,
+                                                                               use_assocs=False)
+                replicas.extend(replicas1)
+
+            if len(replicas) > 0:
+
+                # Выбираем одну рандомную реплику среди сгенерированных.
+                # TODO: взвешивать через модель уместности по контексту
+                bot.say(session, bot.get_engine().select_relevant_replica(replicas, session, interlocutor))
+                uttered = True
+
+        return uttered
