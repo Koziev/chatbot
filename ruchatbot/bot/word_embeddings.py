@@ -22,7 +22,6 @@ class WordEmbeddings(object):
         self.wordchar2vector_model = None
         self.logger = logging.getLogger('WordEmbeddings')
 
-
     def load_models(self, models_folder):
         """
         Загружаются нейросетевые модели, позволяющие сгенерировать
@@ -35,18 +34,25 @@ class WordEmbeddings(object):
 
     def load_wc2v_model(self, wc2v_path):
         self.logger.info(u'Loading wordchar2vector from "%s"', wc2v_path)
-        self.wc2v = gensim.models.KeyedVectors.load_word2vec_format(wc2v_path, binary=False)
-        self.wc2v_dims = len(self.wc2v.syn0[0])
+        if wc2v_path.endswith('.kv'):
+            self.wc2v = gensim.models.KeyedVectors.load(wc2v_path, mmap='r')
+        else:
+            self.wc2v = gensim.models.KeyedVectors.load_word2vec_format(wc2v_path, binary=False)
+        self.wc2v_dims = len(self.wc2v.vectors[0])
 
     def load_w2v_model(self, w2v_path):
         w2v_filename = os.path.basename(w2v_path)
         if w2v_filename not in self.w2v:
             self.logger.info(u'Loading word2vector from "%s"', w2v_path)
-            w2v = gensim.models.KeyedVectors.load_word2vec_format(w2v_path, binary=not w2v_path.endswith('.txt'))
+            if w2v_path.endswith('.kv'):
+                w2v = gensim.models.KeyedVectors.load(w2v_path, mmap='r')
+            else:
+                w2v = gensim.models.KeyedVectors.load_word2vec_format(w2v_path, binary=not w2v_path.endswith('.txt'))
+
             # При обучении и при предсказании пути к w2v данным могут отличаться, так как
             # тренеры и сами боты работают на разных машинах. Поэтому селектируем по имени файла, без пути.
             self.w2v[w2v_filename] = w2v
-            self.w2v_dims[w2v_filename] = len(w2v.syn0[0])
+            self.w2v_dims[w2v_filename] = len(w2v.vectors[0])
 
     def vectorize_words(self, w2v_filename, words, X_batch, irow):
         w2v = self.w2v[w2v_filename]
