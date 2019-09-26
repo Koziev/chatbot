@@ -1004,9 +1004,20 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if bot.has_scripting():
             order_processed = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(), bot, session, interlocutor, interpreted_phrase)
 
-        if order_processed:
+        if order_processed and order_processed.applied:
             return True
         else:
+            if bot.faq:
+                best_faq_answer, best_faq_rel, best_faq_question = bot.faq.get_most_similar(
+                    interpreted_phrase.interpretation,
+                    self.synonymy_detector,
+                    self.word_embeddings,
+                    self.text_utils)
+                if best_faq_rel > self.synonymy_detector.get_threshold():
+                    self.logger.debug(u'Found FAQ rel=%g answer="%s"', best_faq_rel, best_faq_answer)
+                    bot.say(session, best_faq_answer)
+                    return True
+
             return bot.process_order(session, interlocutor, interpreted_phrase)
 
     def apply_rule(self, bot, session, interpreted_phrase):

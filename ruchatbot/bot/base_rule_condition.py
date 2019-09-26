@@ -51,8 +51,7 @@ class BaseRuleCondition(object):
                 raise NotImplementedError()
         elif u'keyword' in self.condition:
             if isinstance(self.condition[u'keyword'], list) or isinstance(self.condition[u'keyword'], str):
-                text_utils = answering_engine.get_text_utils()
-
+                #text_utils = answering_engine.get_text_utils()
                 if isinstance(self.condition[u'keyword'], list):
                     etalons = self.condition[u'keyword']
                 else:
@@ -61,10 +60,10 @@ class BaseRuleCondition(object):
                 matchers = [KeywordMatcher.from_string(etalon) for etalon in etalons]
 
                 for matcher in matchers:
-                    if matcher.match(interpreted_phrase):
-                        return True
+                    if not matcher.match(interpreted_phrase):
+                        return False
 
-                return False
+                return True
         elif u'regex' in self.condition:
             rx_str = self.condition['regex']
             return re.search(rx_str, interpreted_phrase.interpretation, flags=re.IGNORECASE)
