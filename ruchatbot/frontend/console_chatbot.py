@@ -6,6 +6,7 @@
 import os
 import argparse
 import logging
+import sys
 
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader

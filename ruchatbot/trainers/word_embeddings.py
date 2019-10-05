@@ -45,32 +45,36 @@ class WordEmbeddings(object):
           вектор встраивания для слова.
         """
 
-        logging.info('Loading the wordchar2vector model {} '.format(wordchar2vector_path))
+        logging.info('Loading the wordchar2vector model "%s"', wordchar2vector_path)
         # Грузим заранее подготовленные векторы слов для модели
         # встраивания wordchar2vector (см. wordchar2vector.py)
-        wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
-        wc2v_dims = len(wc2v.syn0[0])
-        logging.debug('wc2v_dims={0}'.format(wc2v_dims))
+        if wordchar2vector_path.endswith('.kv'):
+            wc2v = gensim.models.KeyedVectors.load(wordchar2vector_path, mmap='r')
+        else:
+            wc2v = gensim.models.KeyedVectors.load_word2vec_format(wordchar2vector_path, binary=False)
+        wc2v_dims = len(wc2v.vectors[0])
+        logging.debug('wc2v_dims=%d', wc2v_dims)
 
         if os.path.basename(word2vector_path).startswith('fasttext'):
             logging.info('Loading FastText model {} '.format(word2vector_path))
             WordEmbeddings._flush_print()
             w2v = FastText.load_fasttext_format(word2vector_path)
             w2v_dims = w2v.vector_size
-            print('w2v_dims={0}'.format(w2v_dims))
+            logging.debug('w2v_dims=%d', w2v_dims)
             return WordEmbeddings_FastText(wc2v, wc2v_dims, w2v, w2v_dims)
         else:
-            logging.info('Loading w2v model {} '.format(word2vector_path))
+            logging.info('Loading w2v model "%s"', word2vector_path)
             WordEmbeddings._flush_print()
-            w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
-            w2v_dims = len(w2v.syn0[0])
-            logging.debug('w2v_dims={0}'.format(w2v_dims))
+            if word2vector_path.endswith('.kv'):
+                w2v = gensim.models.KeyedVectors.load(word2vector_path, mmap='r')
+            else:
+                w2v = gensim.models.KeyedVectors.load_word2vec_format(word2vector_path, binary=not word2vector_path.endswith('.txt'))
+            w2v_dims = len(w2v.vectors[0])
+            logging.debug('w2v_dims=%d', w2v_dims)
             return WordEmbeddings_W2V(wc2v, wc2v_dims, w2v, w2v_dims)
 
     def all_words_known(self, words):
         return all((word in self.wc2v) for word in words)
-
-
 
 
 class WordEmbeddings_W2V(object):
@@ -87,6 +91,9 @@ class WordEmbeddings_W2V(object):
         self.wc2v = wc2v
         self.missing_wc2c = set()
 
+    def get_vector_size(self):
+        return self.vector_size
+
     def __contains__(self, word):
         return word != u''
 
@@ -101,7 +108,7 @@ class WordEmbeddings_W2V(object):
 
         if word not in self.wc2v:
             if word not in self.missing_wc2c:
-                logging.error(u'Word {} missing in wordchar2vector model'.format(word))
+                logging.error(u'Word "%s" missing in wordchar2vector model', word)
                 self.missing_wc2c.add(word)
         else:
             v[self.w2v_dims:] = self.wc2v[word]

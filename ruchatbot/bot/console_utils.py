@@ -28,9 +28,15 @@ def input_kbd(prompt):
             return u''
     else:
         try:
-            return input(prompt.strip() + u' ').strip()
+            #return input(prompt.strip() + u' ').strip()
+            sys.stdout.flush()
+            print(prompt.strip()+u' ', end='', flush=True)
+            s = sys.stdin.buffer.readline()
+            s = s.decode('utf-8', 'ignore')
+            s = s.strip()
+            return s
         except Exception as ex:
-            logging.exception('Error occured when decoding raw_input string')
+            logging.exception('Error occured when decoding sys.stdin data')
             return u''
 
 
