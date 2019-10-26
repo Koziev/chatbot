@@ -320,15 +320,22 @@ def calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id):
         if phrase1 not in premise2samples:
             premise2samples[phrase1] = [(phrase2, 1)]
 
+    # 23-10-2019 добавим готовые негативные примеры из датасета.
+    for i, r1 in df_val[df_val['relevance'] == 0].iterrows():
+        phrase1 = r1['premise']
+        phrase2 = r1['question']
+        if phrase1 in premise2samples:
+            premise2samples[phrase1].append((phrase2, 1))
+
     for i, r2 in df_val[df_val['relevance'] == 0].iterrows():
         phrase1 = r2['premise']
         phrase2 = r2['question']
         # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению.
         for phrase1_1, samples_1 in premise2samples.items():
             if phrase1 != phrase1_1:
-                if len(premise2samples[phrase1_1]) < 50:
-                    if (phrase2, 0) not in premise2samples[phrase1_1] and (phrase2, 1) not in premise2samples[
-                        phrase1_1]:
+                if len(premise2samples[phrase1_1]) < 100:
+                    phrases2 = premise2samples[phrase1_1]
+                    if (phrase2, 0) not in phrases2 and (phrase2, 1) not in phrases2:
                         premise2samples[phrase1_1].append((phrase2, 0))
 
     # Теперь в premise2samples для каждой фразы-ключа есть некоторое количество сравниваемых
@@ -955,9 +962,11 @@ if run_mode == 'hardnegative':
                         block = []
                     else:
                         if len(phrase) > 5 and not phrase.startswith('#') and u'_' not in phrase:
-                            phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                            test_phrases.add((phrase2, phrase))
-                            block.append(phrase)
+                            words = tokenizer.tokenize(phrase)
+                            if len(words) > 2:
+                                phrase2 = u' '.join(words)
+                                test_phrases.add((phrase2, phrase))
+                                block.append(phrase)
 
         if True:
             with io.open(os.path.join(data_folder, 'intents.txt'), 'r', encoding='utf-8') as rdr:
@@ -973,8 +982,10 @@ if run_mode == 'hardnegative':
                     phrase = line.strip()
                     if len(phrase) > 5 and phrase.startswith(u'Q:'):
                         phrase = phrase.replace(u'Q:', u'').strip()
-                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                        test_phrases.add((phrase2, phrase))
+                        words = tokenizer.tokenize(phrase)
+                        if len(words) > 2:
+                            phrase2 = u' '.join(words)
+                            test_phrases.add((phrase2, phrase))
     else:
         raise NotImplementedError()
 
