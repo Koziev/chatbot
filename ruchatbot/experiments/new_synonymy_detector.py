@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-Эксперименты с альтернативными моделями детектора перефразировок.
+Эксперименты с альтернативными моделями детектора перефразировок для чатбота.
 Представление сопоставляемых фраз - мешок шинглов или фрагментов от SentencePiece.
 Алгоритмы - различные бинарные классификаторы из sklearn.
 Также проверяем влияние random projections.
@@ -10,6 +10,10 @@
 2) eval - оценка оптимальной модели через кроссвалидацию
 3) train - тренировка лучшей модели и сохранение ее в pickle файле
 4) query - ручная проверка натренированной модели
+
+
+27-10-2019 переход на метрицу mean reciprocal rank, перебор вариантов наборов фич
+
 """
 
 from __future__ import print_function
@@ -86,6 +90,9 @@ class ShingleVectorizer(object):
             res.append(set(self.shingle2index[shingle] for shingle in phrase_sx if shingle in self.shingle2index))
         return res
 
+    def get_feature_names(self):
+        return [shingle for (shingle, index) in sorted(self.shingle2index.items(), key=lambda z: z[1])]
+
 
 class SentencePieceVectorizer(object):
     def __init__(self, vocab_size):
@@ -133,6 +140,13 @@ def and_setlists(sets1, sets2):
     return res
 
 
+def or_setlists(sets1, sets2):
+    res = []
+    for set1, set2 in zip(sets1, sets2):
+        res.append(set1 | set2)
+    return res
+
+
 def sub_setlists(sets1, sets2):
     res = []
     for set1, set2 in zip(sets1, sets2):
@@ -156,8 +170,8 @@ def create_vectorizer(samples, params):
 
     vectorizer_key = None
     if params['analyzer'] == 'char':
-        vectorizer_key = '{}|{}|{}|{}'.format(params['analyzer'], params['min_shingle_len'],
-                                              params['max_shingle_len'], params['min_df'])
+        vectorizer_key = '{}|{}|{}|{}|{}'.format(params['analyzer'], params['min_shingle_len'],
+                                              params['max_shingle_len'], params['min_df'], params['featureset'])
     elif params['analyzer'] == 'sentencepiece':
         vectorizer_key = '{}|{}'.format(params['analyzer'], params['vocab_size'])
     else:
@@ -202,7 +216,18 @@ def vectorize_data2(phrases1, phrases2, vectorizer, params):
         common_shingles = sets2matrix(and_setlists(ps, qs), nb_shingles)
         notmatched_ps = sets2matrix(sub_setlists(ps, qs), nb_shingles)
         notmatched_qs = sets2matrix(sub_setlists(qs, ps), nb_shingles)
-        X_data = scipy.sparse.hstack([common_shingles, notmatched_ps, notmatched_qs])
+
+        if params['featureset'] == 0:
+            X_data = scipy.sparse.hstack([common_shingles, notmatched_ps, notmatched_qs])
+        elif params['featureset'] == 1:
+            p_shingles = sets2matrix(ps, nb_shingles)
+            q_shingles = sets2matrix(qs, nb_shingles)
+            X_data = scipy.sparse.hstack([p_shingles, q_shingles, common_shingles, notmatched_ps, notmatched_qs])
+        elif params['featureset'] == 2:
+            different_shingles = sets2matrix(or_setlists(sub_setlists(ps, qs), sub_setlists(qs, ps)), nb_shingles)
+            X_data = scipy.sparse.hstack([common_shingles, different_shingles])
+        else:
+            raise NotImplementedError()
     else:
         rp_transformer = random_projection.GaussianRandomProjection(100)
         #rp_transformer = random_projection.SparseRandomProjection()
@@ -297,92 +322,61 @@ class GridGenerator(object):
     def __init__(self):
         pass
 
-    def generate(self):
-        model_params = dict()
-
+    def vectorizer_grid(self):
         for analyzer in ['char']:  # 'sentencepiece', 'char'
-            model_params['analyzer'] = analyzer
-
             if analyzer == 'sentencepiece':
                 for vocab_size in [4000, 8000]:
-                    model_params['vocab_size'] = vocab_size
-
                     for random_proj in [0]:
+                        model_params = dict()
+                        model_params['analyzer'] = analyzer
+                        model_params['vocab_size'] = vocab_size
                         model_params['random_proj'] = random_proj
-
-                        for engine in ['LogisticRegression']:  #, 'GBM', 'LogisticRegression', 'SVC']:
-                            model_params['engine'] = engine
-
-                            if engine == 'GBM':
-                                for learning_rate in [0.05, 0.1, 0.3]:
-                                    model_params['learning_rate'] = learning_rate
-
-                                    for n_estimators in [50, 100, 200]:
-                                        model_params['n_estimators'] = n_estimators
-
-                                        for subsample in [1.0, 0.8]:
-                                            model_params['subsample'] = subsample
-
-                                            for min_samples_split in [2]:
-                                                model_params['min_samples_split'] = min_samples_split
-
-                                                for min_samples_leaf in [1]:
-                                                    model_params['min_samples_leaf'] = min_samples_leaf
-
-                                                    for max_depth in [3, 4, 5]:
-                                                        model_params['max_depth'] = max_depth
-
-                                                        yield model_params
-                            else:
-                                for penalty in ['l2']:
-                                    model_params['penalty'] = penalty
-                                    for model_C in [1e2, 1e3, 1e4, 1e5]:
-                                        model_params['C'] = model_C
-                                        yield model_params
+                        yield model_params
             else:
                 for random_proj in [0]:
-                    model_params['random_proj'] = random_proj
-
                     for min_shingle_len in [3]:
-                        model_params['min_shingle_len'] = min_shingle_len
                         for max_shingle_len in [4]:
-                            model_params['max_shingle_len'] = max_shingle_len
                             for min_df in [1]:
-                                model_params['min_df'] = min_df
+                                for featureset in [2, 0, 1]:
+                                    model_params = dict()
+                                    model_params['analyzer'] = analyzer
+                                    model_params['random_proj'] = random_proj
+                                    model_params['min_shingle_len'] = min_shingle_len
+                                    model_params['max_shingle_len'] = max_shingle_len
+                                    model_params['min_df'] = min_df
+                                    model_params['featureset'] = featureset
+                                    yield model_params
 
-                                for engine in ['LogisticRegression']:  # 'LinearSVC', 'GBM', 'LogisticRegression', 'SVC'
-                                    model_params['engine'] = engine
-
-                                    if engine == 'GBM':
-                                        for learning_rate in [0.05, 0.1, 0.3]:
-                                            model_params['learning_rate'] = learning_rate
-
-                                            for n_estimators in [50, 100, 200]:
-                                                model_params['n_estimators'] = n_estimators
-
-                                                for subsample in [1.0, 0.8]:
-                                                    model_params['subsample'] = subsample
-
-                                                    for min_samples_split in [2]:
-                                                        model_params['min_samples_split'] = min_samples_split
-
-                                                        for min_samples_leaf in [1]:
-                                                            model_params['min_samples_leaf'] = min_samples_leaf
-
-                                                            for max_depth in [3, 4, 5]:
-                                                                model_params['max_depth'] = max_depth
-
-                                                                yield model_params
-                                    else:
-                                        for penalty in ['l2']:
-                                            model_params['penalty'] = penalty
-                                            for model_C in [1e2, 1e3, 1e4, 1e5]:
-                                                model_params['C'] = model_C
-                                                yield model_params
+    def estimator_grid(self):
+        for engine in ['LogisticRegression']:  # 'LinearSVC', 'GBM', 'LogisticRegression', 'SVC'
+            if engine == 'GBM':
+                for learning_rate in [0.05, 0.1, 0.3]:
+                    for n_estimators in [50, 100, 200]:
+                        for subsample in [1.0, 0.8]:
+                            for min_samples_split in [2]:
+                                for min_samples_leaf in [1]:
+                                    for max_depth in [3, 4, 5]:
+                                        model_params = dict()
+                                        model_params['engine'] = engine
+                                        model_params['max_depth'] = max_depth
+                                        model_params['learning_rate'] = learning_rate
+                                        model_params['n_estimators'] = n_estimators
+                                        model_params['subsample'] = subsample
+                                        model_params['min_samples_split'] = min_samples_split
+                                        model_params['min_samples_leaf'] = min_samples_leaf
+                                        yield model_params
+            else:
+                for penalty in ['l2']:
+                    for model_C in [1e2, 1e3, 1e4, 1e5]:
+                        model_params = dict()
+                        model_params['engine'] = engine
+                        model_params['penalty'] = penalty
+                        model_params['C'] = model_C
+                        yield model_params
 
 
 def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
-    # Код для получения оценочной метрики "качество ранжирования".
+    # Код для получения оценочных метрик качества ранжирования.
     premise2samples = dict()
 
     # Опорные сэмплы из релевантных пар
@@ -418,7 +412,7 @@ def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
     nb_good = 0
     nb_total = 0
 
-    pos_list = []
+    ranks = []
     for phrase1, samples2 in premise2samples.items():
         samples3 = [(phrase1, s[0], s[1]) for s in samples2]
         X_data, y_data = vectorize_data(samples3, vectorizer, model_params)
@@ -431,14 +425,18 @@ def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
         phrase_y = [(s, y) for s, y in zip(samples2, y_pred)]
         phrase_y = sorted(phrase_y, key=lambda z: -z[1])
 
-        # Ищем позицию сэмпла с релевантной парой
+        # Ищем позицию сэмпла с релевантной парой - это будет ее ранг (прибавить 1!).
         true_pos = next(i for (i, z) in enumerate(phrase_y) if z[0][1] == 1)
-        pos_list.append(true_pos)
+        ranks.append(true_pos)
 
-    mean_pos = np.mean(pos_list)
+    # mean reciprocal rank
+    # https://en.wikipedia.org/wiki/Mean_reciprocal_rank
+    mrr = np.mean([1./(1.0+rank) for rank in ranks])
 
-    rank_accuracy = float(nb_good) / nb_total
-    return rank_accuracy, mean_pos
+    # precision@1
+    # https://en.wikipedia.org/wiki/Evaluation_measures_(information_retrieval)#Precision_at_K
+    precision1 = float(nb_good) / nb_total
+    return precision1, mrr
 
 
 def collect_strings(d):
@@ -466,6 +464,25 @@ def load_strings_from_yaml(yaml_path):
             if u'_' not in phrase and any((c in u'абвгдеёжзийклмнопрстуфхцчшщъыьэюя') for c in phrase):
                 res.append(phrase)
     return res
+
+
+def print_shingle(shingle):
+    return shingle.replace(BEG_CHAR, r'\b').replace(END_CHAR, r'\n')
+
+
+def get_feature_names(vectorizer):
+    shingles = vectorizer.get_feature_names()
+    feature_names = []
+    for shingle in shingles:
+        feature_names.append(u'{}(a&b)'.format(print_shingle(shingle)))
+
+    for shingle in shingles:
+        feature_names.append(u'{}(a-b)'.format(print_shingle(shingle)))
+
+    for shingle in shingles:
+        feature_names.append(u'{}(b-a)'.format(print_shingle(shingle)))
+
+    return feature_names
 
 
 if __name__ == '__main__':
@@ -513,40 +530,43 @@ if __name__ == '__main__':
         best_score = 0.0
         crossval_count = 0
 
-        for model_params in GridGenerator().generate():
-            vectorizer = create_vectorizer(samples, model_params)
+        grid = GridGenerator()
+        for vectorizer_params in grid.vectorizer_grid():
+            vectorizer = create_vectorizer(samples, vectorizer_params)
+            for estimator_params in grid.estimator_grid():
+                model_params = vectorizer_params.copy()
+                model_params.update(estimator_params)
+                logging.info(u'Cross-validation using model_params: {}'.format(get_params_str(model_params)))
 
-            logging.info(u'Cross-validation using model_params: {}'.format(get_params_str(model_params)))
+                crossval_count += 1
+                kf = KFold(n_splits=NFOLDS)
+                scores = []
+                mrrs = []
+                for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
+                    train_samples = [samples[i] for i in train_index]
+                    val_samples = [samples[i] for i in val_index]
 
-            crossval_count += 1
-            kf = KFold(n_splits=NFOLDS)
-            scores = []
-            mean_poses = []
-            for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
-                train_samples = [samples[i] for i in train_index]
-                val_samples = [samples[i] for i in val_index]
+                    X_train, y_train = vectorize_data(train_samples, vectorizer, model_params)
+                    X_val, y_val = vectorize_data(val_samples, vectorizer, model_params)
 
-                X_train, y_train = vectorize_data(train_samples, vectorizer, model_params)
-                X_val, y_val = vectorize_data(val_samples, vectorizer, model_params)
+                    estimator = create_estimator(model_params)
+                    estimator.fit(X_train, y_train)
+                    precision1, mrr = compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples)
+                    scores.append(precision1)
+                    mrrs.append(mrr)
 
-                estimator = create_estimator(model_params)
-                estimator.fit(X_train, y_train)
-                score, mean_pos = compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples)
-                scores.append(score)
-                mean_poses.append(mean_pos)
+                precision1 = np.mean(scores)
+                precision1_std = np.std(scores)
+                logging.info('Crossvalidation #{} precision@1={} std={} mean reciprocal rank={}'.format(crossval_count, precision1, precision1_std, np.mean(mrrs)))
 
-            score = np.mean(scores)
-            score_std = np.std(scores)
-            logging.info('Crossvalidation #{} precision@1={} std={} mean_pos={}'.format(crossval_count, score, score_std, np.mean(mean_poses)))
-
-            if score > best_score:
-                logging.info('!!! NEW BEST !!! precision@1={} params={}'.format(score, get_params_str(model_params)))
-                best_score = score
-                best_model_params = model_params.copy()
-                with open(best_params_path, 'w') as f:
-                    json.dump(best_model_params, f, indent=4)
-            else:
-                logging.info('No improvement over current best_score={}'.format(best_score))
+                if precision1 > best_score:
+                    logging.info('!!! NEW BEST !!! precision@1={} params={}'.format(precision1, get_params_str(model_params)))
+                    best_score = precision1
+                    best_model_params = model_params.copy()
+                    with open(best_params_path, 'w') as f:
+                        json.dump(best_model_params, f, indent=4)
+                else:
+                    logging.info('No improvement over current best_score={}'.format(best_score))
 
         logging.info('best_score={} for model_params: {}'.format(best_score, get_params_str(best_model_params)))
 
@@ -583,7 +603,7 @@ if __name__ == '__main__':
         with open(best_params_path, 'r') as f:
             best_model_params = json.load(f)
 
-        best_vectorizer, X_data, y_data = data_vectorization(df, best_model_params)
+        best_vectorizer, X_data, y_data = data_vectorization(samples, best_model_params)
 
         # финальное обучение классификатора на всех данных
         logging.info('Training the final classifier model_params: %s', get_params_str(best_model_params))
@@ -596,6 +616,27 @@ if __name__ == '__main__':
         logging.info('Storing model to "%s"', model_path)
         with open(model_path, 'wb') as f:
             pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # Выведем веса признаков для визуального анализа
+        feature_names = get_feature_names(best_vectorizer)
+        with io.open(os.path.join(tmp_dir, 'new_synonymy_detector.features.txt'), 'w', encoding='utf-8') as wrt:
+            feature_weights = []
+            if isinstance(estimator, LogisticRegression) or isinstance(estimator, LinearSVC):
+                assert len(estimator.coef_) == 1
+                nb_features = len(feature_names)
+                for feature_index in range(nb_features):
+                    feature_term = feature_names[feature_index]
+                    feature_weight = estimator.coef_[0][feature_index]
+                    if feature_weight != 0.0:
+                        feature_weights.append((feature_term, feature_weight))
+
+            # Выведем отдельно топ-100 негативных и позитивных
+            for feature, weight in sorted(feature_weights, key=lambda z: -z[1])[:100]:
+                wrt.write(u'{:<10s} = {}\n'.format(feature, weight))
+            wrt.write('\n\n...\n\n')
+            for feature, weight in sorted(feature_weights, key=lambda z: -z[1])[-100:]:
+                wrt.write(u'{:<10s} = {}\n'.format(feature, weight))
+
 
         logging.info('All done.')
 
@@ -679,7 +720,7 @@ if __name__ == '__main__':
         nb_phrases = len(phrases2)
 
         while True:
-            phrase1 = input_kbd(':> ').strip()
+            phrase1 = input(':> ').strip()
             phrase1  = u' '.join(tokenizer.tokenize(phrase1))
             X_data = vectorize_data2([phrase1] * nb_phrases, [z[0] for z in phrases], vectorizer, best_model_params)
             y_query = model['estimator'].predict_proba(X_data)[:, 1]
