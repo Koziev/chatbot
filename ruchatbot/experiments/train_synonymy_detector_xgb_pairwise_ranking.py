@@ -26,6 +26,7 @@ import argparse
 import collections
 import io
 import yaml
+import random
 import tqdm
 
 import scipy.sparse
@@ -174,15 +175,25 @@ def load_data(dataset_path, tmp_dir, max_groups):
 
         logging.info('%d relevant pairs', len(premise2samples))
 
-        for i, r2 in tqdm.tqdm(df[df['relevance'] == 0].iterrows(), desc='Add nonrelevant', total=df[df['relevance'] == 0].shape[0]):
-            phrase1 = r2['premise']
-            phrase2 = r2['question']
-            # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению.
-            for phrase1_1, samples_1 in premise2samples.items():
-                if phrase1 != phrase1_1:
-                    if len(premise2samples[phrase1_1]) < GROUP_SIZE:
-                        if (phrase2, 0) not in premise2samples[phrase1_1] and (phrase2, 1) not in premise2samples[phrase1_1]:
-                            premise2samples[phrase1_1].append((phrase2, 0))
+        # Добавим нерелевантные сэмплы.
+        # Будем брать случайные вторые фразы из релевантных пар.
+        df_1 = df[df['relevance'] == 1]
+
+        for phrase1_1, samples in tqdm.tqdm(premise2samples.items(), desc='Add nonrelevant', total=len(premise2samples)):
+            # Сейчас в samples есть только заданные в датасете позитивный и негативные
+            # пары. Надо добавить негативных, чтобы размер группы стал заданным.
+            samples_set = set(samples)
+
+            additional_samples = set()
+            for i, r2 in df_1.sample(GROUP_SIZE*10).iterrows():
+                phrase1 = r2['premise']
+                phrase2 = r2['question']
+                if (phrase2, 0) not in samples_set and (phrase2, 1) not in samples_set:
+                    additional_samples.add((phrase2, 0))
+
+            additional_samples = list(additional_samples)
+            additional_samples = random.sample(additional_samples, GROUP_SIZE - len(samples))
+            samples.extend(additional_samples)
 
         # Теперь в premise2samples для каждой фразы-ключа есть некоторое количество сравниваемых
         # фраз, из которых только 1 релевантна. Мы должны проверить, что модель именно эту пару
@@ -337,10 +348,10 @@ class GridGenerator(object):
 
     def estimator_grid(self):
         """ Перебор параметров ранжировщика """
-        for engine in ['LGBMRanker']:  # , 'XGBRanker'
-            for learning_rate in [0.1]:
-                for n_estimators in [300, 800]:
-                    for max_depth in [6] if engine == 'XGBRanker' else [-1]:
+        for engine in ['XGBRanker']:  # 'LGBMRanker', 'XGBRanker'
+            for learning_rate in [0.2, 0.25]:
+                for n_estimators in [1500, 2000]:
+                    for max_depth in [6, 7] if engine == 'XGBRanker' else [-1]:
                         model_params = dict()
                         model_params['engine'] = engine
                         model_params['n_estimators'] = n_estimators
@@ -370,9 +381,9 @@ def compute_ranking_accuracy(estimator, vectorizer, model_params, groups):
         true_pos = next(i for (i, z) in enumerate(phrase_y) if z[0][2] == 1)
         pos_list.append(true_pos)
 
-    mean_pos = np.mean(pos_list)
-    rank_accuracy = float(nb_good) / nb_total
-    return rank_accuracy, mean_pos
+    precision1 = float(nb_good) / nb_total
+    mrr = np.mean([1./(1.0+r) for r in pos_list])  # mean reciprocal rank
+    return precision1, mrr
 
 
 def collect_strings(d):
@@ -449,7 +460,7 @@ if __name__ == '__main__':
                 crossval_count += 1
                 kf = KFold(n_splits=NFOLDS)
                 scores = []
-                mean_poses = []
+                mrrs = []
                 for ifold, (train_index, val_index) in enumerate(kf.split(groups)):
                     # print('KFold[{}]'.format(ifold))
                     train_groups = [groups[i] for i in train_index]
@@ -460,15 +471,15 @@ if __name__ == '__main__':
 
                     estimator = create_estimator(model_params)
                     estimator.fit(X=X_train, y=y_train, group=igroup_train)
-                    score, mean_pos = compute_ranking_accuracy(estimator, vectorizer, model_params, val_groups)
-                    scores.append(score)
-                    mean_poses.append(mean_pos)
+                    precision1, mrr = compute_ranking_accuracy(estimator, vectorizer, model_params, val_groups)
+                    scores.append(precision1)
+                    mrrs.append(mrr)
 
                 score = np.mean(scores)
                 score_std = np.std(scores)
                 logging.info(
-                    'Crossvalidation #{} precision@1={} std={} mean_pos={}'.format(crossval_count, score, score_std,
-                                                                                   np.mean(mean_poses)))
+                    'Crossvalidation #{} precision@1={} std={} mrr={}'.format(crossval_count, score, score_std,
+                                                                                   np.mean(mrrs)))
 
                 if score > best_score:
                     logging.info('!!! NEW BEST !!! {}={} params={}'.format(cv_metric, score, get_params_str(model_params)))
@@ -486,13 +497,14 @@ if __name__ == '__main__':
         with open(best_params_path, 'r') as f:
             best_model_params = json.load(f)
 
-        groups = load_data(dataset_path, tmp_dir, 100000)
+        groups = load_data(dataset_path, tmp_dir, 500000)
 
         vectorizer = create_vectorizer(groups, best_model_params)
 
+        logging.info('Cross-validation started for params="%s"', get_params_str(best_model_params))
         kf = KFold(n_splits=NFOLDS)
-        scores = []
-        mean_poses = []
+        precisions = []
+        mrrs = []
         for ifold, (train_index, val_index) in enumerate(kf.split(groups)):
             train_groups = [groups[i] for i in train_index]
             val_groups = [groups[i] for i in val_index]
@@ -501,14 +513,21 @@ if __name__ == '__main__':
             X_val, y_val, igroup_val = vectorize_data(val_groups, vectorizer, best_model_params)
 
             estimator = create_estimator(best_model_params)
-            estimator.fit(X_train, y_train, igroup_train)
-            score, mean_pos = compute_ranking_accuracy(estimator, vectorizer, best_model_params, val_groups)
-            scores.append(score)
-            mean_poses.append(mean_pos)
+            if best_model_params['engine'] == 'LGBMRanker':
+                estimator.fit(X_train, y_train, group=igroup_train)
+            elif best_model_params['engine'] == 'XGBRanker':
+                estimator.fit(X_train, y_train, igroup_train)
+            else:
+                raise NotImplementedError()
 
-        score = np.mean(scores)
-        score_std = np.std(scores)
-        logging.info('Crossvalidation precision@1={} std={} mean_pos={}'.format(score, score_std, np.mean(mean_poses)))
+            precision1, mrr = compute_ranking_accuracy(estimator, vectorizer, best_model_params, val_groups)
+            logging.info('fold %d/%d precision@1=%f mrr=%f', ifold+1, NFOLDS, precision1, mrr)
+            precisions.append(precision1)
+            mrrs.append(mrr)
+
+        precision = np.mean(precisions)
+        score_std = np.std(precisions)
+        logging.info('Cross-validation precision@1=%f std=%f mrr=%f', precision1, score_std, np.mean(mrr))
 
     if run_mode == 'train':
         groups = load_data(dataset_path, tmp_dir, 1000000)
