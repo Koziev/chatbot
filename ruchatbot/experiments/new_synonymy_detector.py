@@ -10,10 +10,13 @@
 2) eval - оценка оптимальной модели через кроссвалидацию
 3) train - тренировка лучшей модели и сохранение ее в pickle файле
 4) query - ручная проверка натренированной модели
+5) hardnegative - аугментация датасета через подбор пар фраз, которые имеют высокую оценку релевантности
 
 
-27-10-2019 переход на метрицу mean reciprocal rank, перебор вариантов наборов фич
-
+27-10-2019 переход на метрику mean reciprocal rank, перебор вариантов наборов фич
+28-10-2019 добавлены классификаторы LightGBM и XGBoost
+28-10-2019 добавлен метапараметр векторизации nlp_transform с лемматизацией
+28-10-2019 из кода lgb_relevanvy перенесен сценарий "hardnegative" для автогенерации негативных сэмплов
 """
 
 from __future__ import print_function
@@ -26,18 +29,14 @@ import logging
 import logging.handlers
 import numpy as np
 import argparse
-import itertools
 import collections
 import io
 import yaml
+import tqdm
 
 import scipy.sparse
 from scipy.sparse import lil_matrix
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import cross_val_score
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
 from sklearn.svm import SVC
 from sklearn.linear_model import SGDClassifier
 from sklearn.svm import LinearSVC
@@ -45,8 +44,13 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn import random_projection
 from sklearn.model_selection import KFold
 
+import xgboost
+import lightgbm
+
 #import sentencepiece as spm
 import rutokenizer
+import rupostagger
+import rulemma
 
 NFOLDS = 5
 
@@ -178,10 +182,10 @@ def create_vectorizer(samples, params):
         raise NotImplementedError()
 
     if vectorizer_key in vectorizers:
-        logging.info('Using already existing vectorizer for {}'.format(vectorizer_key))
+        logging.info('Using already existing vectorizer for %s', vectorizer_key)
         vectorizer = vectorizers[vectorizer_key]
     else:
-        logging.info('Creating new vectorizer for {}'.format(vectorizer_key))
+        logging.info('Creating new vectorizer for %s', vectorizer_key)
         if params['analyzer'] == 'char':
             vectorizer = ShingleVectorizer(params['min_shingle_len'],
                                            params['max_shingle_len'],
@@ -197,6 +201,22 @@ def create_vectorizer(samples, params):
     return vectorizer
 
 
+def extract_lemma(token):
+    return token[0] if token[1] == 'PRON' else token[2]
+
+
+def lemmatize_phrase(phrase, tagger, lemmatizer):
+    try:
+        words = phrase.split()
+        tags = tagger.tag(words)
+        tokens = lemmatizer.lemmatize(tags)
+        return u' '.join(map(extract_lemma, tokens))
+    except Exception as ex:
+        logging.error(u'Error occured in lemmatize_phrase for "%s"', phrase)
+        logging.error(ex)
+        exit(1)
+
+
 def vectorize_data(samples, vectorizer, params):
     labels = [s[2] for s in samples]
     y_data = np.asarray(labels)
@@ -204,7 +224,20 @@ def vectorize_data(samples, vectorizer, params):
     phrases1 = [s[0] for s in samples]
     phrases2 = [s[1] for s in samples]
 
-    return vectorize_data2(phrases1, phrases2, vectorizer, params), y_data
+    if params['nlp_transform'] == 'lemmatize':
+        tagger = rupostagger.RuPosTagger()
+        tagger.load()
+
+        lemmatizer = rulemma.Lemmatizer()
+        lemmatizer.load()
+
+        all_phrases = list(set(phrases1) | set(phrases2))
+        phrase2lemma = dict((phrase, lemmatize_phrase(phrase, tagger, lemmatizer)) for phrase in all_phrases)
+        lphrases1 = [phrase2lemma[f] for f in phrases1]
+        lphrases2 = [phrase2lemma[f] for f in phrases2]
+        return vectorize_data2(lphrases1, lphrases2, vectorizer, params), y_data
+    else:
+        return vectorize_data2(phrases1, phrases2, vectorizer, params), y_data
 
 
 def vectorize_data2(phrases1, phrases2, vectorizer, params):
@@ -245,9 +278,9 @@ def vectorize_data2(phrases1, phrases2, vectorizer, params):
     return X_data
 
 
-def data_vectorization(df, model_params):
-    vectorizer = create_vectorizer(df, model_params)
-    X_data, y_data = vectorize_data(df, vectorizer, model_params)
+def data_vectorization(samples, model_params):
+    vectorizer = create_vectorizer(samples, model_params)
+    X_data, y_data = vectorize_data(samples, vectorizer, model_params)
     return vectorizer, X_data, y_data
 
 
@@ -265,9 +298,9 @@ def create_estimator(model_params):
         cl = LogisticRegression(penalty=model_params['penalty'],
                                 tol=0.0001,
                                 C=model_params['C'],
-                                n_jobs=4,
-                                multi_class='multinomial', verbose=0, solver='lbfgs',
-                                max_iter=1000)
+                                verbose=0,
+                                solver='saga',  # https://towardsdatascience.com/dont-sweat-the-solver-stuff-aea7cddc3451
+                                max_iter=100)
         return cl
     elif model_params['engine'] == 'LinearSVC':
         cl = LinearSVC(penalty=model_params['penalty'],
@@ -314,8 +347,36 @@ def create_estimator(model_params):
                                         verbose=0,
                                         max_leaf_nodes=None, warm_start=False, presort='auto')
         return cl
+    elif model_params['engine'] == "XGB":
+        cl = xgboost.XGBClassifier(max_depth=int(model_params['max_depth']),
+                                   learning_rate=float(model_params['learning_rate']),
+                                   n_estimators=int(model_params['n_estimators']),
+                                   verbosity=1, silent=1,
+                                   objective="binary:logistic", booster='gbtree',
+                                   n_jobs=8,
+                                   gamma=0, min_child_weight=1,
+                                   max_delta_step=0, subsample=float(model_params['subsample']),
+                                   colsample_bytree=1,
+                                   colsample_bylevel=1, colsample_bynode=1,
+                                   reg_alpha=0, reg_lambda=1,
+                                   scale_pos_weight=1,
+                                   random_state=31415926)
+        return cl
+    elif model_params['engine'] == "LGB":
+        cl = lightgbm.LGBMClassifier(boosting_type='gbdt', num_leaves=int(model_params['num_leaves']),
+                                     max_depth=-1, learning_rate=float(model_params['learning_rate']),
+                                     n_estimators=int(model_params['n_estimators']),
+                                     subsample_for_bin=200000, objective="binary",
+                                     class_weight=None, min_split_gain=0.0,
+                                     min_child_weight=0.001, min_child_samples=20,
+                                     subsample=float(model_params['subsample']),
+                                     subsample_freq=0,
+                                     colsample_bytree=1.0, reg_alpha=0.0, reg_lambda=0.0, random_state=None,
+                                     n_jobs=8,
+                                     silent=True, importance_type='split')
+        return cl
     else:
-        raise NotImplementedError('Model engine={} is not implemented'.format(model_params['engine']))
+        raise NotImplementedError('engine="{}" is not implemented'.format(model_params['engine']))
 
 
 class GridGenerator(object):
@@ -333,29 +394,31 @@ class GridGenerator(object):
                         model_params['random_proj'] = random_proj
                         yield model_params
             else:
-                for random_proj in [0]:
-                    for min_shingle_len in [3]:
-                        for max_shingle_len in [4]:
-                            for min_df in [1]:
-                                for featureset in [2, 0, 1]:
-                                    model_params = dict()
-                                    model_params['analyzer'] = analyzer
-                                    model_params['random_proj'] = random_proj
-                                    model_params['min_shingle_len'] = min_shingle_len
-                                    model_params['max_shingle_len'] = max_shingle_len
-                                    model_params['min_df'] = min_df
-                                    model_params['featureset'] = featureset
-                                    yield model_params
+                for nlp_transform in ['lemmatize', '']:  # 'lemmatize',
+                    for random_proj in [0]:
+                        for min_shingle_len in [3]:
+                            for max_shingle_len in [4]:
+                                for min_df in [1]:
+                                    for featureset in [2, 0, 1]:
+                                        model_params = dict()
+                                        model_params['nlp_transform'] = nlp_transform
+                                        model_params['analyzer'] = analyzer
+                                        model_params['random_proj'] = random_proj
+                                        model_params['min_shingle_len'] = min_shingle_len
+                                        model_params['max_shingle_len'] = max_shingle_len
+                                        model_params['min_df'] = min_df
+                                        model_params['featureset'] = featureset
+                                        yield model_params
 
     def estimator_grid(self):
-        for engine in ['LogisticRegression']:  # 'LinearSVC', 'GBM', 'LogisticRegression', 'SVC'
+        for engine in ['LGB']:  # 'LogisticRegression', 'GBM', 'LGB', 'XGB'
             if engine == 'GBM':
-                for learning_rate in [0.05, 0.1, 0.3]:
-                    for n_estimators in [50, 100, 200]:
-                        for subsample in [1.0, 0.8]:
+                for learning_rate in [0.1, 0.2]:
+                    for n_estimators in [500, 1000]:
+                        for subsample in [1.0]:
                             for min_samples_split in [2]:
                                 for min_samples_leaf in [1]:
-                                    for max_depth in [3, 4, 5]:
+                                    for max_depth in [5, 6]:
                                         model_params = dict()
                                         model_params['engine'] = engine
                                         model_params['max_depth'] = max_depth
@@ -365,9 +428,36 @@ class GridGenerator(object):
                                         model_params['min_samples_split'] = min_samples_split
                                         model_params['min_samples_leaf'] = min_samples_leaf
                                         yield model_params
+
+            elif engine == 'XGB':
+                for learning_rate in [0.2, 0.3]:
+                    for n_estimators in [400, 1000, 1500]:
+                        for subsample in [1.00]:
+                            for max_depth in [5, 6, 7, 8]:
+                                model_params = dict()
+                                model_params['engine'] = engine
+                                model_params['learning_rate'] = learning_rate
+                                model_params['n_estimators'] = n_estimators
+                                model_params['subsample'] = subsample
+                                model_params['max_depth'] = max_depth
+                                yield model_params
+
+            elif engine == 'LGB':
+                for learning_rate in [0.25, 0.3, 0.35]:
+                    for n_estimators in [500, 1000, 1500]:
+                        for subsample in [1.0]:
+                            for num_leaves in [31, 50, 100]:
+                                model_params = dict()
+                                model_params['engine'] = engine
+                                model_params['learning_rate'] = learning_rate
+                                model_params['n_estimators'] = n_estimators
+                                model_params['subsample'] = subsample
+                                model_params['num_leaves'] = num_leaves
+                                yield model_params
+
             else:
                 for penalty in ['l2']:
-                    for model_C in [1e2, 1e3, 1e4, 1e5]:
+                    for model_C in [1e4, 1e5, 1e6]:
                         model_params = dict()
                         model_params['engine'] = engine
                         model_params['penalty'] = penalty
@@ -376,6 +466,7 @@ class GridGenerator(object):
 
 
 def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
+    logging.debug('ENTER compute_ranking_accuracy')
     # Код для получения оценочных метрик качества ранжирования.
     premise2samples = dict()
 
@@ -387,6 +478,9 @@ def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
             if phrase1 not in premise2samples:
                 premise2samples[phrase1] = [(phrase2, 1)]
 
+    premise2samples = dict(random.sample(premise2samples.items(), 1000))
+    logging.debug('premise2samples.count={}'.format(len(premise2samples)))
+
     # Добавляем заданные в датасете нерелевантные пары
     for sample in val_samples:
         if sample[2] == 0:
@@ -395,23 +489,35 @@ def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
             if phrase1 in premise2samples:
                 premise2samples[phrase1].append((phrase2, 0))
 
-    # Добавим рандомных случайных сэмплов
-    for sample in val_samples:
-        phrase1 = sample[0]
-        phrase2 = sample[1]
-        # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению phrase1_1.
-        for phrase1_1, samples_1 in premise2samples.items():
-            if phrase1 != phrase1_1:
-                if len(premise2samples[phrase1_1]) < 100:
-                    if (phrase2, 0) not in premise2samples[phrase1_1] and (phrase2, 1) not in premise2samples[phrase1_1]:
-                        premise2samples[phrase1_1].append((phrase2, 0))
+    # Теперь в каждую группу добавим рандомных случайных сэмплов.
+    group_size = 100
+    for phrase1_1, samples_1 in premise2samples.items():
+        for sample in sorted(val_samples, key=lambda _: random.random()):
+            phrase1 = sample[0]
+            phrase2 = sample[1]
 
-    # Теперь в premise2samples для каждой фразы-ключа есть некоторое количество сравниваемых
-    # фраз, из которых только 1 релевантна. Мы должны проверить, что модель именно эту пару
-    # оценит максимально высоко, а остальным присвоит меньшую релевантность.
+            # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению phrase1_1.
+            samples3 = []
+            all_samples = set(samples_1)
+            if phrase1 != phrase1_1:
+                if (phrase2, 0) not in all_samples and (phrase2, 1) not in all_samples:
+                    samples3.append((phrase2, 0))
+                    all_samples.add((phrase2, 0))
+
+            if len(samples3) >= group_size*5:
+                break
+
+        samples3 = list(samples3)
+        samples3 = samples3[:group_size-len(samples_1)]
+        premise2samples[phrase1_1].extend(samples3)
+
+    # Теперь в premise2samples для каждой фразы-ключа есть некоторое количество (group_size)
+    # сравниваемых фраз, из которых только 1 релевантна. Мы должны проверить, что модель
+    # именно эту пару оценит максимально высоко, а остальным присвоит меньшую релевантность.
     nb_good = 0
     nb_total = 0
 
+    logging.debug('Processing premise2samples...')
     ranks = []
     for phrase1, samples2 in premise2samples.items():
         samples3 = [(phrase1, s[0], s[1]) for s in samples2]
@@ -436,13 +542,16 @@ def compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples):
     # precision@1
     # https://en.wikipedia.org/wiki/Evaluation_measures_(information_retrieval)#Precision_at_K
     precision1 = float(nb_good) / nb_total
+
+    logging.debug('precision@1=%f mrr=%f', precision1, mrr)
+
     return precision1, mrr
 
 
 def collect_strings(d):
     res = []
 
-    if isinstance(d, unicode):
+    if isinstance(d, str):
         res.append(d)
     elif isinstance(d, list):
         for item in d:
@@ -470,24 +579,63 @@ def print_shingle(shingle):
     return shingle.replace(BEG_CHAR, r'\b').replace(END_CHAR, r'\n')
 
 
-def get_feature_names(vectorizer):
+def get_feature_names(vectorizer, model_params):
     shingles = vectorizer.get_feature_names()
     feature_names = []
-    for shingle in shingles:
-        feature_names.append(u'{}(a&b)'.format(print_shingle(shingle)))
 
-    for shingle in shingles:
-        feature_names.append(u'{}(a-b)'.format(print_shingle(shingle)))
+    if model_params['featureset'] == 0:
+        for shingle in shingles:
+            feature_names.append(u'{}(a&b)'.format(print_shingle(shingle)))
 
-    for shingle in shingles:
-        feature_names.append(u'{}(b-a)'.format(print_shingle(shingle)))
+        for shingle in shingles:
+            feature_names.append(u'{}(a-b)'.format(print_shingle(shingle)))
+
+        for shingle in shingles:
+            feature_names.append(u'{}(b-a)'.format(print_shingle(shingle)))
+
+    elif model_params['featureset'] == 1:
+        for shingle in shingles:
+            feature_names.append(u'{}(a)'.format(print_shingle(shingle)))
+
+        for shingle in shingles:
+            feature_names.append(u'{}(b)'.format(print_shingle(shingle)))
+
+        for shingle in shingles:
+            feature_names.append(u'{}(a&b)'.format(print_shingle(shingle)))
+
+        for shingle in shingles:
+            feature_names.append(u'{}(a-b)'.format(print_shingle(shingle)))
+
+        for shingle in shingles:
+            feature_names.append(u'{}(b-a)'.format(print_shingle(shingle)))
+    elif model_params['featureset'] == 2:
+        for shingle in shingles:
+            feature_names.append(u'{}(a&b)'.format(print_shingle(shingle)))
+
+        for shingle in shingles:
+            feature_names.append(u'{}(a<>b)'.format(print_shingle(shingle)))
+    else:
+        raise NotImplementedError()
 
     return feature_names
 
 
+def load_dataset(dataset_path):
+    df = pd.read_csv(dataset_path, encoding='utf-8', delimiter='\t', index_col=None, keep_default_na=False)
+    samples = []
+    for phrase1, phrase2, label in zip(df['premise'].values, df['question'].values, df['relevance'].values):
+        samples.append((phrase1.strip(), phrase2.strip(), label))
+    return samples
+
+
+def flush_logging():
+    for h in logging._handlerList:
+        h().flush()
+
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Synonymy classifier trainer')
-    parser.add_argument('--run_mode', choices='gridsearch train query eval'.split(), default='gridsearch')
+    parser = argparse.ArgumentParser(description='Synonymy/paraphrase detector training and evaluation kit')
+    parser.add_argument('--run_mode', choices='gridsearch eval train query query2 hardnegative'.split(), default='gridsearch')
     parser.add_argument('--tmp_dir', default='../../tmp')
     parser.add_argument('--dataset', default='../../data/synonymy_dataset.csv')
     args = parser.parse_args()
@@ -503,7 +651,7 @@ if __name__ == '__main__':
     lf.setFormatter(formatter)
     logging.getLogger('').addHandler(lf)
 
-    logging.info('Start using dataset_path={}'.format(dataset_path))
+    logging.info('Start using dataset_path="%s"', dataset_path)
 
     # файл в формате json с найденными оптимальными параметрами классификатора,
     # создается в ходе gridsearch, используется для train
@@ -512,18 +660,11 @@ if __name__ == '__main__':
     # файл с обученной моделью, создается в train, используется в query
     model_path = os.path.join(tmp_dir, 'new_synonymy_detector.model')
 
-    df = pd.read_csv(dataset_path,
-                     encoding='utf-8',
-                     delimiter='\t',
-                     index_col=None,
-                     keep_default_na=False)
-
-    samples = list(zip(df['premise'].values, df['question'].values, df['relevance'].values))
-
     if run_mode == 'gridsearch':
         logging.info('=== GRIDSEARCH ===')
 
         # На полном датасете подбор идет слишком долго, ограничим.
+        samples = load_dataset(dataset_path)
         samples = random.sample(samples, 10000)
 
         best_model_params = None
@@ -554,6 +695,7 @@ if __name__ == '__main__':
                     precision1, mrr = compute_ranking_accuracy(estimator, vectorizer, model_params, val_samples)
                     scores.append(precision1)
                     mrrs.append(mrr)
+                    logging.info('fold %d/%d precision@1=%g mrr=%g', ifold+1, NFOLDS, precision1, mrr)
 
                 precision1 = np.mean(scores)
                 precision1_std = np.std(scores)
@@ -571,15 +713,16 @@ if __name__ == '__main__':
         logging.info('best_score={} for model_params: {}'.format(best_score, get_params_str(best_model_params)))
 
     if run_mode == 'eval':
-        # Оценка лучшей модели через кроссвалидацию.
+        # Оценка лучшей модели через кроссвалидацию на полном датасете.
         with open(best_params_path, 'r') as f:
             best_model_params = json.load(f)
 
+        samples = load_dataset(dataset_path)
         vectorizer = create_vectorizer(samples, best_model_params)
 
         kf = KFold(n_splits=NFOLDS)
         scores = []
-        mean_poses = []
+        mrrs = []
         for ifold, (train_index, val_index) in enumerate(kf.split(samples)):
             print('KFold[{}]'.format(ifold))
             train_samples = [samples[i] for i in train_index]
@@ -590,20 +733,25 @@ if __name__ == '__main__':
 
             estimator = create_estimator(best_model_params)
             estimator.fit(X_train, y_train)
-            score, mean_pos = compute_ranking_accuracy(estimator, vectorizer, best_model_params, val_samples)
-            scores.append(score)
-            mean_poses.append(mean_pos)
+            precision1, mrr = compute_ranking_accuracy(estimator, vectorizer, best_model_params, val_samples)
+            scores.append(precision1)
+            mrrs.append(mrr)
 
-        score = np.mean(scores)
+        precision1 = np.mean(scores)
         score_std = np.std(scores)
-        logging.info('Crossvalidation precision@1={} std={} mean_pos={}'.format(score, score_std, np.mean(mean_poses)))
+        logging.info('Cross-validation precision@1=%f std=%f mrr=%f', precision1, score_std, np.mean(mrrs))
 
     if run_mode == 'train':
+        # Тренировка финальной модели на полном датасете. Используются метапараметры, найденные
+        # в ходе gridsearch.
+
         logging.info('Loading best_model_params from "%s"', best_params_path)
         with open(best_params_path, 'r') as f:
             best_model_params = json.load(f)
 
+        samples = load_dataset(dataset_path)
         best_vectorizer, X_data, y_data = data_vectorization(samples, best_model_params)
+        logging.info('Train on %d samples', len(samples))
 
         # финальное обучение классификатора на всех данных
         logging.info('Training the final classifier model_params: %s', get_params_str(best_model_params))
@@ -612,13 +760,30 @@ if __name__ == '__main__':
 
         # сохраним натренированный классификатор и дополнительные параметры, необходимые для
         # использования модели в чатботе.
-        model = {'vectorizer': best_vectorizer, 'estimator': estimator}
+        model = {'vectorizer': best_vectorizer,
+                 'estimator': estimator,
+                 'model_params': best_model_params}
+
         logging.info('Storing model to "%s"', model_path)
         with open(model_path, 'wb') as f:
             pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+        # Выведем результаты предсказания обучающего датасета - для отладки и визуального контроля, чтобы
+        # потом легче было проверять работу сценариев query, query2 и т.д.
+        pred_filepath = os.path.join(tmp_dir, 'new_synonymy_detector.train_prediction.txt')
+        logging.info('Writing predictons to "%s"', pred_filepath)
+        with io.open(pred_filepath, 'w', encoding='utf-8') as wrt:
+            samples2 = samples  #random.sample(samples, 1000)
+            X_data, y_data = vectorize_data(samples2, best_vectorizer, best_model_params)
+            y_pred = estimator.predict_proba(X_data)[:, 1]
+            for sample, y_pred1, y_true1 in sorted(zip(samples2, y_pred, y_data), key=lambda z: z[1]):
+                wrt.write(u'{}\n'.format(sample[0]))
+                wrt.write(u'{}\n'.format(sample[1]))
+                wrt.write(u'y_true={} y_pred={}\n'.format(y_true1, y_pred1))
+                wrt.write(u'\n\n')
+
         # Выведем веса признаков для визуального анализа
-        feature_names = get_feature_names(best_vectorizer)
+        feature_names = get_feature_names(best_vectorizer, best_model_params)
         with io.open(os.path.join(tmp_dir, 'new_synonymy_detector.features.txt'), 'w', encoding='utf-8') as wrt:
             feature_weights = []
             if isinstance(estimator, LogisticRegression) or isinstance(estimator, LinearSVC):
@@ -633,38 +798,26 @@ if __name__ == '__main__':
             # Выведем отдельно топ-100 негативных и позитивных
             for feature, weight in sorted(feature_weights, key=lambda z: -z[1])[:100]:
                 wrt.write(u'{:<10s} = {}\n'.format(feature, weight))
-            wrt.write('\n\n...\n\n')
+            wrt.write('\n\n...\n\n\n')
             for feature, weight in sorted(feature_weights, key=lambda z: -z[1])[-100:]:
                 wrt.write(u'{:<10s} = {}\n'.format(feature, weight))
-
 
         logging.info('All done.')
 
     if run_mode == 'query':
-        with open(best_params_path, 'r') as f:
-            best_model_params = json.load(f)
-
-        logging.info('Restoring model from "{}"'.format(model_path))
+        logging.info('Restoring model from "%s"', model_path)
         with open(model_path, 'rb') as f:
             model = pickle.load(f)
 
+        flush_logging()
+
         while True:
-            phrase1 = input('1:> ').strip()
-            phrase2 = input('2:> ').strip()
+            phrase1 = input('1:> ').strip().lower()
+            phrase2 = input('2:> ').strip().lower()
 
-            vectorizer = model['vectorizer']
-            ps = vectorizer.transform([phrase1])
-            qs = vectorizer.transform([phrase2])
-            if best_model_params['random_proj'] == 0:
-                nb_shingles = vectorizer.nb_shingles
-                common_shingles = sets2matrix(and_setlists(ps, qs), nb_shingles)
-                notmatched_ps = sets2matrix(sub_setlists(ps, qs), nb_shingles)
-                notmatched_qs = sets2matrix(sub_setlists(qs, ps), nb_shingles)
-                X_data = scipy.sparse.hstack([common_shingles, notmatched_ps, notmatched_qs])
-            else:
-                raise NotImplementedError()
-
-            y_query = model['estimator'].predict(X_data)
+            samples = [(phrase1, phrase2, 0)]
+            X_data, y_data = vectorize_data(samples, model['vectorizer'], model['model_params'])
+            y_query = model['estimator'].predict_proba(X_data)[:, 1]
             y = y_query[0]
             print(u'{}'.format(y))
 
@@ -677,7 +830,7 @@ if __name__ == '__main__':
         with open(best_params_path, 'r') as f:
             best_model_params = json.load(f)
 
-        logging.info('Restoring model from "{}"'.format(model_path))
+        logging.info('Restoring model from "%s"', model_path)
         with open(model_path, 'rb') as f:
             model = pickle.load(f)
 
@@ -689,13 +842,22 @@ if __name__ == '__main__':
         # поиск ближайшего приказа или вопроса из списка FAQ
         phrases2 = set()
         if True:
+            samples = load_dataset(dataset_path)
+            for sample in samples:
+                for phrase in [sample[0], sample[1]]:
+                    if phrase not in added_phrases:
+                        added_phrases.add(phrase)
+                        phrases2.add((phrase, phrase))
+
+        if False:
             for phrase in load_strings_from_yaml(os.path.join(data_folder, 'rules.yaml')):
                 phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                if phrase2 not in added_phrases:
-                    added_phrases.add(phrase2)
-                    phrases2.add((phrase2, phrase))
+                if '|' not in phrase2:
+                    if phrase2 not in added_phrases:
+                        added_phrases.add(phrase2)
+                        phrases2.add((phrase2, phrase))
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'intents.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -705,7 +867,7 @@ if __name__ == '__main__':
                             added_phrases.add(phrase2)
                             phrases2.add((phrase2, phrase))
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'faq2.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -718,13 +880,102 @@ if __name__ == '__main__':
 
         phrases = list(phrases2)
         nb_phrases = len(phrases2)
+        logging.info("phrases.count=%d", nb_phrases)
+        flush_logging()
 
         while True:
-            phrase1 = input(':> ').strip()
-            phrase1  = u' '.join(tokenizer.tokenize(phrase1))
-            X_data = vectorize_data2([phrase1] * nb_phrases, [z[0] for z in phrases], vectorizer, best_model_params)
+            phrase1 = input(':> ').strip().lower()
+            phrase1 = u' '.join(tokenizer.tokenize(phrase1))
+
+            samples = [(phrase1, phrase2[1], 0) for phrase2 in phrases2]
+            X_data, _ = vectorize_data(samples, vectorizer, best_model_params)
             y_query = model['estimator'].predict_proba(X_data)[:, 1]
 
             phrase_w = [(phrases[i][1], y_query[i]) for i in range(nb_phrases)]
             for phrase2, score in sorted(phrase_w, key=lambda z: -z[1])[:20]:
-                print(u'{}\t{}'.format(phrase2, score))
+                print(u'{:8.5f}\t{}'.format(score, phrase2))
+
+    if run_mode == 'hardnegative':
+        # Поиск новых негативных сэмплов, которые надо добавить в датасет для
+        # уменьшения количества неверно определяемых положительных пар.
+        # Алгоритм: для сэмпла из ручного датасета определяем релевантность к остальным
+        # репликам в этом же датасете. Отбираем те реплики, которые дают оценку
+        # релевантности >0.5, исключаем правильные положительные и известные негативные,
+        # остаются те фразы, которые считаются релевантными исходной фразе, но это неверно.
+        # Сохраняем получающийся список в файле для ручной модерации.
+        data_folder = os.path.dirname(dataset_path)
+        tokenizer = rutokenizer.Tokenizer()
+        tokenizer.load()
+
+        logging.info('Restoring model from "%s"', model_path)
+        with open(model_path, 'rb') as f:
+            model = pickle.load(f)
+
+        known_pairs = set()
+        test_phrases = set()
+        if True:  #task == 'synonymy':
+            if True:
+                with io.open(os.path.join(data_folder, 'paraphrases.txt'), 'r', encoding='utf-8') as rdr:
+                    block = []
+                    for line in rdr:
+                        phrase = line.replace('(-)', '').replace('(+)', '').strip()
+                        if len(phrase) == 0:
+                            for phrase1 in block:
+                                for phrase2 in block:
+                                    known_pairs.add((phrase1, phrase2))
+                            block = []
+                        else:
+                            if len(phrase) > 5 and not phrase.startswith('#') and u'_' not in phrase:
+                                words = tokenizer.tokenize(phrase)
+                                if len(words) > 2:
+                                    phrase2 = u' '.join(words)
+                                    test_phrases.add((phrase2, phrase))
+                                    block.append(phrase)
+
+            if True:
+                with io.open(os.path.join(data_folder, 'intents.txt'), 'r', encoding='utf-8') as rdr:
+                    for line in rdr:
+                        phrase = line.strip()
+                        if len(phrase) > 5 and not phrase.startswith('#') and u'_' not in phrase:
+                            phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                            test_phrases.add((phrase2, phrase))
+
+            if True:
+                with io.open(os.path.join(data_folder, 'faq2.txt'), 'r', encoding='utf-8') as rdr:
+                    for line in rdr:
+                        phrase = line.strip()
+                        if len(phrase) > 5 and phrase.startswith(u'Q:'):
+                            phrase = phrase.replace(u'Q:', u'').strip()
+                            words = tokenizer.tokenize(phrase)
+                            if len(words) > 2:
+                                phrase2 = u' '.join(words)
+                                test_phrases.add((phrase2, phrase))
+        else:
+            raise NotImplementedError()
+
+        premises = list(test_phrases)
+        nb_premises = len(premises)
+        logging.info('nb_premises=%d', nb_premises)
+
+        with io.open(os.path.join(tmp_dir, 'new_synonymy_detector.hard_negatives.txt'), 'w', encoding='utf-8') as wrt:
+            nb_stored = 0  # кол-во найденных и сохраненных негативных примеров
+            for iphrase, (nphrase, question) in enumerate(sorted(premises, key=lambda _: random.random())):
+                samples2 = [(nphrase, f[1], 0) for f in test_phrases]
+                X_data, y_data = vectorize_data(samples2, model['vectorizer'], model['model_params'])
+                y_pred = model['estimator'].predict(X_data)
+
+                selected_phrases2 = []
+                phrase_rels = [(premises[i][1], y_pred[i]) for i in range(nb_premises) if y_pred[i] > 0.5]
+                phrase_rels = sorted(phrase_rels, key=lambda z: -z[1])
+                for phrase2, sim in phrase_rels[:20]:
+                    if phrase2 != question and (question, phrase2) not in known_pairs and (
+                    phrase2, question) not in known_pairs:
+                        selected_phrases2.append(phrase2)
+                if len(selected_phrases2) > 0:
+                    wrt.write(u'{}\n'.format(question))
+                    for phrase2 in selected_phrases2:
+                        wrt.write(u'(-) {}\n'.format(phrase2))
+                    wrt.write(u'\n\n')
+                    wrt.flush()
+                    nb_stored += len(selected_phrases2)
+                    logging.info('%d/%d processed, %d negative samples stored', iphrase, nb_premises, nb_stored)
