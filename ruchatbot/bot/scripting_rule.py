@@ -53,6 +53,7 @@ class ScriptingRuleIf(ScriptingRule):
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         """Вернет True, если правило сформировало ответную реплику."""
         if self.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+            session.rule_activated(self)
             replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase)
             return ScriptingRuleResult.matched(replica_generated)
         else:
@@ -61,18 +62,20 @@ class ScriptingRuleIf(ScriptingRule):
 
 class ScriptingRuleSwitch(ScriptingRule):
     def __init__(self, yaml_node):
-        self.condition1 = BaseRuleCondition.from_yaml(yaml_node['switch']['question'])
+        self.condition1 = BaseRuleCondition.from_yaml(yaml_node['switch']['when'])
         self.case_handlers = []
         self.default_handler = None
-        answers = yaml_node['switch']['answers']
-        for answer_case in answers:
+        cases = yaml_node['switch']['cases']
+        for answer_case in cases:
+            answer_case = answer_case['case']
             if 'if' in answer_case:
-                case_handler = ScriptingRuleIf(answer_case['if'], answer['then'])
+                case_handler = ScriptingRuleIf(answer_case['if'], answer_case['then'])
                 self.case_handlers.append(case_handler)
-            elif 'default' in answer_case:
-                self.default_handler = ActorBase.from_yaml(answer_case['default'])
             else:
                 raise NotImplementedError()
+
+        if 'default' in yaml_node['switch']:
+            self.default_handler = ActorBase.from_yaml(yaml_node['switch']['default'])
 
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         if self.condition1.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):

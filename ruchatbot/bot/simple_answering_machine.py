@@ -635,9 +635,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def apply_insteadof_rule(self, rules, bot, session, interlocutor, interpreted_phrase):
         for rule in rules:
-            rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
-            if rule_result.condition_success:
-                return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+            if not session.is_rule_activated(rule):
+                rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                if rule_result.condition_success:
+                    return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
 
         return InsteadofRuleResult.GetFalse()
 

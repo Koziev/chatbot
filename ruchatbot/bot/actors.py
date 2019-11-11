@@ -27,6 +27,10 @@ class ActorBase(object):
             return ActorGenerate.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'nothing':
             return ActorNothing()
+        elif actor_keyword == 'state':
+            return ActorState.from_yaml(yaml_node[actor_keyword])
+        elif actor_keyword == 'steps':
+            return ActorSteps.from_yaml(yaml_node[actor_keyword])
         else:
             raise NotImplementedError(actor_keyword)
 
@@ -243,6 +247,7 @@ class ActorScenario(ActorBase):
         return True
 
 
+
 class ActorGenerate(ActorBase):
     """Генерация реплики по заданому шаблону и вывод результата от имени бота."""
     def __init__(self):
@@ -303,5 +308,44 @@ class ActorGenerate(ActorBase):
                 # TODO: взвешивать через модель уместности по контексту
                 bot.say(session, bot.get_engine().select_relevant_replica(replicas, session, interlocutor))
                 uttered = True
+
+        return uttered
+
+
+class ActorState(ActorBase):
+    def __init__(self):
+        super(ActorState, self).__init__('state')
+        self.slot_name = None
+        self.slot_value = None
+
+    @staticmethod
+    def from_yaml(yaml_node):
+        actor = ActorState()
+        actor.slot_name = yaml_node['slot']
+        actor.slot_value = yaml_node['value']
+        return actor
+
+    def do_action(self, bot, session, interlocutor, interpreted_phrase):
+        session.set_slot(self.slot_name, self.slot_value)
+        return False
+
+
+class ActorSteps(ActorBase):
+    def __init__(self):
+        super(ActorSteps, self).__init__('steps')
+        self.steps = []
+
+    @staticmethod
+    def from_yaml(yaml_node):
+        actor = ActorSteps()
+        for y in yaml_node:
+            a = ActorBase.from_yaml(y['step'])
+            actor.steps.append(a)
+        return actor
+
+    def do_action(self, bot, session, interlocutor, interpreted_phrase):
+        uttered = False
+        for a in self.steps:
+            uttered |= a.do_action(bot, session, interlocutor, interpreted_phrase)
 
         return uttered

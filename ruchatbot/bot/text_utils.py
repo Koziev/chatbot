@@ -3,7 +3,7 @@
 Код для выполнения операций с текстом на русском языке (или на другом целевом),
 в частности - токенизация, лемматизация, частеречная разметка.
 Загрузка различных словарных баз.
-Для проекта чатбота
+Для проекта чатбота https://github.com/Koziev/chatbot
 """
 
 import itertools
@@ -47,8 +47,9 @@ class TextUtils(object):
         word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
         self.lexicon.load(word2lemmas_path)
 
-        word2tags_path = os.path.join(data_folder, 'chatbot_word2tags.dat')
-        self.postagger.load(word2tags_path)
+        #word2tags_path = os.path.join(data_folder, 'chatbot_word2tags.dat')
+        #self.postagger.load(word2tags_path)
+        self.postagger.load()
 
         rules_path = os.path.join(data_folder, 'rules.yaml')
         with io.open(rules_path, 'r', encoding='utf-8') as f:

@@ -22,9 +22,14 @@ class BaseDialogSession(object):
         self.answer_buffer = []
         self.conversation_history = []  # все фразы беседы
 
+        self.activated_rules = []  # правила-обработчики, сработавшие (рекурсивно) в ходе обработки реплики собеседника
+
         self.status = None  # экземпляр производного от RunningDialogStatus класса,
                             # если выполняется вербальная форма или сценарий
         self.deferred_running_items = deque()
+
+        self.slots = dict()  # переменные состояния
+
 
     def get_interlocutor(self):
         return self.interlocutor
@@ -52,6 +57,11 @@ class BaseDialogSession(object):
         из буфера ответов.
         :return: ответ бота или пустая строка, если буфер ответов пуст.
         """
+
+        # сбрасываем инфу о сработавших правилах, так как явно закончилась обработка предыдущей
+        # реплики собеседника.
+        self.activated_rules = []
+
         if len(self.answer_buffer) == 0:
             return u''
 
@@ -59,6 +69,12 @@ class BaseDialogSession(object):
 
     def add_phrase_to_history(self, interpreted_phrase):
         self.conversation_history.append(interpreted_phrase)
+
+    def rule_activated(self, rule):
+        self.activated_rules.append(rule)
+
+    def is_rule_activated(self, rule):
+        return rule in self.activated_rules
 
     def get_interlocutor_phrases(self, questions=True, assertions=True, last_nb=10):
         """
@@ -99,6 +115,12 @@ class BaseDialogSession(object):
                 return item
         return None
 
+    def get_last_bot_utterance(self):
+        for item in self.conversation_history[::-1]:
+            if item.is_bot_phrase:
+                return item
+        return None
+
     def set_status(self, new_status):
         if new_status is None:
             # Если в стеке отложенных сценариев есть что-то, запускаем его.
@@ -130,3 +152,9 @@ class BaseDialogSession(object):
 
     def get_status(self):
         return self.status
+
+    def get_slot(self, slot_name):
+        return self.slots.get(slot_name, '')
+
+    def set_slot(self, slot_name, slot_value):
+        self.slots[slot_name] = slot_value
