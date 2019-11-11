@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Тренировка модели определения релевантности предпосылки и вопроса (--task relevancy)
-и синонимичности (--task synonymy) на базе LightGBM.
+и синонимичности (--task synonymy) на базе LightGBM и мешка шинглов.
 
 Модель используется в проекте чат-бота https://github.com/Koziev/chatbot
-
-Альтернативные модели - на базе XGBoost (xgb_relevancy.py) и нейросететевые (nn_relevancy.py,
-nn_relevamcy_tripleloss.py)
 
 Пример запуска обучения с нужными параметрами командной строки см. в ../scripts/train_lgb_relevancy.sh
 
@@ -15,6 +12,9 @@ nn_relevamcy_tripleloss.py)
 
 30.12.2018 - добавлен эксперимент с SentencePiece моделью сегментации текста (https://github.com/google/sentencepiece)
 01.01.2019 - добавлен эксперимент с StemPiece моделью сегментации текста
+27-10-2019 - добавлен расчет метрики mean reciprocal rank
+28-10-2019 - переделан сценарий eval, теперь это оценка через кроссвалидацию на полном датасете
+30-10-2019 - сценарий hyperopt для подбора метапараметров вынесен в отдельный режим, переделан на кроссвалидацию внутри objective
 """
 
 from __future__ import division
@@ -43,6 +43,7 @@ from hyperopt import hp, tpe, STATUS_OK, Trials
 
 from scipy.sparse import lil_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
 
 #from trainers.evaluation_dataset import EvaluationDataset
 #from trainers.evaluation_markup import EvaluationMarkup
@@ -56,6 +57,15 @@ HYPEROPT_ALGO = tpe.suggest  # tpe.suggest OR hyperopt.rand.suggest
 
 BEG_WORD = '\b'
 END_WORD = '\n'
+
+
+class Sample(object):
+    def __init__(self):
+        self.phrase1 = None
+        self.phrase2 = None
+        self.words1 = None
+        self.words2 = None
+        self.label = None
 
 
 def ngrams(s, n):
@@ -142,7 +152,7 @@ if False:
 
 
 def str2shingles(s):
-    return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(3)])]
+    return [u''.join(z) for z in zip(*[s[i:] for i in range(3)])]
 
 
 def ngrams3(phrase, n):
@@ -180,7 +190,7 @@ def vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shing
             X_data[idata, icol + shingle2id[shingle]] = True
 
 
-def train_model(lgb_params, D_train, D_val, y_val):
+def train_model(lgb_params, D_train, D_val, X_val, y_val):
     """
     Тренировка модели на данных D_train, валидация и early stopping на D_val и y_val.
     :param lgb_params: параметры тренировки для LightGBM
@@ -207,7 +217,7 @@ def train_model(lgb_params, D_train, D_val, y_val):
     y_pred = (y_pred >= 0.5).astype(np.int)
 
     # Точность на валидационных данных малоинформативна из-за сильного дисбаланса 1/0 классов,
-    # напечатаем только для контроля кода обучения.
+    # посчитаем только для контроля кода обучения.
     acc = sklearn.metrics.accuracy_score(y_true=y_val, y_pred=y_pred)
 
     # из-за сильного дисбаланса (в пользу исходов с y=0) оценивать качество
@@ -217,126 +227,30 @@ def train_model(lgb_params, D_train, D_val, y_val):
     return cl, acc, f1
 
 
-def evaluate_model(lgb_relevancy, model_config, eval_data, verbose):
-    xgb_relevancy_shingle2id = model_config['shingle2id']
-    xgb_relevancy_shingle_len = model_config['shingle_len']
-    xgb_relevancy_nb_features = model_config['nb_features']
-
-    nb_good = 0  # попадание предпосылки в top-1
-    nb_good5 = 0
-    nb_good10 = 0
-    nb_total = 0
-
-    wrt = None
-    if verbose:
-        wrt = codecs.open(os.path.join(tmp_folder, 'lgb_relevancy.evaluation.txt'), 'w', 'utf-8')
-
-    for irecord, phrases in eval_data.generate_groups():
-        nb_samples = len(phrases)
-
-        X_data = lil_matrix((nb_samples, xgb_relevancy_nb_features), dtype='float32')
-
-        for irow, (premise_words, question_words) in enumerate(phrases):
-            premise_wx = premise_words
-            question_wx = question_words
-
-            premise_shingles = set(ngrams(premise_wx, xgb_relevancy_shingle_len))
-            question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
-
-            vectorize_sample_x(X_data, irow, premise_shingles, question_shingles, xgb_relevancy_shingle2id)
-
-        y_pred = lgb_relevancy.predict(X_data)
-
-        # предпосылка с максимальной релевантностью
-        max_index = np.argmax(y_pred)
-        selected_premise = phrases[max_index][0]
-
-        nb_total += 1
-        # эта выбранная предпосылка соответствует одному из вариантов
-        # релевантных предпосылок в этой группе?
-        if eval_data.is_relevant_premise(irecord, selected_premise):
-            nb_good += 1
-            nb_good5 += 1
-            nb_good10 += 1
-            if verbose:
-                print(EvaluationMarkup.ok_color + EvaluationMarkup.ok_bullet + EvaluationMarkup.close_color, end='')
-                wrt.write(EvaluationMarkup.ok_bullet)
-        else:
-            if verbose:
-                print(EvaluationMarkup.fail_color + EvaluationMarkup.fail_bullet + EvaluationMarkup.close_color, end='')
-                wrt.write(EvaluationMarkup.fail_bullet)
-            # среди top-5 или top-10 предпосылок есть верная?
-            sorted_phrases = [x for x, _ in sorted(itertools.izip(phrases, y_pred), key=lambda z:-z[1])]
-
-            for i in range(1, 10):
-                selected_premise = sorted_phrases[i][0]
-                if eval_data.is_relevant_premise(irecord, selected_premise):
-                    if i < 5:
-                        nb_good5 += 1  # верная предпосылка вошла в top-5
-                    if i < 10:
-                        nb_good10 += 1
-                    break
-
-        if verbose == 1:
-            message_line = u'{:<40} {:<40} {}/{}'.format(question_words, phrases[max_index][0], y_pred[max_index], y_pred[0])
-            print(message_line)
-            wrt.write(message_line + u'\n')
-
-        # для отладки: top релевантных вопросов
-        if False:
-            print(u'Most similar premises for question {}'.format(question))
-            yy = [(y_pred[i], i) for i in range(len(y_pred))]
-            yy = sorted(yy, key=lambda z: -z[0])
-
-            for sim, index in yy[:5]:
-                print(u'{:.4f} {}'.format(sim, phrases[index][0]))
-
-    if wrt is not None:
-        wrt.close()
-
-    # Итоговая точность выбора предпосылки.
-    accuracy = float(nb_good) / float(nb_total)
-    if verbose == 1:
-        print('accuracy       ={}'.format(accuracy))
-
-        # Также выведем точность попадания верной предпосылки в top-5 и top-10
-        accuracy5 = float(nb_good5) / float(nb_total)
-        print('accuracy top-5 ={}'.format(accuracy5))
-
-        accuracy10 = float(nb_good10) / float(nb_total)
-        print('accuracy top-10={}'.format(accuracy10))
-
-    return accuracy
-
-
-def calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id):
+def calc_ranking_measures(samples, estimator, shingle_len, shingle2id):
     # Код для получения оценочной метрики "качество ранжирования".
     # Берем условное val-подмножество из базового датасета.
-    df_val = df.sample(n=10000, random_state=12345678)
     premise2samples = dict()
-    for i, r1 in df_val[df_val['relevance'] == 1].iterrows():
-        phrase1 = r1['premise']
-        phrase2 = r1['question']
-        if phrase1 not in premise2samples:
-            premise2samples[phrase1] = [(phrase2, 1)]
+    for sample in samples:
+        if sample.label == 1:
+            if sample.words1 not in premise2samples:
+                premise2samples[sample.words1] = [(sample.words2, 1)]
 
     # 23-10-2019 добавим готовые негативные примеры из датасета.
-    for i, r1 in df_val[df_val['relevance'] == 0].iterrows():
-        phrase1 = r1['premise']
-        phrase2 = r1['question']
-        if phrase1 in premise2samples:
-            premise2samples[phrase1].append((phrase2, 1))
+    for sample in samples:
+        if sample.label == 0:
+            if sample.words1 in premise2samples:
+                premise2samples[sample.words1].append((sample.words2, 1))
 
-    for i, r2 in df_val[df_val['relevance'] == 0].iterrows():
-        phrase1 = r2['premise']
-        phrase2 = r2['question']
-        # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению.
-        for phrase1_1, samples_1 in premise2samples.items():
-            if phrase1 != phrase1_1:
-                if len(premise2samples[phrase1_1]) < 100:
-                    phrases2 = premise2samples[phrase1_1]
-                    if (phrase2, 0) not in phrases2 and (phrase2, 1) not in phrases2:
-                        premise2samples[phrase1_1].append((phrase2, 0))
+    for sample in samples:
+        if sample.label == 0:
+            # Добавляем вторую фразу как нерелевантный сэмпл к каждому левому предложению.
+            for phrase1_1, samples_1 in premise2samples.items():
+                if sample.words1 != phrase1_1:
+                    if len(premise2samples[phrase1_1]) < 100:
+                        phrases2 = premise2samples[phrase1_1]
+                        if (sample.words2, 0) not in phrases2 and (sample.words2, 1) not in phrases2:
+                            premise2samples[phrase1_1].append((sample.words2, 0))
 
     # Теперь в premise2samples для каждой фразы-ключа есть некоторое количество сравниваемых
     # фраз, из которых только 1 релевантна. Мы должны проверить, что модель именно эту пару
@@ -346,43 +260,37 @@ def calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id):
     nb_good = 0
     nb_total = 0
     rank_positions = []  # тут накопим позиции правильного сэмпла при ранжировке
+    #tokenizer = PhraseSplitter.create_splitter(lemmatize)
+
     for phrase1, samples in premise2samples.items():
-        df_samples = pd.DataFrame(index=None, columns=['premise', 'question', 'relevance'])
+        samples2 = []
         for phrase2, label in samples:
-            df_samples = df_samples.append({'premise': phrase1, 'question': phrase2, 'relevance': label},
-                                           ignore_index=True)
+            sample = Sample()
+            sample.phrase1 = phrase1
+            sample.phrase2 = phrase2
+            sample.words1 = phrase1  #words2str(tokenizer.tokenize(phrase1))
+            sample.words2 = phrase2  #words2str(tokenizer.tokenize(phrase2))
+            sample.label = label
+            samples2.append(sample)
 
-        # X_data, y_data = vectorize_data(df_samples, best_vectorizer, best_model_params)
-
-        nb_samples = len(samples)
-        X_data = lil_matrix((nb_samples, nb_features), dtype='float32')
-        y_data = df_samples['relevance'].values
-
-        for irow, (premise, question) in enumerate(
-                zip(df_samples['premise'].values, df_samples['question'].values)):
-            premise_shingles = set(ngrams(premise, shingle_len))
-            question_shingles = set(ngrams(question, shingle_len))
-            vectorize_sample_x(X_data, irow, premise_shingles, question_shingles, shingle2id)
-
+        X_data, y_data = vectorize_samples(samples2, shingle_len, shingle2id, verbose=0)
         y_pred = estimator.predict(X_data)
         maxy_pred = np.argmax(y_pred)
         maxy_data = np.argmax(y_data)
         nb_good += int(maxy_pred == maxy_data)
         nb_total += 1
 
-        yy = [(y_pred[i], y_data[i]) for i in range(nb_samples)]
+        yy = [(y_pred[i], y_data[i]) for i in range(len(samples2))]
         yy = sorted(yy, key=lambda z: -z[0])
         y_true_pos = next(i for i, z in enumerate(yy) if z[1] == 1)
         rank_positions.append(y_true_pos)
 
-
     # Precision@1 - для какой доли сэмплов правильная пара попадает в top-1
-    rank_accuracy = float(nb_good) / nb_total
+    precision1 = float(nb_good) / nb_total
 
-    # Средняя позиция правильного ответа
-    mean_pos = np.mean(rank_positions)
-
-    return rank_accuracy, mean_pos
+    # Mean reciprocal rank
+    mrr = np.mean([1.0/(1.0+r) for r in rank_positions])
+    return precision1, mrr
 
 
 def get_params(space):
@@ -393,76 +301,207 @@ def get_params(space):
     px['learning_rate'] = space['learning_rate']
     px['num_leaves'] = int(space['num_leaves'])
     px['min_data_in_leaf'] = int(space['min_data_in_leaf'])
-    px['min_sum_hessian_in_leaf'] = space['min_sum_hessian_in_leaf']
+    #px['min_sum_hessian_in_leaf'] = space['min_sum_hessian_in_leaf']
     px['max_depth'] = int(space['max_depth']) if 'max_depth' in space else -1
     px['lambda_l1'] = 0.0  # space['lambda_l1'],
     px['lambda_l2'] = 0.0  # space['lambda_l2'],
     px['max_bin'] = 256
-    px['feature_fraction'] = space['feature_fraction']
-    px['bagging_fraction'] = space['bagging_fraction']
+    px['feature_fraction'] = 1.0  #space['feature_fraction']
+    px['bagging_fraction'] = 1.0  #space['bagging_fraction']
     px['bagging_freq'] = 1
 
     return px
 
 
+ho_samples = None
+ho_shingle2id = None
 obj_call_count = 0
-cur_best_acc = -np.inf
+cur_best_score = -np.inf
 hyperopt_log_writer = None
-ho_model_config = None
-ho_eval_data = None
 
 
 def objective(space):
-    global obj_call_count, cur_best_acc
+    # Целевая функция для hyperopt
+    global obj_call_count, cur_best_score
 
     obj_call_count += 1
 
-    logging.info('\nLightGBM objective call #{} cur_best_acc={:7.5f}'.format(obj_call_count, cur_best_acc))
-
+    logging.info('LightGBM objective call #{} cur_best_score={:7.5f}'.format(obj_call_count, cur_best_score))
     lgb_params = get_params(space)
-
     sorted_params = sorted(space.iteritems(), key=lambda z: z[0])
-    logging.info('Params: {}'.format(str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
+    logging.info('Params: %s', str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params]))
+    shingle_len = int(space['shingle_len']) if 'shingle_len' in space else 3
 
-    cl, val_acc, val_f1 = train_model(lgb_params, D_train, D_val, y_val)
-    eval_acc = evaluate_model(cl, ho_model_config, ho_eval_data, 0)
-    logging.info('eval_acc={}'.format(eval_acc))
+    kf = KFold(n_splits=3)
+    scores = []
+    #mrrs = []
+    for ifold, (train_index, eval_index) in enumerate(kf.split(ho_samples)):
+        train_samples = [ho_samples[i] for i in train_index]
+        val_samples = [ho_samples[i] for i in eval_index]
 
-    do_store = False
-    if eval_acc > cur_best_acc:
-        cur_best_acc = eval_acc
-        do_store = True
-        print(EvaluationMarkup.ok_color + 'NEW BEST ACC={}'.format(cur_best_acc) + EvaluationMarkup.close_color)
+        X_train, y_train = vectorize_samples(train_samples, shingle_len, ho_shingle2id, verbose=0)
+        X_val, y_val = vectorize_samples(val_samples, shingle_len, ho_shingle2id, verbose=0)
 
-    prefix = '   '
-    if do_store:
-        model_filename = ho_model_config['model_filename']
-        cl.save_model(model_filename)
-        prefix = '(*)'
+        # из фолдового трейна выделим еще подмножество для early stopping'а
+        SEED = 123456
+        TEST_SHARE = 0.2
+        X_train2, X_val2, y_train2, y_val2 = train_test_split(X_train,
+                                                              y_train,
+                                                              test_size=TEST_SHARE,
+                                                              random_state=SEED)
 
-    hyperopt_log_writer.write('{}eval acc={:<7.5f} Params:{}\n'.format(prefix,
-                                                                       eval_acc,
-                                                                       str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])))
+        D_train2 = lightgbm.Dataset(data=X_train2, label=y_train2, silent=1)
+        D_val2 = lightgbm.Dataset(data=X_val2, label=y_val2, silent=1)
+
+        cl, acc, f1 = train_model(lgb_params, D_train2, D_val2, X_val2, y_val2)
+
+        y_pred = cl.predict(X_val)
+        y_pred = (y_pred >= 0.5).astype(np.int)
+        f1 = sklearn.metrics.f1_score(y_true=y_val, y_pred=y_pred)
+        scores.append(f1)
+
+        logging.info('Training has finished for fold %d, f1=%f', ifold + 1, f1)
+        #logging.info('Calculate ranking accuracy...')
+        #estimator = cl
+        #precision1, mrr = calc_ranking_measures(val_samples, estimator, shingle_len, ho_shingle2id)
+        #scores.append(precision1)
+        #mrrs.append(mrr)
+        #logging.info('fold %d  ==>  precision@1=%g mrr=%g', ifold + 1, precision1, mrr)
+
+    eval_score = np.mean(scores)
+    logging.info('cross-val f1=%f', eval_score)
+
+    params_str = str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params])
+    prefix = '      '
+    if eval_score > cur_best_score:
+        cur_best_score = eval_score
+        logging.info('!!! NEW BEST F1 SCORE=%f for params=%s', cur_best_score, params_str)
+        prefix = '(!!!) '
+
+    hyperopt_log_writer.write('{}eval f1={:<7.5f}  {}\n'.format(prefix, eval_score, params_str))
     hyperopt_log_writer.flush()
 
-    return{'loss': -cur_best_acc, 'status': STATUS_OK}
+    return{'loss': -cur_best_score, 'status': STATUS_OK}
+
+
+def load_samples(dataset_path, lemmatize, max_samples=0):
+    df = pd.read_csv(dataset_path, encoding='utf-8', delimiter='\t', quoting=3)
+
+    if max_samples:
+        df = df.sample(n=max_samples)
+
+    logging.info('Input dataset "%s" loaded, samples.count=%d', dataset_path, df.shape[0])
+
+    tokenizer = PhraseSplitter.create_splitter(lemmatize)
+
+    all_shingles = set()
+
+    for i, record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles'):
+        for phrase in [record['premise'], record['question']]:
+            words = tokenizer.tokenize(phrase)
+            wx = words2str(words)
+            all_shingles.update(ngrams(wx, shingle_len))
+
+    nb_shingles = len(all_shingles)
+    logging.info('nb_shingles=%d', nb_shingles)
+
+    shingle2id = dict([(s, i) for i, s in enumerate(all_shingles)])
+
+    samples = []
+    for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phrases'):
+        label = row['relevance']
+        phrase1 = row['premise']
+        phrase2 = row['question']
+        words1 = words2str(tokenizer.tokenize(phrase1))
+        words2 = words2str(tokenizer.tokenize(phrase2))
+
+        y = row['relevance']
+        if y in (0, 1):
+            sample = Sample()
+            sample.phrase1 = phrase1
+            sample.phrase2 = phrase2
+            sample.words1 = words1
+            sample.words2 = words2
+            sample.label = label
+            samples.append(sample)
+
+    return samples, shingle2id
+
+
+def vectorize_samples(samples, shingle_len, shingle2id, verbose=1):
+    nb_shingles = len(shingle2id)
+    nb_features = nb_shingles * 3
+    nb_patterns = len(samples)
+    X_data = lil_matrix((nb_patterns, nb_features), dtype='float32')
+    y_data = []
+
+    if verbose != 0:
+        logging.info('Vectorization of %d samples', len(samples))
+
+    for idata, sample in enumerate(samples):
+        y_data.append(sample.label)
+
+        premise = sample.words1
+        question = sample.words2
+        premise_shingles = ngrams(premise, shingle_len)
+        question_shingles = ngrams(question, shingle_len)
+        vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shingle2id)
+
+    if verbose:
+        nb_0 = sum(map(lambda y: y == 0, y_data))
+        nb_1 = sum(map(lambda y: y == 1, y_data))
+        logging.info('nb_0=%d', nb_0)
+        logging.info('nb_1=%d', nb_1)
+
+    return X_data, y_data
+
+
+def get_best_params(task):
+    lgb_params = dict()
+    lgb_params['boosting_type'] = 'gbdt'
+    lgb_params['objective'] = 'binary'
+    lgb_params['metric'] = 'binary_logloss'
+
+    if task == 'synonymy':
+        # learning_rate=0.148895498098 min_data_in_leaf=7.0 num_leaves=61.0
+        lgb_params['learning_rate'] = 0.15
+        lgb_params['num_leaves'] = 61
+        lgb_params['min_data_in_leaf'] = 7
+        lgb_params['min_sum_hessian_in_leaf'] = 1
+        lgb_params['max_depth'] = -1
+        lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
+        lgb_params['lambda_l2'] = 0.0  # space['lambda_l2'],
+        lgb_params['max_bin'] = 256
+        lgb_params['feature_fraction'] = 1.0  # 1.0
+        lgb_params['bagging_fraction'] = 1.0
+        lgb_params['bagging_freq'] = 1
+    else:
+        lgb_params['learning_rate'] = 0.20
+        lgb_params['num_leaves'] = 40
+        lgb_params['min_data_in_leaf'] = 15
+        lgb_params['min_sum_hessian_in_leaf'] = 1
+        lgb_params['max_depth'] = -1
+        lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
+        lgb_params['lambda_l2'] = 0.0  # space['lambda_l2'],
+        lgb_params['max_bin'] = 256
+        lgb_params['feature_fraction'] = 1.0  # 1.0
+        lgb_params['bagging_fraction'] = 1.0
+        lgb_params['bagging_freq'] = 1
+
+    return lgb_params
 
 
 # -------------------------------------------------------------------
 
 
 parser = argparse.ArgumentParser(description='LightGBM classifier for text relevance estimation')
-parser.add_argument('--run_mode', type=str, default='train', help='what to do: train | evaluate | query | query2 | hardnegative')
-parser.add_argument('--hyperopt', type=int, default=0, help='use hyperopt when training')
-parser.add_argument('--shingle_len', type=int, default=3, help='shingle length')
-parser.add_argument('--eta', type=float, default=0.184, help='"eta" (learning rate) parameter for LightGBM')
-parser.add_argument('--subsample', type=float, default=0.997, help='"subsample" parameter for LightGBM')
-parser.add_argument('--num_leaves', type=int, default=48, help='"num_leaves" parameter for LightGBM')
-parser.add_argument('--min_data_in_leaf', type=int, default=73, help='"min_data_in_leaf" parameter for LightGBM')
+parser.add_argument('--run_mode', type=str, default='train', choices='hyperopt train eval query query2 hardnegative', help='what to do')
+parser.add_argument('--hyperopt', type=int, default=1000, help='Number of objective calculations for hyperopt')
+parser.add_argument('--shingle_len', type=int, default=3, choices=[2, 3, 4, 5], help='shingle length')
 parser.add_argument('--input', type=str, default='../data/premise_question_relevancy.csv', help='path to input dataset')
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
-parser.add_argument('--lemmatize', type=int, default=0, help='canonize phrases before extracting the shingles: 0 - none, 1 - lemmas, 2 - stems')
+parser.add_argument('--lemmatize', type=int, default=1, help='canonize phrases before shingle extraction: 0 - none, 1 - lemmas, 2 - stems')
 parser.add_argument('--task', type=str, default='relevancy', choices='relevancy synonymy'.split(), help='model filenames keyword')
 
 args = parser.parse_args()
@@ -472,113 +511,90 @@ tmp_folder = args.tmp
 data_folder = args.data_dir
 run_mode = args.run_mode
 lemmatize = args.lemmatize
-subsample = args.subsample
-num_leaves = args.num_leaves
-min_data_in_leaf = args.min_data_in_leaf
 task = args.task
 
 config_filename = 'lgb_{}.config'.format(task)
 
-# количество случайных наборов параметров, проверяемых в hyperopt
-# если указать 0, то hyperopt не применяется, а выполняется обучение
-# с заданными параметрами (--num_leaves, --min_data_in_leaf, --eta, --subsample)
-use_hyperopt = args.hyperopt
-
 # основной настроечный параметр модели - длина символьных N-грамм (шинглов)
 shingle_len = args.shingle_len
-if shingle_len < 2 or shingle_len > 6:
-    print('Invalid --shingle_len option value')
-    exit(1)
-
-eta = args.eta
-if eta < 0.01 or eta >= 1.0:
-    print('Invalid --eta option value')
-    exit(1)
-
 
 # настраиваем логирование в файл
 ruchatbot.utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'lgb_{}.log'.format(task)))
 
+if run_mode == 'hyperopt':
+    ho_samples, ho_shingle2id = load_samples(input_path, lemmatize, 100000)
+
+    space = {'num_leaves': hp.quniform('num_leaves', 20, 100, 1),
+             #'shingle_len': hp.quniform('shingle_len', 3, 3, 1),
+             'min_data_in_leaf': hp.quniform('min_data_in_leaf', 5, 100, 1),
+             #'feature_fraction': hp.uniform('feature_fraction', 1.0, 1.0),
+             #'bagging_fraction': hp.uniform('bagging_fraction', 1.0, 1.0),
+             'learning_rate': hp.loguniform('learning_rate', -2, -1.2),
+             #'min_sum_hessian_in_leaf': hp.loguniform('min_sum_hessian_in_leaf', 0, 2.3),
+             }
+
+    hyperopt_log_writer = open(os.path.join(tmp_folder, 'lgb_{}.hyperopt.txt'.format(task)), 'w')
+
+    trials = Trials()
+    best = hyperopt.fmin(fn=objective,
+                         space=space,
+                         algo=HYPEROPT_ALGO,
+                         max_evals=args.hyperopt,
+                         trials=trials,
+                         verbose=0)
+
+    hyperopt_log_writer.close()
+
+if run_mode == 'eval':
+    samples, shingle2id = load_samples(input_path, lemmatize)
+    kf = KFold(n_splits=5)
+    scores = []
+    mrrs = []
+    for ifold, (train_index, eval_index) in enumerate(kf.split(samples)):
+        train_samples = [samples[i] for i in train_index]
+        val_samples = [samples[i] for i in eval_index]
+
+        X_train, y_train = vectorize_samples(train_samples, shingle_len, shingle2id)
+
+        # из фолдового трейна выделим еще подмножество для early stopping'а
+        SEED = 123456
+        TEST_SHARE = 0.2
+        X_train2, X_val2, y_train2, y_val2 = train_test_split(X_train,
+                                                              y_train,
+                                                              test_size=TEST_SHARE,
+                                                              random_state=SEED)
+
+        D_train2 = lightgbm.Dataset(data=X_train2, label=y_train2, silent=1)
+        D_val2 = lightgbm.Dataset(data=X_val2, label=y_val2, silent=1)
+
+        lgb_params = get_best_params(task)
+        cl, acc, f1 = train_model(lgb_params, D_train2, D_val2, X_val2, y_val2)
+        logging.info('Training has finished for fold %d, f1=%f', ifold+1, f1)
+        estimator = cl
+
+        logging.info('Calculate ranking accuracy...')
+        precision1, mrr = calc_ranking_measures(val_samples, estimator, shingle_len, shingle2id)
+        scores.append(precision1)
+        mrrs.append(mrr)
+        logging.info('fold %d  ==>  precision@1=%g mrr=%g', ifold+1, precision1, mrr)
+
+    score = np.mean(scores)
+    score_std = np.std(scores)
+    logging.info('Crossvalidation precision@1=%f std=%f mrr=%f', score, score_std, np.mean(mrrs))
 
 if run_mode == 'train':
-    # Режим тренировки модели.
-    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-    logging.info('Input dataset loaded, samples.count={}'.format(df.shape[0]))
-
-    tokenizer = PhraseSplitter.create_splitter(lemmatize)
-
-    all_shingles = set()
-
-    for i, record in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Shingles'):
-        for phrase in [record['premise'], record['question']]:
-            #if phrase.startswith(u'как меня зовут'):
-            #    pass
-
-            words = tokenizer.tokenize(phrase)
-            wx = words2str(words)
-            all_shingles.update(ngrams(wx, shingle_len))
-
-    nb_shingles = len(all_shingles)
-    logging.info('nb_shingles={}'.format(nb_shingles))
-
-    shingle2id = dict([(s, i) for i, s in enumerate(all_shingles)])
-
-    phrases = []
-    ys = []
-    weights = []
-
-    for index, row in tqdm.tqdm(df.iterrows(), total=df.shape[0], desc='Extract phrases'):
-        weights.append(row['weight'])
-        phrase1 = row['premise']
-        phrase2 = row['question']
-        words1 = words2str(tokenizer.tokenize(phrase1))
-        words2 = words2str(tokenizer.tokenize(phrase2))
-
-        y = row['relevance']
-        if y in (0, 1):
-            ys.append(y)
-            phrases.append((words1, words2, phrase1, phrase2))
-
-    nb_patterns = len(ys)
-
-    nb_features = nb_shingles * 3
-    X_data = lil_matrix((nb_patterns, nb_features), dtype='float32')
-    y_data = []
-
-    for idata, (phrase12, y12) in tqdm.tqdm(enumerate(itertools.izip(phrases, ys)),
-                                            total=nb_patterns,
-                                            desc='Vectorization'):
-        premise = phrase12[0]
-        question = phrase12[1]
-        y = y12
-
-        y_data.append(y)
-
-        premise_shingles = ngrams(premise, shingle_len)
-        question_shingles = ngrams(question, shingle_len)
-        vectorize_sample_x(X_data, idata, premise_shingles, question_shingles, shingle2id)
-
-    nb_0 = len(filter(lambda y: y == 0, y_data))
-    nb_1 = len(filter(lambda y: y == 1, y_data))
-
-    logging.info('nb_0={}'.format(nb_0))
-    logging.info('nb_1={}'.format(nb_1))
+    samples, shingle2id = load_samples(input_path, lemmatize)
+    X_data, y_data = vectorize_samples(samples, shingle_len, shingle2id)
 
     SEED = 123456
     TEST_SHARE = 0.2
-    X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(X_data,
-                                                                      y_data,
-                                                                      weights,
-                                                                      test_size=TEST_SHARE,
-                                                                      random_state=SEED)
-
-    D_train = lightgbm.Dataset(data=X_train, label=y_train, weight=w_train, silent=1)
-    D_val = lightgbm.Dataset(data=X_val, label=y_val, weight=w_val, silent=1)
-
+    X_train, X_val, y_train, y_val = train_test_split(X_data, y_data, test_size=TEST_SHARE, random_state=SEED)
+    D_train = lightgbm.Dataset(data=X_train, label=y_train, silent=1)
+    D_val = lightgbm.Dataset(data=X_val, label=y_val, silent=1)
     gc.collect()
 
     model_filename = os.path.join(tmp_folder, 'lgb_{}.model'.format(task))
-
+    nb_features = len(shingle2id)*3
     # сохраним конфиг модели, чтобы ее использовать в чат-боте
     model_config = {'model': 'lightgbm',
                     'shingle2id': shingle2id,
@@ -591,82 +607,13 @@ if run_mode == 'train':
     with open(os.path.join(tmp_folder, config_filename), 'w') as f:
         json.dump(model_config, f, indent=4)
 
-    if use_hyperopt:
-        ho_model_config = model_config
+    lgb_params = get_best_params(task)
+    cl, acc, f1 = train_model(lgb_params, D_train, D_val, X_val, y_val)
 
-        ho_eval_data = EvaluationDataset(0, tokenizer, 'none')
-        ho_eval_data.load(data_folder)
+    logging.info('Training has finished, val f1=%f', f1)
 
-        space = {'num_leaves': hp.quniform('num_leaves', 20, 100, 1),
-                 'min_data_in_leaf': hp.quniform('min_data_in_leaf', 5, 100, 1),
-                 'feature_fraction': hp.uniform('feature_fraction', 0.75, 1.0),
-                 'bagging_fraction': hp.uniform('bagging_fraction', 0.75, 1.0),
-                 'learning_rate': hp.loguniform('learning_rate', -2, -1.2),
-                 'min_sum_hessian_in_leaf': hp.loguniform('min_sum_hessian_in_leaf', 0, 2.3),
-                 }
-
-        hyperopt_log_writer = open(os.path.join(tmp_folder, 'lgb_{}.hyperopt.txt'.format(task)), 'w')
-
-        trials = Trials()
-        best = hyperopt.fmin(fn=objective,
-                             space=space,
-                             algo=HYPEROPT_ALGO,
-                             max_evals=500,
-                             trials=trials,
-                             verbose=1)
-
-        hyperopt_log_writer.close()
-    else:
-        lgb_params = dict()
-        lgb_params['boosting_type'] = 'gbdt'
-        lgb_params['objective'] = 'binary'
-        lgb_params['metric'] = 'binary_logloss'
-        lgb_params['learning_rate'] = eta
-        lgb_params['num_leaves'] = num_leaves
-        lgb_params['min_data_in_leaf'] = min_data_in_leaf
-        lgb_params['min_sum_hessian_in_leaf'] = 1
-        lgb_params['max_depth'] = -1
-        lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
-        lgb_params['lambda_l2'] = 0.0  # space['lambda_l2'],
-        lgb_params['max_bin'] = 256
-        lgb_params['feature_fraction'] = 0.950673776143  # 1.0
-        lgb_params['bagging_fraction'] = subsample
-        lgb_params['bagging_freq'] = 1
-
-        cl, acc, f1 = train_model(lgb_params, D_train, D_val, y_val)
-
-        logging.info('Training has finished')
-        logging.info('val acc={}'.format(acc))
-        logging.info('val f1={}'.format(f1))
-
-        # сохраняем саму модель
-        cl.save_model(model_filename)
-
-        estimator = cl
-        #tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
-        #nb_features = model_config['nb_features']
-        #shingle_len = model_config['shingle_len']
-        #shingle2id = model_config['shingle2id']
-
-        # eval_data = EvaluationDataset(0, tokenizer, 'none')
-        # eval_data.load(data_folder)
-        #
-        # accuracy = evaluate_model(lgb_relevancy, model_config, eval_data, verbose=1)
-        #
-        # # Итоговая точность выбора предпосылок на оценочной задаче.
-        # print('eval accuracy={}'.format(accuracy))
-
-        logging.info('Calculate ranking accuracy...')
-        rank_acc, mean_pos = calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id)
-        logging.info('Ranking accuracy: precision@1={} mean_pos={}'.format(rank_acc, mean_pos))
-
-        # Для отладки - прогоним через модель весь датасет и сохраним результаты в текстовый файл.
-        # y_pred = cl.predict(X_data)
-        # with codecs.open(os.path.join(tmp_folder, 'lgb_{}.validation.txt'.format(task)), 'w', 'utf-8') as wrt:
-        #     for i in range(len(y_pred)):
-        #         premise = phrases[i][2]
-        #         question = phrases[i][3]
-        #         wrt.write(u'{}\n{}\ny_true={} y_pred={}\n\n'.format(premise, question, y_data[i], y_pred[i]))
+    # сохраняем саму модель на диск
+    cl.save_model(model_filename)
 
 if run_mode == 'query':
     # Ручная проверка модели на вводимых в консоли предпосылках и вопросах.
@@ -744,7 +691,7 @@ if run_mode == 'query2':
             # Для hard negative mining берем все предпосылки из датасета PQA
             df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
             all_premises = df['premise'].unique()
-            print('{} premises loaded from {}'.format(len(all_premises), input_path))
+            logging.info('%d premises loaded from "%s"', len(all_premises), input_path)
             premises.extend((premise, premise) for premise in all_premises)
 
         if True:
@@ -791,7 +738,7 @@ if run_mode == 'query2':
         raise NotImplementedError()
 
     nb_premises = len(premises)
-    print('nb_premises={}'.format(nb_premises))
+    logging.info('nb_premises=%d', nb_premises)
 
     while True:
         X_data = lil_matrix((nb_premises, xgb_relevancy_nb_features), dtype='float32')
@@ -814,26 +761,6 @@ if run_mode == 'query2':
         print('-'*50)
         for phrase, sim in phrase_rels[:30]:  # выводим топ ближайших фраз
             print(u'{:6.4f} {}'.format(sim, phrase))
-
-if run_mode == 'evaluate':
-    # Оценка качества натренированной модели на специальном наборе вопросов и
-    # ожидаемых выборов предпосылок из отдельного тренировочного набора.
-
-    # Загружаем данные обученной модели.
-    with open(os.path.join(tmp_folder, config_filename), 'r') as f:
-        model_config = json.load(f)
-
-    estimator = lightgbm.Booster(model_file=model_config['model_filename'])
-    tokenizer = PhraseSplitter.create_splitter(model_config['lemmatize'])
-    nb_features = model_config['nb_features']
-    shingle_len = model_config['shingle_len']
-    shingle2id = model_config['shingle2id']
-
-    df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
-
-    logging.info('Calculate ranking accuracy...')
-    rank_acc, mean_pos = calc_ranking_measures(df, estimator, nb_features, shingle_len, shingle2id)
-    logging.info('Ranking accuracy: precision@1={} mean_pos={}'.format(rank_acc, mean_pos))
 
 if run_mode == 'clusterize':
     # семантическая кластеризация предложений с использованием
@@ -986,16 +913,35 @@ if run_mode == 'hardnegative':
                         if len(words) > 2:
                             phrase2 = u' '.join(words)
                             test_phrases.add((phrase2, phrase))
+
+        premises = list(test_phrases)
+        questions = list(test_phrases)
+    elif task == 'relevancy':
+        premises = set()
+        questions = set()
+        with io.open(os.path.join(data_folder, 'premise_question_relevancy.csv'), 'r', encoding='utf-8') as rdr:
+            header = rdr.readline()
+            for line in rdr:
+                fields = line.strip().split('\t')
+                premise = fields[0]
+                premises.add((premise, premise))
+
+                question = fields[1]
+                questions.add((question, question))
+
+                known_pairs.add((premise, question))
+
+        questions = list(questions)
+        premises = list(premises)
     else:
         raise NotImplementedError()
 
-    premises = list(test_phrases)
     nb_premises = len(premises)
     print('nb_premises={}'.format(nb_premises))
 
-    with io.open(os.path.join(tmp_folder, 'lgb_relevancy.hard_negatives.txt'), 'w', encoding='utf-8') as wrt:
+    with io.open(os.path.join(tmp_folder, 'lgb_relevancy.hard_negatives.{}.txt'.format(task)), 'w', encoding='utf-8') as wrt:
         nb_stored = 0  # кол-во найденных и сохраненных негативных примеров
-        for iphrase, (nphrase, question) in enumerate(sorted(premises, key=lambda _: random.random())):
+        for iphrase, (nphrase, question) in enumerate(sorted(questions, key=lambda _: random.random())):
             X_data = lil_matrix((nb_premises, xgb_relevancy_nb_features), dtype='float32')
             question_wx = words2str(tokenizer.tokenize(question))
             question_shingles = set(ngrams(question_wx, xgb_relevancy_shingle_len))
