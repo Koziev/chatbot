@@ -932,6 +932,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             # экранирован smalltalk-репликой.
                             session.insert_into_buffer(replica)
 
+                    if rule_applied:
+                        return
+
         if interpreted_phrase.is_imperative:
             self.logger.debug(u'Processing as imperative: "%s"', interpreted_phrase.interpretation)
             # Обработка приказов (императивов).
@@ -994,7 +997,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             if answer_generated:
                 self.say(session, answer)
-
 
     def process_order(self, bot, session, interlocutor, interpreted_phrase):
         self.logger.debug(u'Processing order "%s"', interpreted_phrase.interpretation)
