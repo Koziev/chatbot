@@ -5,6 +5,7 @@ import itertools
 import logging
 
 from ruchatbot.bot.simple_facts_storage import SimpleFactsStorage
+from ruchatbot.utils.constant_replacer import replace_constant
 
 
 class ProfileFactsReader(SimpleFactsStorage):
@@ -13,7 +14,7 @@ class ProfileFactsReader(SimpleFactsStorage):
     таким образом персистентность не реализована.
     """
 
-    def __init__(self, text_utils, profile_path):
+    def __init__(self, text_utils, profile_path, constants):
         """
         :param text_utils: экземпляр класса TextUtils
         :param profile_path: путь к текстовому файлу с фактами
@@ -22,6 +23,7 @@ class ProfileFactsReader(SimpleFactsStorage):
         self.text_utils = text_utils
         self.profile_path = profile_path
         self.profile_facts = None
+        self.constants = constants
         self.new_facts = []
 
     def load_profile(self):
@@ -46,6 +48,7 @@ class ProfileFactsReader(SimpleFactsStorage):
                         else:
                             assert(current_section)
                             canonized_line = self.text_utils.canonize_text(line)
+                            canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
                             self.profile_facts.append((canonized_line, current_section, u''))
             logger.debug(u'%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
 

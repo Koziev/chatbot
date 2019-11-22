@@ -9,5 +9,12 @@
 	"rules_enabled": true,
 	"force_question_answering": false,
 	"replica_after_answering": false,
-	"premise_is_answer": false
+	"premise_is_answer": false,
+	
+	
+	"constants": {
+		"gender": "ЖЕН",
+		"name_nomn": "Вика"
+	}
+	
 }	

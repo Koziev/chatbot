@@ -98,16 +98,18 @@ def main():
 
     # Контейнер для правил
     scripting = BotScripting(data_folder)
-    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, text_utils)
+    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
 
     # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
-    profile_facts = ProfileFactsReader(text_utils=text_utils, profile_path=profile.premises_path)
+    profile_facts = ProfileFactsReader(text_utils=text_utils,
+                                       profile_path=profile.premises_path,
+                                       constants=profile.constants)
 
     # Подключем простое файловое хранилище с FAQ-правилами бота.
     # Движок бота сопоставляет вопрос пользователя с опорными вопросами в FAQ базе,
     # и если нашел хорошее соответствие (синонимичность выше порога), то
     # выдает ответную часть найденной записи.
-    faq_storage = PlainFileFaqStorage(profile.faq_path)
+    faq_storage = PlainFileFaqStorage(profile.faq_path, constants=profile.constants, text_utils=text_utils)
 
     # Инициализируем аватара
     bot = BotPersonality(bot_id='test_bot',
@@ -145,7 +147,7 @@ def main():
 
         question = input_kbd('H:>')
         if len(question) > 0:
-            if question.lower() in ('\exit', '\q', '\quit', '/stop'):
+            if question.lower() in ('r\exit', r'\q', r'\quit', '/stop'):
                 break
 
             bot.push_phrase(user_id, question)

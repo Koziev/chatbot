@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import yaml
-
+from ruchatbot.utils.constant_replacer import replace_constant
 
 class ComprehensionTable(object):
     def __init__(self):
@@ -15,7 +14,7 @@ class ComprehensionTable(object):
         else:
             return [node]
 
-    def load_yaml_data(self, yaml_data):
+    def load_yaml_data(self, yaml_data, constants, text_utils):
         """
         Из YAML конфига загружаются правила трансляции.
         Одно правило в простейшем случае описывает ситуацию, когда одна входная
@@ -32,9 +31,10 @@ class ComprehensionTable(object):
         """
         if 'comprehensions' in yaml_data:
             for rule in yaml_data['comprehensions']:
-                result_phrase = rule['rule']['then']
+                result_phrase = replace_constant(rule['rule']['then'], constants, text_utils)
                 conditions = ComprehensionTable.__get_node_list(rule['rule']['if'])
                 for input_phrase in conditions:
+                    input_phrase = replace_constant(input_phrase, constants, text_utils)
                     self.templates.append((result_phrase, input_phrase))
                     self.order2anchor[input_phrase] = result_phrase
 

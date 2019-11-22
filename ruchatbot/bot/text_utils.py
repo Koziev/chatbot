@@ -66,6 +66,28 @@ class TextUtils(object):
                 word = line.strip()
                 self.known_words.add(word)
 
+    def apply_word_function(self, func, constants, words):
+        part_of_speech = None
+        tag = None
+        if func == '$chooseAdjByGender':
+            part_of_speech = 'ПРИЛАГАТЕЛЬНОЕ'
+            tag = ('РОД', constants['gender'])
+        elif func == '$chooseVByGender':
+            part_of_speech = 'ГЛАГОЛ'
+            tag = ('РОД', constants['gender'])
+        elif func == '$chooseNByGender':
+            part_of_speech = 'СУЩЕСТВИТЕЛЬНОЕ'
+            tag = ('РОД', constants['gender'])
+        else:
+            raise NotImplementedError()
+
+        for word in words:
+            tagsets = self.gg_dictionaries.grdict.get_word_tagsets2(word.lower(), part_of_speech)
+            if any((tag in tagset) for tagset in tagsets):
+                return word
+
+        raise RuntimeError()
+
     def tag(self, words, with_lemmas=False):
         """ Частеречная разметка для цепочки слов words """
         if with_lemmas:

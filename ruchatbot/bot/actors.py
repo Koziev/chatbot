@@ -4,6 +4,7 @@ import random
 
 from ruchatbot.bot.running_form_status import RunningFormStatus
 from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
+from ruchatbot.utils.constant_replacer import replace_constant
 
 
 class ActorBase(object):
@@ -11,12 +12,12 @@ class ActorBase(object):
         self.actor_keyword = actor_keyword
 
     @staticmethod
-    def from_yaml(yaml_node):
+    def from_yaml(yaml_node, constants, text_utils):
         actor_keyword = list(yaml_node.keys())[0] if isinstance(yaml_node, dict) else yaml_node
         if actor_keyword == 'say':
-            return ActorSay.from_yaml(yaml_node[actor_keyword])
+            return ActorSay.from_yaml(yaml_node[actor_keyword], constants, text_utils)
         elif actor_keyword == 'answer':
-            return ActorAnswer.from_yaml(yaml_node[actor_keyword])
+            return ActorAnswer.from_yaml(yaml_node[actor_keyword], constants, text_utils)
         elif actor_keyword == 'callback':
             return ActorCallback.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'form':
@@ -24,13 +25,13 @@ class ActorBase(object):
         elif actor_keyword == 'scenario':
             return ActorScenario.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'generate':
-            return ActorGenerate.from_yaml(yaml_node[actor_keyword])
+            return ActorGenerate.from_yaml(yaml_node[actor_keyword], constants, text_utils)
         elif actor_keyword == 'nothing':
             return ActorNothing()
         elif actor_keyword == 'state':
             return ActorState.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'steps':
-            return ActorSteps.from_yaml(yaml_node[actor_keyword])
+            return ActorSteps.from_yaml(yaml_node[actor_keyword], constants, text_utils)
         else:
             raise NotImplementedError(actor_keyword)
 
@@ -54,7 +55,7 @@ class ActorSay(ActorBase):
         self.known_answer_policy = 'utter'
 
     @staticmethod
-    def from_yaml(yaml_node):
+    def from_yaml(yaml_node, constants, text_utils):
         actor = ActorSay()
 
         # TODO: сделать расширенную диагностику ошибок описания!!!
@@ -66,10 +67,10 @@ class ActorSay(ActorBase):
             for inner_keyword in yaml_node.keys():
                 if 'phrases' == inner_keyword:
                     for utterance in yaml_node['phrases']:
-                        actor.phrases.append(utterance)
+                        actor.phrases.append(replace_constant(utterance, constants, text_utils))
                 elif 'exhausted' == inner_keyword:
                     for utterance in yaml_node['exhausted']:
-                        actor.exhausted_phrases.append(utterance)
+                        actor.exhausted_phrases.append(replace_constant(utterance, constants, text_utils))
                 elif 'known_answer' == inner_keyword:
                     actor.known_answer_policy = yaml_node[inner_keyword]
                     # TODO - проверить значение флага: 'skip' | 'utter'
@@ -142,7 +143,7 @@ class ActorAnswer(ActorBase):
         self.output = None
 
     @staticmethod
-    def from_yaml(yaml_node):
+    def from_yaml(yaml_node, constants, text_utils):
         actor = ActorAnswer()
 
         # TODO: сделать расширенную диагностику ошибок описания!!!
@@ -153,7 +154,7 @@ class ActorAnswer(ActorBase):
             # Расширенный формат.
             for inner_keyword in yaml_node.keys():
                 if 'question' == inner_keyword:
-                    actor.question = yaml_node['question']
+                    actor.question = replace_constant(yaml_node['question'], constants, text_utils)
                 elif 'output' == inner_keyword:
                     actor.output = yaml_node[inner_keyword]  # TODO: проверять что значение 'premise'
                 else:
@@ -247,7 +248,6 @@ class ActorScenario(ActorBase):
         return True
 
 
-
 class ActorGenerate(ActorBase):
     """Генерация реплики по заданому шаблону и вывод результата от имени бота."""
     def __init__(self):
@@ -257,7 +257,7 @@ class ActorGenerate(ActorBase):
         self.wordbag_words = []
 
     @staticmethod
-    def from_yaml(yaml_node):
+    def from_yaml(yaml_node, constants, text_utils):
         actor = ActorGenerate()
 
         if isinstance(yaml_node, dict):
@@ -265,13 +265,13 @@ class ActorGenerate(ActorBase):
             for inner_keyword in yaml_node.keys():
                 if 'templates' == inner_keyword:
                     for template in yaml_node['templates']:
-                        actor.templates.append(template)
+                        actor.templates.append(replace_constant(template, constants, text_utils))
                 elif 'template' == inner_keyword:
-                    actor.templates.append(yaml_node[inner_keyword])
+                    actor.templates.append(replace_constant(yaml_node[inner_keyword], constants, text_utils))
                 elif 'wordbag_question' == inner_keyword:
-                    actor.wordbag_questions.append(yaml_node[inner_keyword])
+                    actor.wordbag_questions.append(replace_constant(yaml_node[inner_keyword], constants, text_utils))
                 elif 'wordbag_word' == inner_keyword:
-                    actor.wordbag_words.append(yaml_node[inner_keyword])
+                    actor.wordbag_words.append(replace_constant(yaml_node[inner_keyword], constants, text_utils))
                 else:
                     raise NotImplementedError()
         elif isinstance(yaml_node, str):
@@ -336,10 +336,10 @@ class ActorSteps(ActorBase):
         self.steps = []
 
     @staticmethod
-    def from_yaml(yaml_node):
+    def from_yaml(yaml_node, constants, text_utils):
         actor = ActorSteps()
         for y in yaml_node:
-            a = ActorBase.from_yaml(y['step'])
+            a = ActorBase.from_yaml(y['step'], constants, text_utils)
             actor.steps.append(a)
         return actor
 

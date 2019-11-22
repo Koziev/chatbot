@@ -4,6 +4,10 @@ import json
 class BotProfile(object):
     def __init__(self):
         self.profile = None
+        self.premises_path = None
+        self.faq_path = None
+        self.smalltalk_generative_rules = None
+        self.constants = dict()
 
     def _replace(self, path_str, data_dir, models_dir):
         return path_str.replace('$DATA', data_dir).replace('$MODELS', models_dir)
@@ -18,6 +22,7 @@ class BotProfile(object):
         self.smalltalk_generative_rules = self._replace(self.profile['smalltalk_generative_rules'],
                                                         data_dir,
                                                         models_dir)
+        self.constants = self.profile['constants']
 
     @property
     def rules_enabled(self):

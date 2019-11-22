@@ -3,6 +3,7 @@
 import logging
 
 from ruchatbot.bot.actors import ActorBase
+from ruchatbot.utils.constant_replacer import replace_constant
 
 
 class VerbalFormField(object):
@@ -26,18 +27,18 @@ class VerbalForm(object):
         self.smalltalk_rules = None
 
     @staticmethod
-    def from_yaml(yaml_node):
+    def from_yaml(yaml_node, constants, text_utils):
         form = VerbalForm()
         form.name = yaml_node['name']
         form.ok_action = yaml_node['action']
-        form.compiled_ok_action = ActorBase.from_yaml(form.ok_action)
+        form.compiled_ok_action = ActorBase.from_yaml(form.ok_action, constants, text_utils)
 
         if 'fields' in yaml_node:
             for field_node in yaml_node['fields']:
                 field = VerbalFormField()
                 field_node = field_node['field']
                 field.name = field_node['name']
-                field.question = field_node['question']
+                field.question = replace_constant(field_node['question'], constants, text_utils)
                 if 'from_entity' in field_node:
                     field.from_entity = field_node['from_entity']
                     field.source = 'entity'

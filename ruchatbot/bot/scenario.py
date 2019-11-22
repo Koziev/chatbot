@@ -17,7 +17,7 @@ class Scenario(object):
         self.insteadof_rules = None
 
     @staticmethod
-    def load_yaml(yaml_node, smalltalk_rule2grammar, text_utils):
+    def load_yaml(yaml_node, smalltalk_rule2grammar, constants, text_utils):
         scenario = Scenario()
         scenario.name = yaml_node['name']
         if 'priority' in yaml_node:
@@ -31,23 +31,23 @@ class Scenario(object):
             scenario.steps_policy = 'sequential'
 
         for step_node in yaml_node['steps']:
-            step = ActorBase.from_yaml(step_node)
+            step = ActorBase.from_yaml(step_node, constants, text_utils)
             scenario.steps.append(step)
 
         if 'on_start' in yaml_node:
-            scenario.on_start = ActorBase.from_yaml(yaml_node['on_start'])
+            scenario.on_start = ActorBase.from_yaml(yaml_node['on_start'], constants, text_utils)
 
         if 'on_finish' in yaml_node:
-            scenario.on_finish = ActorBase.from_yaml(yaml_node['on_finish'])
+            scenario.on_finish = ActorBase.from_yaml(yaml_node['on_finish'], constants, text_utils)
 
         if 'smalltalk_rules' in yaml_node:
             scenario.smalltalk_rules = SmalltalkRules()
-            scenario.smalltalk_rules.load_yaml(yaml_node['smalltalk_rules'], smalltalk_rule2grammar, text_utils)
+            scenario.smalltalk_rules.load_yaml(yaml_node['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
 
         if 'rules' in yaml_node:
             scenario.insteadof_rules = []
             for rule in yaml_node['rules']:
-                rule = ScriptingRule.from_yaml(rule['rule'])
+                rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
                 scenario.insteadof_rules.append(rule)
 
         return scenario
@@ -60,4 +60,3 @@ class Scenario(object):
 
     def is_sequential_steps(self):
         return self.steps_policy == 'sequential'
-

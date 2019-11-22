@@ -2,20 +2,18 @@
 
 import random
 import logging
-#import parser
 import yaml
 import io
 import pickle
+import os
 
-from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
-from ruchatbot.bot.smalltalk_rules import SmalltalkSayingRule
-from ruchatbot.bot.smalltalk_rules import SmalltalkGeneratorRule
 from ruchatbot.bot.smalltalk_rules import SmalltalkRules
 from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 from ruchatbot.bot.comprehension_table import ComprehensionTable
 from ruchatbot.bot.scripting_rule import ScriptingRule
 from ruchatbot.bot.verbal_form import VerbalForm
 from ruchatbot.bot.scenario import Scenario
+from ruchatbot.utils.constant_replacer import replace_constant
 
 
 class BotScripting(object):
@@ -28,6 +26,7 @@ class BotScripting(object):
         self.comprehension_rules = None
         self.forms = []  # список экземпляров VerbalForm
         self.scenarios = []  # список экземпляров Scenario
+        self.smalltalk_rules = SmalltalkRules()
 
     @staticmethod
     def __get_node_list(node):
@@ -36,18 +35,40 @@ class BotScripting(object):
         else:
             return [node]
 
-    def load_rules(self, yaml_path, compiled_grammars_path, text_utils):
+    def load_instead_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
+        for rule in data['rules']:
+            try:
+                if 'rule' in rule:
+                    rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
+                    self.insteadof_rules.append(rule)
+                elif 'file' in rule:
+                    rules_fpath = os.path.join(rules_dir, rule['file'])
+                    with io.open(rules_fpath, 'r', encoding='utf-8') as f:
+                        data2 = yaml.safe_load(f)
+                        self.load_instead_rules(rules_dir, data2, compiled_grammars_path, constants, text_utils)
+                else:
+                    logging.error('Unknown record "%s" in "rules" section', str(rule))
+                    raise RuntimeError()
+            except Exception as ex:
+                logging.error(ex)
+                raise ex
+
+    def load_rules(self, yaml_path, compiled_grammars_path, constants, text_utils):
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
             if 'greeting' in data:
-                self.greetings = data['greeting']
+                self.greetings = []
+                for s in data['greeting']:
+                    self.greetings.append(replace_constant(s, constants, text_utils))
 
             if 'goodbye' in data:
-                self.goodbyes = data['goodbye']
+                self.goodbyes = []
+                for s in data['goodbye']:
+                    self.goodbyes.append(replace_constant(s, constants, text_utils))
 
             if 'forms' in data:
                 for form_node in data['forms']:
-                    form = VerbalForm.from_yaml(form_node['form'])
+                    form = VerbalForm.from_yaml(form_node['form'], constants, text_utils)
                     self.forms.append(form)
 
             # Для smalltalk-правил нужны скомпилированные генеративные грамматики.
@@ -62,26 +83,24 @@ class BotScripting(object):
 
             if 'scenarios' in data:
                 for scenario_node in data['scenarios']:
-                    self.scenarios.append(Scenario.load_yaml(scenario_node['scenario'], smalltalk_rule2grammar, text_utils))
+                    scenario = Scenario.load_yaml(scenario_node['scenario'], smalltalk_rule2grammar, constants, text_utils)
+                    self.scenarios.append(scenario)
 
             # INSTEAD-OF правила
-            for rule in data['rules']:
-                try:
-                    rule = ScriptingRule.from_yaml(rule['rule'])
-                    self.insteadof_rules.append(rule)
-                except Exception as ex:
-                    logging.error(ex)
-                    raise ex
+            if 'rules' in data:
+                self.load_instead_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
 
-            self.smalltalk_rules = SmalltalkRules()
-            self.smalltalk_rules.load_yaml(data['smalltalk_rules'], smalltalk_rule2grammar, text_utils)
+            if 'smalltalk_rules' in data:
+                self.smalltalk_rules.load_yaml(data['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
 
             self.comprehension_rules = ComprehensionTable()
-            self.comprehension_rules.load_yaml_data(data)
+            self.comprehension_rules.load_yaml_data(data, constants, text_utils)
 
             self.common_phrases = []
-            for common_phrase in data['common_phrases']:
-                self.common_phrases.append(common_phrase)
+            if 'common_phrases' in data:
+                for common_phrase in data['common_phrases']:
+                    common_phrase = replace_constant(common_phrase, constants, text_utils)
+                    self.common_phrases.append(common_phrase)
 
     def get_smalltalk_rules(self):
         return self.smalltalk_rules

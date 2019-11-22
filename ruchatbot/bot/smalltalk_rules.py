@@ -2,11 +2,11 @@
 
 from abc import abstractmethod
 import random
-import io
-import yaml
 import logging
 
 from ruchatbot.bot.base_rule_condition import BaseRuleCondition
+from ruchatbot.utils.constant_replacer import replace_constant
+
 
 class SmalltalkBaseCondition(object):
     def __init__(self):
@@ -40,8 +40,8 @@ class SmalltalkTextCondition(SmalltalkBaseCondition):
 
 
 class SmalltalkComplexCondition(SmalltalkBaseCondition):
-    def __init__(self, condition_yaml):
-        self.condition = BaseRuleCondition.from_yaml(condition_yaml)
+    def __init__(self, condition_yaml, constants, text_utils):
+        self.condition = BaseRuleCondition.from_yaml(condition_yaml, constants, text_utils)
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         return self.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine)
@@ -93,7 +93,6 @@ class SmalltalkSayingRule(SmalltalkBasicRule):
             return self.answers[0]
 
 
-
 class SmalltalkGeneratorRule(SmalltalkBasicRule):
     def __init__(self, condition, action_templates):
         super(SmalltalkGeneratorRule, self).__init__(condition)
@@ -121,7 +120,7 @@ class SmalltalkRules(object):
         else:
             return [node]
 
-    def load_yaml(self, yaml_root, smalltalk_rule2grammar, text_utils):
+    def load_yaml(self, yaml_root, smalltalk_rule2grammar, constants, text_utils):
         """
         Загружаем список правил из yaml файла.
         yaml_root должен указывать на узел "smalltalk_rules".
@@ -134,12 +133,12 @@ class SmalltalkRules(object):
             # список, чтобы обрабатывать в модели синонимичности одним пакетом.
             if 'text' in condition and len(condition) == 1:
                 for condition1 in SmalltalkRules.__get_node_list(condition['text']):
-                    rule_condition = SmalltalkTextCondition(condition1)
+                    rule_condition = SmalltalkTextCondition(replace_constant(condition1, constants, text_utils))
 
                     if 'say' in action:
                         rule = SmalltalkSayingRule(rule_condition)
                         for answer1 in SmalltalkRules.__get_node_list(action['say']):
-                            rule.add_answer(answer1)
+                            rule.add_answer(replace_constant(answer1, constants, text_utils))
                         self.text_rules.append(rule)
                     elif 'generate' in action:
                         generative_templates = list(SmalltalkRules.__get_node_list(action['generate']))
@@ -155,7 +154,7 @@ class SmalltalkRules(object):
                         logging.error(u'"%s" statement is not implemented', action)
                         raise NotImplementedError()
             else:
-                rule_condition = SmalltalkComplexCondition(condition)
+                rule_condition = SmalltalkComplexCondition(condition, constants, text_utils)
                 if 'generate' in action:
                     generative_templates = list(SmalltalkRules.__get_node_list(action['generate']))
                     rule = SmalltalkGeneratorRule(rule_condition, generative_templates)
@@ -169,7 +168,7 @@ class SmalltalkRules(object):
                 elif 'say' in action:
                     rule = SmalltalkSayingRule(rule_condition)
                     for answer1 in SmalltalkRules.__get_node_list(action['say']):
-                        rule.add_answer(answer1)
+                        rule.add_answer(replace_constant(answer1, constants, text_utils))
                     self.complex_rules.append(rule)
                 else:
                     raise NotImplementedError()
