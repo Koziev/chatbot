@@ -264,7 +264,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def interpret_phrase(self, bot, session, raw_phrase, internal_issuer):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
-        phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(phrase,
+                                                                                     self.text_utils,
+                                                                                     self.word_embeddings)
+
+        interpreted.raw_tokens = raw_tokens
         phrase_is_question = phrase_modality == ModalityDetector.question
 
         # история фраз доступна в session как conversation_history
@@ -371,7 +375,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.info(u'say "%s"', answer)
         answer_interpretation = InterpretedPhrase(answer)
         answer_interpretation.is_bot_phrase = True
-        answer_interpretation.set_modality(*self.modality_model.get_modality(answer, self.text_utils, self.word_embeddings))
+        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils, self.word_embeddings)
+        answer_interpretation.set_modality(phrase_modality, phrase_person)
         session.add_to_buffer(answer)
         session.add_phrase_to_history(answer_interpretation)
 

@@ -25,9 +25,9 @@ class SimpleModalityDetectorRU(ModalityDetector):
             person = text_utils.detect_person0(words)
 
         if len(phrase) == 0:
-            return ModalityDetector.undefined, person
+            return ModalityDetector.undefined, person, words
         elif phrase[-1] == u'?':
-            return ModalityDetector.question, person
+            return ModalityDetector.question, person, words
 
         # Фразы, оканчивающиеся на "!", могут быть как императивами, так и эмоционально
         # выраженными утверждениями:
@@ -37,10 +37,10 @@ class SimpleModalityDetectorRU(ModalityDetector):
 
         # Проверяем наличие вопросительных слов, которые могут быть в любом месте фразы: "а ты кто"
         if any(text_utils.is_question_word(word) for word in words):
-            return ModalityDetector.question, person
+            return ModalityDetector.question, person, words
 
         if len(words) > 1 and text_utils.is_question_word(words[1]):
-            return ModalityDetector.question, person
+            return ModalityDetector.question, person, words
 
         # Определение императивных форм глаголов требует проведения частеречной
         # разметки, чтобы снять неоднозначности типа МОЙ/МЫТЬ
@@ -49,15 +49,15 @@ class SimpleModalityDetectorRU(ModalityDetector):
         if phrase[-1] == '!':
             # Если есть глагол, то считаем императивом
             if any((u'VERB' in tag) for (word, tag) in tags):
-                return ModalityDetector.imperative, person
+                return ModalityDetector.imperative, person, words
 
         if any((u'Mood=Imp' in tag) for (word, tag) in tags):
-            return ModalityDetector.imperative, person
+            return ModalityDetector.imperative, person, words
 
         if any((u'Person=2' in tag) for (word, tag) in tags):
             person = 2
 
-        return ModalityDetector.assertion, person
+        return ModalityDetector.assertion, person, words
 
     def load(self, models_folder):
         # nothing to do

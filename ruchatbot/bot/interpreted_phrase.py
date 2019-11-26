@@ -8,6 +8,7 @@ class InterpretedPhrase:
         self.is_bot_phrase = False
         self.raw_phrase = raw_phrase
         self.interpretation = raw_phrase
+        self.raw_tokens = None
         self.is_question = None
         self.is_imperative = None
         self.intent = None

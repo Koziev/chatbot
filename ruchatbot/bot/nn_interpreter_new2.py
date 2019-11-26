@@ -61,7 +61,6 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         self.model_config = None
         self.model_req = None
         self.model_req_config = None
-        self.no_expansion_phrases = set()
 
     def load(self, models_folder):
         self.logger.info('Loading NN_InterpreterNew2 model files')
@@ -76,7 +75,6 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
             self.padding = self.model_config['padding']
             self.computed_params = self.model_config.copy()
             self.w2v_filename = os.path.basename(self.model_config['w2v_path'])
-            self.no_expansion_phrases = set(self.model_config['no_expansion_phrases'])
 
         arch_filepath = os.path.join(models_folder, os.path.basename(self.arch_file))
         weights_path = os.path.join(models_folder, os.path.basename(self.weights_file))
@@ -141,9 +139,6 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         short_answer = text_utils.remove_terminators(phrases[1])
         question_words = text_utils.tokenizer.tokenize(question)
         short_answer_words = text_utils.tokenizer.tokenize(short_answer)
-
-        if u' '.join(short_answer_words) in self.no_expansion_phrases:
-            return short_answer
 
         samples = [Sample(question, question_words, short_answer, short_answer_words)]
         X1_data, X2_data, y_data = self.vectorize_samples(samples, self.model_config, self.computed_params, word_embeddings)

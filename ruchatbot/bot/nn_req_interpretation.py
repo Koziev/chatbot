@@ -21,6 +21,7 @@ class NN_ReqInterpretation(BaseUtteranceInterpreter):
         self.logger = logging.getLogger('NN_ReqInterpretation')
         self.model = None
         self.model_config = None
+        self.no_expansion_phrases = set()
 
     def load(self, models_folder):
         self.logger.info('Loading NN_ReqInterpretation model files')
@@ -41,6 +42,7 @@ class NN_ReqInterpretation(BaseUtteranceInterpreter):
         self.padding = self.model_config['padding']
         self.max_wordseq_len = self.model_config['max_wordseq_len']
         self.w2v_filename = os.path.basename(self.w2v_path)
+        self.no_expansion_phrases = set(self.model_config['no_expansion_phrases'])
 
     def pad_wordseq(self, words, n):
         if self.padding == 'left':
@@ -51,6 +53,9 @@ class NN_ReqInterpretation(BaseUtteranceInterpreter):
     def require_interpretation(self, phrase0, text_utils, word_embeddings):
         phrase = text_utils.remove_terminators(phrase0.strip())
         phrase_words = text_utils.tokenizer.tokenize(phrase)
+
+        if u' '.join(phrase_words) in self.no_expansion_phrases:
+            return False
 
         X_batch  = np.zeros((1, self.max_wordseq_len, self.word_dims), dtype=np.float32)
 

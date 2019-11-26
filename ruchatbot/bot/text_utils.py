@@ -86,7 +86,8 @@ class TextUtils(object):
             if any((tag in tagset) for tagset in tagsets):
                 return word
 
-        raise RuntimeError()
+        msg = u'Could not choose a word among {}'.format(u' '.join(words))
+        raise RuntimeError(msg)
 
     def tag(self, words, with_lemmas=False):
         """ Частеречная разметка для цепочки слов words """

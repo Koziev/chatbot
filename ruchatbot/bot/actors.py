@@ -80,11 +80,11 @@ class ActorSay(ActorBase):
         elif isinstance(yaml_node, list):
             for utterance in yaml_node:
                 if isinstance(utterance, str):
-                    actor.phrases.append(utterance)
+                    actor.phrases.append(replace_constant(utterance, constants, text_utils))
                 else:
                     raise SyntaxError()
         elif isinstance(yaml_node, str):
-            actor.phrases.append(yaml_node)
+            actor.phrases.append(replace_constant(yaml_node, constants, text_utils))
 
         return actor
 

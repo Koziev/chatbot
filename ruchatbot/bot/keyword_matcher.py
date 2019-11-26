@@ -11,6 +11,11 @@ class KeywordMatcherLemma(object):
         for input_token in input_phrase.tags:
             if input_token[2] == self.lemma:
                 return True
+
+        for input_token in input_phrase.raw_tokens:
+            if input_token == self.lemma:
+                return True
+
         return False
 
 

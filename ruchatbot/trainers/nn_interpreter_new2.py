@@ -372,12 +372,6 @@ if __name__ == '__main__':
 
         samples, computed_params = load_data(dataset_path, tokenizer)
 
-        # Соберем фразы, которые не надо раскрывать
-        with io.open(os.path.join(tmp_dir, 'interpretation_no_expansion_phrases.txt'), 'r', encoding='utf-8') as rdr:
-            no_expansion_phrases = []
-            for line in rdr:
-                no_expansion_phrases.append(line.strip())
-
         load_embeddings(wordchar2vector_path, word2vector_path, computed_params)
 
         X1_data, X2_data, y_data = vectorize_samples(samples, model_params, computed_params)
@@ -397,7 +391,6 @@ if __name__ == '__main__':
                   'index2term': [(i, t) for (t, i) in computed_params['term2index'].items()],
                   'weights': weights_file,
                   'arch_file': arch_file,
-                  'no_expansion_phrases': no_expansion_phrases
                   }
         config.update(model_params)
         config['max_inputseq_len'] = computed_params['max_inputseq_len']
