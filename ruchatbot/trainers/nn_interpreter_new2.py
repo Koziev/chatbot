@@ -18,6 +18,7 @@ import logging
 from sklearn.model_selection import cross_val_score
 import sklearn.metrics
 from sklearn.model_selection import StratifiedKFold
+import tqdm
 
 import keras.callbacks
 from keras import backend as K
@@ -94,6 +95,7 @@ def load_data(dataset_path, tokenizer):
     all_terms = set([BEG_TOKEN, END_TOKEN, PAD_WORD])
     logging.info('Loading dataset "%s"', dataset_path)
     with io.open(dataset_path, 'r', encoding='utf-8') as rdr:
+        header = rdr.readline()
         for line in rdr:
             tx = line.strip().split('\t')
             all_labels.add(tx[3])
@@ -263,7 +265,7 @@ def create_model(computed_params, model_params):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--run_mode', type=str, default='gridsearch', choices='train query gridsearch'.split())
+    parser.add_argument('--run_mode', type=str, default='gridsearch', choices='train query gridsearch report'.split())
     parser.add_argument('--tmp', type=str, default='../tmp')
     parser.add_argument('--dataset', default='../tmp/interpreter_templates.tsv')
     parser.add_argument('--wordchar2vector', type=str, default='../tmp/wc2v.kv', help='path to wordchar2vector model dataset')
@@ -369,6 +371,13 @@ if __name__ == '__main__':
         logging.info('Will train using params: %s', get_params_str(model_params))
 
         samples, computed_params = load_data(dataset_path, tokenizer)
+
+        # Соберем фразы, которые не надо раскрывать
+        with io.open(os.path.join(tmp_dir, 'interpretation_no_expansion_phrases.txt'), 'r', encoding='utf-8') as rdr:
+            no_expansion_phrases = []
+            for line in rdr:
+                no_expansion_phrases.append(line.strip())
+
         load_embeddings(wordchar2vector_path, word2vector_path, computed_params)
 
         X1_data, X2_data, y_data = vectorize_samples(samples, model_params, computed_params)
@@ -388,6 +397,7 @@ if __name__ == '__main__':
                   'index2term': [(i, t) for (t, i) in computed_params['term2index'].items()],
                   'weights': weights_file,
                   'arch_file': arch_file,
+                  'no_expansion_phrases': no_expansion_phrases
                   }
         config.update(model_params)
         config['max_inputseq_len'] = computed_params['max_inputseq_len']
@@ -439,3 +449,57 @@ if __name__ == '__main__':
                 print('{}\n\n'.format(u' '.join(terms)))
             else:
                 raise NotImplementedError()
+    elif run_mode == 'report':
+        # Прогоним через обученную модель ВЕСЬ датасет и выведем те сэмплы,
+        # на которых модель ошиблась.
+        with open(config_file, 'r') as f:
+            model_config = json.load(f)
+            word_dims = int(model_config['word_dims'])
+            index2label = dict(model_config['index2label'])
+            index2term = dict(model_config['index2term'])
+            arch_file = model_config['arch_file']
+            weights_file = model_config['weights']
+
+        with open(arch_file, 'r') as f:
+            model = model_from_json(f.read(), {'CRF': CRF})
+
+        model.load_weights(weights_file)
+
+        computed_params = model_config.copy()
+
+        samples, computed_params = load_data(dataset_path, tokenizer)
+
+        load_embeddings(wordchar2vector_path, word2vector_path, computed_params)
+
+        computed_params['word_dims'] = word_dims
+
+        report_path = os.path.join(tmp_dir, 'nn_interpreter_new1.errors.report.txt')
+        nb_errors = 0
+        with io.open(report_path, 'w', encoding='utf-8') as wrt:
+            for sample in tqdm.tqdm(samples, total=len(samples), desc='Predicting'):
+                X1_data, X2_data, y_data = vectorize_samples([sample], model_config, computed_params)
+                y_pred = model.predict({'input1': X1_data, 'input2': X2_data}, verbose=0)
+
+                if model_config['arch'] == 'bilstm':
+                    pred_label = index2label[np.argmax(y_pred[0])]
+                    if pred_label != sample.template:
+                        raise NotImplementedError()
+
+                elif model_config['arch'] == 'crf':
+                    terms = np.argmax(y_pred[0], axis=-1)
+                    terms = [index2term[i] for i in terms]
+                    #print('{}\n\n'.format(u' '.join(terms)))
+
+                    pred_template = ' '.join(t for t in terms if t not in (BEG_TOKEN, END_TOKEN, PAD_WORD))
+
+                    if pred_template != sample.template:
+                        wrt.write('{}\n'.format(sample.question))
+                        wrt.write('{}|{}\n'.format(sample.short_answer, sample.expanded_answer))
+                        wrt.write('expected terms:  {}\n'.format(sample.template))
+                        wrt.write('predicted terms: {}\n\n'.format(pred_template))
+                        wrt.flush()
+                        nb_errors += 1
+                else:
+                    raise NotImplementedError()
+
+        logging.info('%d samples processed, %d per-instance errors detected and stored in "%s"', len(samples), nb_errors, report_path)
