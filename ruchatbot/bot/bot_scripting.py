@@ -16,17 +16,38 @@ from ruchatbot.bot.scenario import Scenario
 from ruchatbot.utils.constant_replacer import replace_constant
 
 
+class StoryRules:
+    def __init__(self):
+        self.keyphrase_rules = []  # список пар (фраза_бота, скомпилированное_правило)
+        self.keyphrases3 = []
+        self.keyphrase2rules = dict()
+
+    def add_rule(self, key_phrase, rule):
+        self.keyphrase_rules.append((key_phrase, rule))
+        self.keyphrases3.append((key_phrase, -1, -1))
+        if key_phrase in self.keyphrase2rules:
+            self.keyphrase2rules[key_phrase].append(rule)
+        else:
+            self.keyphrase2rules[key_phrase] = [rule]
+
+    def get_keyphrases3(self):
+        return self.keyphrases3
+
+    def get_rules_by_keyphrase(self, key_phrase):
+        return self.keyphrase2rules[key_phrase]
+
+
 class BotScripting(object):
     def __init__(self, data_folder):
         self.data_folder = data_folder
         self.greetings = []
         self.goodbyes = []
         self.insteadof_rules = []
-        self.smalltalk_rules = []
         self.comprehension_rules = None
         self.forms = []  # список экземпляров VerbalForm
         self.scenarios = []  # список экземпляров Scenario
         self.smalltalk_rules = SmalltalkRules()
+        self.story_rules = StoryRules()
 
     @staticmethod
     def __get_node_list(node):
@@ -35,23 +56,44 @@ class BotScripting(object):
         else:
             return [node]
 
-    def load_instead_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
-        for rule in data['rules']:
+    def load_story_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
+        for rule in data['story_rules']:
             try:
-                if 'rule' in rule:
-                    rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
-                    self.insteadof_rules.append(rule)
+                if 'story_rule3' in rule:
+                    compiled_rule = ScriptingRule.from_yaml(rule['story_rule3'], constants, text_utils)
+                    prev_bot_text = rule['story_rule3']['switch']['when']['prev_bot_text']
+                    self.story_rules.add_rule(prev_bot_text, compiled_rule)
                 elif 'file' in rule:
                     rules_fpath = os.path.join(rules_dir, rule['file'])
                     with io.open(rules_fpath, 'r', encoding='utf-8') as f:
                         data2 = yaml.safe_load(f)
-                        self.load_instead_rules(rules_dir, data2, compiled_grammars_path, constants, text_utils)
+                        self.load_story_rules(rules_dir, data2, compiled_grammars_path, constants, text_utils)
                 else:
-                    logging.error('Unknown record "%s" in "rules" section', str(rule))
+                    logging.error('Unknown record "%s" in "story_rules" section', str(rule))
                     raise RuntimeError()
             except Exception as ex:
                 logging.error(ex)
                 raise ex
+
+
+    def load_instead_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
+        if 'rules' in data:
+            for rule in data['rules']:
+                try:
+                    if 'rule' in rule:
+                        rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
+                        self.insteadof_rules.append(rule)
+                    elif 'file' in rule:
+                        rules_fpath = os.path.join(rules_dir, rule['file'])
+                        with io.open(rules_fpath, 'r', encoding='utf-8') as f:
+                            data2 = yaml.safe_load(f)
+                            self.load_instead_rules(rules_dir, data2, compiled_grammars_path, constants, text_utils)
+                    else:
+                        logging.error('Unknown record "%s" in "rules" section', str(rule))
+                        raise RuntimeError()
+                except Exception as ex:
+                    logging.error(ex)
+                    raise ex
 
     def load_rules(self, yaml_path, compiled_grammars_path, constants, text_utils):
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
@@ -85,6 +127,9 @@ class BotScripting(object):
                 for scenario_node in data['scenarios']:
                     scenario = Scenario.load_yaml(scenario_node['scenario'], smalltalk_rule2grammar, constants, text_utils)
                     self.scenarios.append(scenario)
+
+            if 'story_rules' in data:
+                self.load_story_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
 
             # INSTEAD-OF правила
             if 'rules' in data:
@@ -140,3 +185,6 @@ class BotScripting(object):
 
     def get_insteadof_rules(self):
         return self.insteadof_rules
+
+    def get_story_rules(self):
+        return self.story_rules

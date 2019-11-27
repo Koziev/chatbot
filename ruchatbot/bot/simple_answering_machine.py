@@ -350,7 +350,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if translated_str is not None:
                     phrase = translated_str
                     raw_phrase = translated_str
-                    phrase_modality, phrase_person = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+                    phrase_modality, phrase_person, _ = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
                     if phrase_person == 2:
                         phrase_person = 1
                     was_interpreted = True
@@ -638,7 +638,30 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return generated_replicas
 
-    def apply_insteadof_rule(self, rules, bot, session, interlocutor, interpreted_phrase):
+    def apply_insteadof_rule(self, rules, story_rules, bot, session, interlocutor, interpreted_phrase):
+        if story_rules:
+            prev_bot_phrase = session.get_last_bot_utterance().interpretation
+            best_phrases, best_rels = self.synonymy_detector.get_most_similar(prev_bot_phrase,
+                                                                              story_rules.get_keyphrases3(),
+                                                                              self.text_utils,
+                                                                              self.word_embeddings,
+                                                                              nb_results=10)
+
+            threshold = 0.7  # TODO - брать из конфига бота
+
+            # Выбираем рандомно один из вариантов. Рандомность обеспечим
+            # подмешиванием небольшого шума к полученным оценкам близости.
+            rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
+            if len(rx) > 0:
+                rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
+                best_keyphrase = rx[0][1]
+                best_rules = story_rules.get_rules_by_keyphrase(best_keyphrase)
+                best_rule = random.choice(best_rules)
+
+                rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                if rule_result.condition_success:
+                    return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+
         for rule in rules:
             if not session.is_rule_activated(rule):
                 rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
@@ -728,7 +751,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                  self.text_utils,
                                                                                  self.word_embeddings)
 
-                if best_rel > 0.7:
+                if best_rel > 0.7:  # TODO - брать из конфига бота
                     for rule in text_rules:
                         if rule.get_condition_text() == best_premise:
                             # Используем это правило для генерации реплики.
@@ -834,9 +857,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # intent реплики или ее текст.
             #input_processed = bot.apply_rule(session, interlocutor, interpreted_phrase)
             if not session.get_status() and bot.has_scripting():
-                rules = bot.get_scripting().get_insteadof_rules()
-                if rules:
-                    insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor, interpreted_phrase)
+                if bot.get_scripting().get_insteadof_rules():
+                    insteadof_rule_result = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
+                                                                      bot.get_scripting().get_story_rules(),
+                                                                      bot,
+                                                                      session,
+                                                                      interlocutor,
+                                                                      interpreted_phrase)
                     input_processed = insteadof_rule_result.applied
 
             # TODO: в принципе возможны два варианта последствий срабатывания
@@ -897,7 +924,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     rule_applied = False
                     rules = session.get_status().get_insteadof_rules()
                     if rules:
-                        insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor,
+                        insteadof_rule_result = self.apply_insteadof_rule(rules,
+                                                                          None,  # story_rules
+                                                                          bot,
+                                                                          session,
+                                                                          interlocutor,
                                                                           interpreted_phrase)
                         rule_applied = insteadof_rule_result.applied
                         if rule_applied:
@@ -957,7 +988,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if not session.get_status() and bot.has_scripting():
                 rules = bot.get_scripting().get_insteadof_rules()
                 if rules:
-                    insteadof_rule_result = self.apply_insteadof_rule(rules, bot, session, interlocutor, interpreted_phrase)
+                    insteadof_rule_result = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
+                                                                      bot.get_scripting().get_story_rules(),
+                                                                      bot,
+                                                                      session,
+                                                                      interlocutor,
+                                                                      interpreted_phrase)
                     input_processed = insteadof_rule_result.applied
 
             if not input_processed:
@@ -1010,7 +1046,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # intent реплики или ее текст.
         order_processed = False
         if bot.has_scripting():
-            order_processed = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(), bot, session, interlocutor, interpreted_phrase)
+            order_processed = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
+                                                        bot.get_scripting().get_story_rules(),
+                                                        bot,
+                                                        session,
+                                                        interlocutor,
+                                                        interpreted_phrase)
 
         if order_processed and order_processed.applied:
             return True
@@ -1130,6 +1171,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             # Попробуем обработать вопрос правилами.
             res = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
+                                            bot.get_scripting().get_story_rules(),
                                             bot, session, interlocutor, interpreted_phrase)
             if not res.applied:
                 # Правила не сработали, значит выдаем реплику "Информации нет"
