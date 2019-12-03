@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Готовим датасет для обучения модели, определяющей релевантность
-вопроса и предпосылки для проекта чатбота (https://github.com/Koziev/chatbot)
+вопроса и предпосылки, для проекта чатбота (https://github.com/Koziev/chatbot)
 
 Используется несколько входных датасетов.
+qa.txt - основной датасет, содержит релевантные вопросы и предпосылки
 paraphrases.txt - отсюда получаем релевантные и нерелевантные перефразировки
-qa.txt - отсюда получаем релевантные вопросы и предпосылки (датасет собран вручную)
 questions.txt - список вопросов для негативного сэмплинга
 и т.д.
 
@@ -16,9 +16,7 @@ questions.txt - список вопросов для негативного сэ
 1 - есть полная семантическая релевантность
 Четвертая - вес сэмпла, 1 для автоматически сгенерированных, >1 для сэмплов
 из вручную сформированных файлов.
-
-(c) by Koziev Ilya inkoziev@gmail.com
-'''
+"""
 
 from __future__ import division  # for python2 compatability
 from __future__ import print_function
@@ -29,9 +27,8 @@ import itertools
 import os
 import tqdm
 import numpy as np
-import six
 
-from utils.tokenizer import Tokenizer
+from ruchatbot.utils.tokenizer import Tokenizer
 from preparation.corpus_searcher import CorpusSearcher
 
 
@@ -80,18 +77,6 @@ def ngrams(s, n):
 
 def jaccard(shingles1, shingles2):
     return float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2))
-
-
-class Sample3:
-    def __init__(self, anchor, positive, negative):
-        assert(len(anchor) > 0)
-        assert(len(positive) > 0)
-        self.anchor = anchor
-        self.positive = positive
-        self.negative = negative
-
-    def key(self):
-        return self.anchor + u'|' + self.positive + u'|' + self.negative
 
 
 def ru_sanitize(s):
@@ -245,6 +230,21 @@ with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'),
                     manual_negatives_qp[question] = [premise]
                 else:
                     manual_negatives_qp[question].append(premise)
+            elif len(tx) == 1:
+                # Второй формат, аналогичный негативным синонимам
+                # Первая строка задает вопрос, далее идут строки, начинающиеся на (-) с нерелевантными предпосылками.
+                question = normalize_qline(tx[0])
+                for line in rdr:
+                    if line.startswith('(-)'):
+                        premise = normalize_qline(line.replace('(-)', '').strip())
+                        if question not in manual_negatives_qp:
+                            manual_negatives_qp[question] = [premise]
+                        else:
+                            manual_negatives_qp[question].append(premise)
+                    else:
+                        break
+
+
 
 for premise, questions in manual_negatives_pq.items():
     for question in questions:

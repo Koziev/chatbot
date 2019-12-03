@@ -54,6 +54,11 @@ class ScriptingRuleIf(ScriptingRule):
         else:
             self.rule_name = self.condition.get_short_repr()
 
+        if 'priority' in yaml_node:
+            self.priority = float(yaml_node['priority'])
+        else:
+            self.priority = 1.0
+
 
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         """Вернет True, если правило сформировало ответную реплику."""
@@ -71,6 +76,11 @@ class ScriptingRuleSwitch(ScriptingRule):
         self.rule_name = None
         if 'name' in yaml_node:
             self.rule_name = yaml_node['name']
+
+        if 'priority' in yaml_node:
+            self.priority = float(yaml_node['priority'])
+        else:
+            self.priority = 1.0
 
         self.condition1 = BaseRuleCondition.from_yaml(yaml_node['switch']['when'], constants, text_utils)
         self.case_handlers = []

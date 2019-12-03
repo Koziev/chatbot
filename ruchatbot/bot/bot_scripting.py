@@ -20,21 +20,37 @@ class StoryRules:
     def __init__(self):
         self.keyphrase_rules = []  # список пар (фраза_бота, скомпилированное_правило)
         self.keyphrases3 = []
-        self.keyphrase2rules = dict()
+        self.keyphrase2_2_rules = dict()
+        self.keyphrases2 = []
+        self.keyphrase3_2_rules = dict()
 
-    def add_rule(self, key_phrase, rule):
+    def add_rule3(self, key_phrase, rule):
         self.keyphrase_rules.append((key_phrase, rule))
         self.keyphrases3.append((key_phrase, -1, -1))
-        if key_phrase in self.keyphrase2rules:
-            self.keyphrase2rules[key_phrase].append(rule)
+        if key_phrase in self.keyphrase3_2_rules:
+            self.keyphrase3_2_rules[key_phrase].append(rule)
         else:
-            self.keyphrase2rules[key_phrase] = [rule]
+            self.keyphrase3_2_rules[key_phrase] = [rule]
+
+    def add_rule2(self, key_phrase, rule):
+        self.keyphrase_rules.append((key_phrase, rule))
+        self.keyphrases2.append((key_phrase, -1, -1))
+        if key_phrase in self.keyphrase2_2_rules:
+            self.keyphrase2_2_rules[key_phrase].append(rule)
+        else:
+            self.keyphrase2_2_rules[key_phrase] = [rule]
 
     def get_keyphrases3(self):
         return self.keyphrases3
 
-    def get_rules_by_keyphrase(self, key_phrase):
-        return self.keyphrase2rules[key_phrase]
+    def get_keyphrases2(self):
+        return self.keyphrases2
+
+    def get_rules3_by_keyphrase(self, key_phrase):
+        return self.keyphrase3_2_rules[key_phrase]
+
+    def get_rules2_by_keyphrase(self, key_phrase):
+        return self.keyphrase2_2_rules[key_phrase]
 
 
 class BotScripting(object):
@@ -59,10 +75,17 @@ class BotScripting(object):
     def load_story_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
         for rule in data['story_rules']:
             try:
-                if 'story_rule3' in rule:
-                    compiled_rule = ScriptingRule.from_yaml(rule['story_rule3'], constants, text_utils)
-                    prev_bot_text = rule['story_rule3']['switch']['when']['prev_bot_text']
-                    self.story_rules.add_rule(prev_bot_text, compiled_rule)
+                if 'story_rule' in rule:
+                    compiled_rule = ScriptingRule.from_yaml(rule['story_rule'], constants, text_utils)
+                    if 'switch' in rule['story_rule']:
+                        prev_bot_text = rule['story_rule']['switch']['when']['prev_bot_text']
+                        self.story_rules.add_rule3(prev_bot_text, compiled_rule)
+                    elif 'if' in rule['story_rule']:
+                        human_utterance = rule['story_rule']['if']['raw_text']
+                        self.story_rules.add_rule2(human_utterance, compiled_rule)
+                    else:
+                        raise NotImplementedError()
+
                 elif 'file' in rule:
                     rules_fpath = os.path.join(rules_dir, rule['file'])
                     with io.open(rules_fpath, 'r', encoding='utf-8') as f:
@@ -74,7 +97,6 @@ class BotScripting(object):
             except Exception as ex:
                 logging.error(ex)
                 raise ex
-
 
     def load_instead_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
         if 'rules' in data:

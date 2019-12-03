@@ -385,7 +385,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         будет полностью прекращен."""
         if session.get_status():
             if scenario.get_priority() <= session.get_status().get_priority():
-                self.logger.warning(u'New status priority %d is lower than priority of running status %d', scenario.get_priority(), session.get_status().get_priority())
+                self.logger.warning(u'New status priority %d is not greater than priority of running status %d', scenario.get_priority(), session.get_status().get_priority())
                 session.defer_status(scenario)
                 return
             else:
@@ -638,7 +638,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return generated_replicas
 
-    def apply_insteadof_rule(self, rules, story_rules, bot, session, interlocutor, interpreted_phrase):
+    def apply_insteadof_rule(self, insteadof_rules, story_rules, bot, session, interlocutor, interpreted_phrase):
+        # Выполним сначала высокоприоритетные правила
+        for rule in insteadof_rules:
+            if rule.priority > 1.0:
+                if not session.is_rule_activated(rule):
+                    rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                    if rule_result.condition_success:
+                        return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+
+        # Теперь выполним правила, сгенерированные из диалогов
         if story_rules:
             prev_bot_phrase = session.get_last_bot_utterance().interpretation
             best_phrases, best_rels = self.synonymy_detector.get_most_similar(prev_bot_phrase,
@@ -655,18 +664,38 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if len(rx) > 0:
                 rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
                 best_keyphrase = rx[0][1]
-                best_rules = story_rules.get_rules_by_keyphrase(best_keyphrase)
+                best_rules = story_rules.get_rules3_by_keyphrase(best_keyphrase)
                 best_rule = random.choice(best_rules)
 
                 rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
                 if rule_result.condition_success:
                     return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
 
-        for rule in rules:
-            if not session.is_rule_activated(rule):
-                rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+            # Пробуем правила A -> B
+            best_phrases, best_rels = self.synonymy_detector.get_most_similar(u' '.join(interpreted_phrase.raw_tokens),
+                                                                              story_rules.get_keyphrases2(),
+                                                                              self.text_utils,
+                                                                              self.word_embeddings,
+                                                                              nb_results=10)
+
+            rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
+            if len(rx) > 0:
+                rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
+                best_keyphrase = rx[0][1]
+                best_rules = story_rules.get_rules2_by_keyphrase(best_keyphrase)
+                best_rule = random.choice(best_rules)
+
+                rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
                 if rule_result.condition_success:
                     return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+
+        # Теперь остальные правила
+        for rule in insteadof_rules:
+            if rule.priority <= 1.0:
+                if not session.is_rule_activated(rule):
+                    rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                    if rule_result.condition_success:
+                        return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
 
         return InsteadofRuleResult.GetFalse()
 

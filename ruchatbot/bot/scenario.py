@@ -23,16 +23,17 @@ class Scenario(object):
         if 'priority' in yaml_node:
             scenario.priority = int(yaml_node['priority'])
         else:
-            scenario.priority = 10
+            scenario.priority = 10  # дефолтный уровень приоритета
 
         if 'steps_policy' in yaml_node:
             scenario.steps_policy = yaml_node['steps_policy']  # TODO - сделать проверку значения
         else:
             scenario.steps_policy = 'sequential'
 
-        for step_node in yaml_node['steps']:
-            step = ActorBase.from_yaml(step_node, constants, text_utils)
-            scenario.steps.append(step)
+        if 'steps' in yaml_node:
+            for step_node in yaml_node['steps']:
+                step = ActorBase.from_yaml(step_node, constants, text_utils)
+                scenario.steps.append(step)
 
         if 'on_start' in yaml_node:
             scenario.on_start = ActorBase.from_yaml(yaml_node['on_start'], constants, text_utils)
