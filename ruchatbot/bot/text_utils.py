@@ -54,8 +54,8 @@ class TextUtils(object):
         rules_path = os.path.join(data_folder, 'rules.yaml')
         with io.open(rules_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-            self.no_info_replicas = data['no_relevant_information']
-            self.unknown_order = data['unknown_order']
+            #self.no_info_replicas = data['no_relevant_information']
+            #self.unknown_order = data['unknown_order']
 
             self.language_resources.key2phrase[u'yes'] = data[u'answers'][u'yes']
             self.language_resources.key2phrase[u'not'] = data[u'answers'][u'not']

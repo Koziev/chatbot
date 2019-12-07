@@ -93,7 +93,7 @@ def main():
     # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
     # ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
     machine = SimpleAnsweringMachine(text_utils=text_utils)
-    machine.load_models(data_folder, models_folder, w2v_folder)
+    machine.load_models(data_folder, models_folder, w2v_folder, profile.constants)
     machine.trace_enabled = args.debugging
 
     # Контейнер для правил

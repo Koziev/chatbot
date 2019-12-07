@@ -92,12 +92,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         _, tail = os.path.split(old_filepath)
         return os.path.join(models_folder, tail)
 
-    def load_models(self, data_folder, models_folder, w2v_folder):
-        self.logger.info(u'Loading models from {}'.format(models_folder))
+    def load_models(self, data_folder, models_folder, w2v_folder, constants):
+        self.logger.info(u'Loading models from "%s"', models_folder)
         self.models_folder = models_folder
 
         self.premise_not_found = NoInformationModel()
-        self.premise_not_found.load(models_folder, data_folder)
+        self.premise_not_found.load(models_folder, data_folder, constants, self.text_utils)
 
         # Загружаем общие параметры для сеточных моделей
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
@@ -689,7 +689,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if rule_result.condition_success:
                     return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
 
-        # Теперь остальные правила
+        # Теперь остальные правила, с приоритетом 1 и ниже
         for rule in insteadof_rules:
             if rule.priority <= 1.0:
                 if not session.is_rule_activated(rule):
@@ -1199,9 +1199,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Не удалось найти предпосылку для формирования ответа.
 
             # Попробуем обработать вопрос правилами.
-            res = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
-                                            bot.get_scripting().get_story_rules(),
-                                            bot, session, interlocutor, interpreted_phrase)
+            if self.premise_not_found.get_noanswer_rules():
+                res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
+                                                None, #bot.get_scripting().get_story_rules(),
+                                                bot, session, interlocutor, interpreted_phrase)
+
+            if not res.applied:
+                # ???? вроде уже отработали INSTEAD-OF RULES
+                res = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
+                                                bot.get_scripting().get_story_rules(),
+                                                bot, session, interlocutor, interpreted_phrase)
             if not res.applied:
                 # Правила не сработали, значит выдаем реплику "Информации нет"
                 answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,

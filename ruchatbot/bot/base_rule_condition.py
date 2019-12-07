@@ -51,6 +51,12 @@ class BaseRuleCondition(object):
                                                      text_utils,
                                                      word_embeddings,
                                                      nb_results=1)
+
+        # НАЧАЛО ОТЛАДКИ
+        if best_sim >= syn.get_threshold():
+            logging.debug('Text matched in rule: input_text="%s", best_etalon="%s", best_sim=%g', input_text, best_etalon, best_sim)
+        # КОНЕЦ ОТЛАДКИ
+
         return best_sim >= syn.get_threshold()
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
