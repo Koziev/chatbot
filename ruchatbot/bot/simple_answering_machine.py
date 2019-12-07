@@ -1096,6 +1096,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     bot.say(session, best_faq_answer)
                     return True
 
+            if self.premise_not_found.get_noanswer_rules():
+                res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
+                                                None, #bot.get_scripting().get_story_rules(),
+                                                bot, session, interlocutor, interpreted_phrase)
+                if res.applied:
+                    return True
+
             return bot.process_order(session, interlocutor, interpreted_phrase)
 
     def apply_rule(self, bot, session, interpreted_phrase):
