@@ -43,8 +43,9 @@ class IntentDetector(object):
             self.model = pickle.load(f)
         self.nlp_transform = self.model['nlp_transform']
 
-    def detect_intent(self, phrase_str, text_utils, word_embeddings):
+    def detect_intent(self, phrase_str, text_utils):
         nphrase = phrase_str.lower()
+        word_embeddings = text_utils.word_embeddings
 
         if nphrase in self.model['phrase2label']:
             # Фраза находится в lookup-таблице, обойдемся без классификации.

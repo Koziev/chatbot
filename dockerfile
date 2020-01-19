@@ -26,7 +26,7 @@ RUN pip install --upgrade scikit-learn
 RUN pip install gensim
 RUN pip install pathlib
 RUN pip install python-crfsuite
-RUN pip install tensorflow
+RUN pip install tensorflow==1.13.1
 RUN pip install colorama
 RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
@@ -64,6 +64,8 @@ COPY ./tmp/*.* ./
 
 WORKDIR /chatbot/scripts
 COPY ./scripts/console_bot.sh ./
+COPY ./scripts/test_console.sh ./
 
 WORKDIR /chatbot/scripts
 CMD "./console_bot.sh"
+#CMD "./test_console.sh"

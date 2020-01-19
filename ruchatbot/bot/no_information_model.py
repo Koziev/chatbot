@@ -17,6 +17,7 @@ import yaml
 
 from ruchatbot.bot.model_applicator import ModelApplicator
 from ruchatbot.bot.scripting_rule import ScriptingRule
+from ruchatbot.utils.constant_replacer import replace_constant
 
 
 class NoInformationModel(ModelApplicator):
@@ -39,7 +40,10 @@ class NoInformationModel(ModelApplicator):
 
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-            self.no_info_replicas = data['no_relevant_information']['phrases']
+            self.no_info_replicas = []
+            for s in data['no_relevant_information']['phrases']:
+                self.no_info_replicas.append(replace_constant(s, constants, text_utils))
+
             self.unknown_order = data['unknown_order']
 
             if 'rules' in data['no_relevant_information']:
@@ -52,13 +56,13 @@ class NoInformationModel(ModelApplicator):
     def get_noanswer_rules(self):
         return self.rules
 
-    def generate_answer(self, phrase, bot, text_utils, word_embeddings):
+    def generate_answer(self, phrase, bot, text_utils):
         if len(self.no_info_replicas) > 1:
             return random.choice(self.no_info_replicas)
         else:
             return self.replicas[0]
 
-    def order_not_understood(self, phrase, bot, text_utils, word_embeddings):
+    def order_not_understood(self, phrase, bot, text_utils):
         if len(self.unknown_order) > 1:
             return random.choice(self.unknown_order)
         else:

@@ -107,7 +107,7 @@ class AnswerBuilder(object):
 
         return list(paths)
 
-    def build_answer_text(self, premise_groups, premise_rels, question, text_utils, word_embeddings):
+    def build_answer_text(self, premise_groups, premise_rels, question, text_utils):
         # Определяем способ генерации ответа
         answers = []
         answer_rels = []
@@ -119,8 +119,7 @@ class AnswerBuilder(object):
 
             model_selector = self.model_selector.select_model(premise_str_list=premises,
                                                               question_str=question,
-                                                              text_utils=text_utils,
-                                                              word_embeddings=word_embeddings)
+                                                              text_utils=text_utils)
             if self.trace_enabled:
                 self.logger.debug('model_selector={}'.format(model_selector))
 
@@ -129,7 +128,7 @@ class AnswerBuilder(object):
 
             if model_selector == 0:
                 # Ответ генерируется через классификацию на 2 варианта yes|no
-                y = self.yes_no_model.calc_yes_no(premises, question, text_utils, word_embeddings)
+                y = self.yes_no_model.calc_yes_no(premises, question, text_utils)
                 if y < 0.5:
                     answer = text_utils.language_resources[u'not']
                 else:
@@ -146,7 +145,7 @@ class AnswerBuilder(object):
                 tokenized_question = list(filter(lambda w: w not in bad_tokens, text_utils.tokenize(question.lower())))
 
                 # Внимание на слова
-                word_p = self.word_selector.select_words(tokenized_premises, tokenized_question, word_embeddings)
+                word_p = self.word_selector.select_words(tokenized_premises, tokenized_question, text_utils.word_embeddings)
 
                 if self.trace_enabled:
                     self.logger.debug('Selected words and their weights:')
@@ -154,7 +153,7 @@ class AnswerBuilder(object):
                         self.logger.debug(u'{:15s}\t{}'.format(word, p))
 
                 # Определяем распределение вероятности для вариантов длин ответа
-                len2proba = self.len_predictor.predict(tokenized_premises, tokenized_question, word_embeddings)
+                len2proba = self.len_predictor.predict(tokenized_premises, tokenized_question, text_utils.word_embeddings)
                 # начало отладки
                 max_len_p = 0.0
                 best_len = 0
@@ -180,8 +179,7 @@ class AnswerBuilder(object):
                     # Сейчас используется общая модель.
                     answer = self.answer_generator.generate_answer(premise,
                                                                    question,
-                                                                   text_utils,
-                                                                   word_embeddings)
+                                                                   text_utils)
                     answer_rel = premise_rel
 
                 else:
@@ -200,7 +198,7 @@ class AnswerBuilder(object):
                     if len(word_p) > (best_len + 1):
                         word_p = sorted(word_p, key=lambda z: -z[1])[:best_len + 1]
 
-                    template_str = self.new_generator.predict(tokenized_premises, tokenized_question, word_embeddings)
+                    template_str = self.new_generator.predict(tokenized_premises, tokenized_question, text_utils.word_embeddings)
                     if self.trace_enabled:
                         self.logger.debug(u'answer template="%s"', template_str)
 
@@ -216,8 +214,8 @@ class AnswerBuilder(object):
                         scored_answers = self.answer_relevancy.score_answers(tokenized_premises,
                                                                              tokenized_question,
                                                                              all_generated_phrases,
-                                                                             word_embeddings,
-                                                                             text_utils, len2proba)
+                                                                             text_utils.word_embeddings,
+                                                                             len2proba)
 
                         sorted_answers = sorted(scored_answers, key=lambda z: -z.get_rank())
 
@@ -245,12 +243,11 @@ class AnswerBuilder(object):
                             # ответ создается через копирование слов из предпосылки.
                             answer1 = self.word_copy_model.generate_answer(premise,
                                                                            question,
-                                                                           text_utils,
-                                                                           word_embeddings)
+                                                                           text_utils)
                             answer1_rel = 0.0
                             if len(answer1) > 0:
                                 answer1_rel = self.answer_relevancy.score_answer(tokenized_premises, tokenized_question,
-                                                                                 answer1.split(), word_embeddings)
+                                                                                 answer1.split(), text_utils.word_embeddings)
                             else:
                                 self.logger.error(
                                     u'Empty answer generated by word_copy_model for premise={}, question={}'.format(
@@ -274,7 +271,7 @@ class AnswerBuilder(object):
                                         answer2_rel = self.answer_relevancy.score_answer(tokenized_premises,
                                                                                          tokenized_question,
                                                                                          sorted_best_words,
-                                                                                         word_embeddings)
+                                                                                         text_utils.word_embeddings)
 
                                         if answer2_rel > answer1_rel:
                                             # Второй вариант ответа имеет лучшее качество, берем его.
@@ -284,10 +281,9 @@ class AnswerBuilder(object):
                             # посимвольная генерация
                             answer4 = self.answer_generator.generate_answer(premise,
                                                                             question,
-                                                                            text_utils,
-                                                                            word_embeddings)
+                                                                            text_utils)
                             answer4_rel = self.answer_relevancy.score_answer(tokenized_premises, tokenized_question,
-                                                                             answer4.split(), word_embeddings)
+                                                                             answer4.split(), text_utils.word_embeddings)
                             if answer4_rel > answer3_rel:
                                 answer = answer4
                                 answer_rel = answer4_rel

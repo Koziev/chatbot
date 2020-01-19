@@ -36,7 +36,7 @@ class SimpleFactsStorage(BaseFactsStorage):
 
         # Время года
         cur_month = datetime.datetime.now().month
-        season = {12: u'зима', 11: u'зима', 2: u'зима',
+        season = {12: u'зима', 1: u'зима', 2: u'зима',
                   3: u'весна', 4: u'весна', 5: u'весна',
                   6: u'лето', 7: u'лето', 8: u'лето',
                   9: u'осень', 10: u'осень', 11: u'осень'}[cur_month]

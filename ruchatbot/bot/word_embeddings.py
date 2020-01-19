@@ -6,7 +6,7 @@ import logging
 import numpy as np
 
 from ruchatbot.bot.wordchar2vector_model import Wordchar2VectorModel
-from ruchatbot.bot.text_utils import PAD_WORD
+from ruchatbot.bot.string_constants import PAD_WORD
 
 
 class WordEmbeddings(object):

@@ -10,7 +10,6 @@ import random
 
 from ruchatbot.bot.base_answering_machine import BaseAnsweringMachine
 from ruchatbot.bot.simple_dialog_session_factory import SimpleDialogSessionFactory
-from ruchatbot.bot.word_embeddings import WordEmbeddings
 # from xgb_relevancy_detector import XGB_RelevancyDetector
 from ruchatbot.bot.lgb_relevancy_detector import LGB_RelevancyDetector
 #from nn_relevancy_tripleloss import NN_RelevancyTripleLoss
@@ -92,7 +91,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         _, tail = os.path.split(old_filepath)
         return os.path.join(models_folder, tail)
 
-    def load_models(self, data_folder, models_folder, w2v_folder, constants):
+    def load_models(self, data_folder, models_folder, constants):
         self.logger.info(u'Loading models from "%s"', models_folder)
         self.models_folder = models_folder
 
@@ -166,23 +165,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.entity_extractor = EntityExtractor()
         self.entity_extractor.load(models_folder)
 
-        # Загрузка векторных словарей
-        self.word_embeddings = WordEmbeddings()
-        self.word_embeddings.load_models(models_folder)
-        self.word_embeddings.load_wc2v_model(self.wordchar2vector_path)
-        for p in self.answer_builder.get_w2v_paths():
-            p = os.path.join(w2v_folder, os.path.basename(p))
-            self.word_embeddings.load_w2v_model(p)
-
-        w2v_path = self.relevancy_detector.get_w2v_path()
-        if w2v_path is not None:
-            self.word_embeddings.load_w2v_model(w2v_path)
-
-        if self.premise_not_found.get_w2v_path():
-            self.word_embeddings.load_w2v_model(self.premise_not_found.get_w2v_path())
-
-        self.word_embeddings.load_w2v_model(os.path.join(w2v_folder, os.path.basename(self.enough_premises.get_w2v_path())))
-
         self.jsyndet = Jaccard_SynonymyDetector()
 
         self.logger.debug('All models loaded')
@@ -227,7 +209,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         best_order, best_sim = self.synonymy_detector.get_most_similar(raw_phrase2,
                                                                        phrases2,
                                                                        self.text_utils,
-                                                                       self.word_embeddings,
                                                                        nb_results=1)
 
         # Если похожесть проверяемой реплики на любой вариант в таблице приказов выше порога,
@@ -258,15 +239,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         else:
             return None
 
-
-
-
     def interpret_phrase(self, bot, session, raw_phrase, internal_issuer):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
-        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(phrase,
-                                                                                     self.text_utils,
-                                                                                     self.word_embeddings)
+        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(phrase, self.text_utils)
 
         interpreted.raw_tokens = raw_tokens
         phrase_is_question = phrase_modality == ModalityDetector.question
@@ -288,20 +264,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     and last2_phrase.is_question\
                     and self.interpreter is not None:
 
-                    if self.req_interpretation.require_interpretation(raw_phrase,
-                                                                      self.text_utils,
-                                                                      self.word_embeddings):
+                    if self.req_interpretation.require_interpretation(raw_phrase, self.text_utils):
                         context_phrases = list()
                         # Контекст состоит из двух предыдущих фраз
                         context_phrases.append(last2_phrase.raw_phrase)
                         context_phrases.append(last_phrase.raw_phrase)
                         context_phrases.append(raw_phrase)
-                        phrase = self.interpreter.interpret(context_phrases, self.text_utils,
-                                                            self.word_embeddings, self.replica_grammar)
+                        phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
 
                         if self.intent_detector is not None:
-                            interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils,
-                                                                                    self.word_embeddings)
+                            interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
                             self.logger.debug(u'intent="%s"', interpreted.intent)
 
                         was_interpreted = True
@@ -313,9 +285,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     and not phrase_is_question\
                     and self.interpreter is not None:
 
-                if self.req_interpretation.require_interpretation(raw_phrase,
-                                                                  self.text_utils,
-                                                                  self.word_embeddings):
+                if self.req_interpretation.require_interpretation(raw_phrase, self.text_utils):
                     # В отдельной ветке обрабатываем ситуацию, когда бот
                     # задал вопрос или квази-вопрос типа "А давай xxx", на который собеседник дал краткий ответ.
                     # с помощью специальной модели мы попробуем восстановить полный
@@ -323,23 +293,21 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     context_phrases = list()
                     context_phrases.append(last_phrase.interpretation)
                     context_phrases.append(raw_phrase)
-                    phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.word_embeddings, self.replica_grammar)
+                    phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
                     if phrase:
                         if self.intent_detector is not None:
-                            interpreted.intent = self.intent_detector.detect_intent(phrase, self.text_utils,
-                                                                                    self.word_embeddings)
+                            interpreted.intent = self.intent_detector.detect_intent(phrase, self.text_utils)
                             self.logger.debug(u'intent="%s"', interpreted.intent)
 
                         was_interpreted = True
 
         if not interpreted.intent:
             if self.intent_detector is not None:
-                interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils,
-                                                                        self.word_embeddings)
+                interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
                 self.logger.debug(u'intent="%s"', interpreted.intent)
 
         if was_interpreted:
-            phrase = self.interpreter.normalize_person(phrase, self.text_utils, self.word_embeddings)
+            phrase = self.interpreter.normalize_person(phrase, self.text_utils)
 
         if not internal_issuer:
             # Попробуем найти шаблон трансляции, достаточно похожий на эту фразу.
@@ -350,13 +318,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if translated_str is not None:
                     phrase = translated_str
                     raw_phrase = translated_str
-                    phrase_modality, phrase_person, _ = self.modality_model.get_modality(phrase, self.text_utils, self.word_embeddings)
+                    phrase_modality, phrase_person, _ = self.modality_model.get_modality(phrase, self.text_utils)
                     if phrase_person == 2:
                         phrase_person = 1
                     was_interpreted = True
 
         if not was_interpreted:
-            phrase = self.interpreter.normalize_person(raw_phrase, self.text_utils, self.word_embeddings)
+            phrase = self.interpreter.normalize_person(raw_phrase, self.text_utils)
 
         # TODO: Если результат интерпретации содержит мусор, то не нужно его обрабатывать.
         # Поэтому тут надо проверить phrase  с помощью верификатора синтаксиса.
@@ -375,7 +343,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.info(u'say "%s"', answer)
         answer_interpretation = InterpretedPhrase(answer)
         answer_interpretation.is_bot_phrase = True
-        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils, self.word_embeddings)
+        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
         answer_interpretation.set_modality(phrase_modality, phrase_person)
         session.add_to_buffer(answer)
         session.add_phrase_to_history(answer_interpretation)
@@ -385,7 +353,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         будет полностью прекращен."""
         if session.get_status():
             if scenario.get_priority() <= session.get_status().get_priority():
-                self.logger.warning(u'New status priority %d is not greater than priority of running status %d', scenario.get_priority(), session.get_status().get_priority())
+                self.logger.warning(u'New status priority %d is not greater than priority %d of running "{}"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
                 session.defer_status(scenario)
                 return
             else:
@@ -397,7 +365,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         status = RunningScenario(scenario, current_step_index=-1)
         session.set_status(status)
         if scenario.on_start:
-            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase)
+            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
 
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
@@ -426,14 +394,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if new_step_index == len(running_scenario.scenario.steps):
                     # Сценарий исчерпан
                     if running_scenario.scenario.on_finish:
-                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase)
+                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, self.text_utils)
                     self.exit_scenario(bot, session, interlocutor, interpreted_phrase)
                     break
                 else:
                     running_scenario.current_step_index = new_step_index
                     step = running_scenario.scenario.steps[new_step_index]
                     running_scenario.passed_steps.add(new_step_index)
-                    step_ok = step.do_action(bot, session, interlocutor, interpreted_phrase)
+                    step_ok = step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
                     if step_ok:
                         break
 
@@ -444,12 +412,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             new_step_index = random.choice(step_indeces)
             running_scenario.passed_steps.add(new_step_index)
             step = running_scenario.scenario.steps[new_step_index]
-            step.do_action(bot, session, interlocutor, interpreted_phrase)
+            step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
 
             if len(running_scenario.passed_steps) == nsteps:
                 # Больше шагов нет
                 if running_scenario.scenario.on_finish:
-                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase)
+                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
                 self.exit_scenario(bot, session, interlocutor, interpreted_phrase)
         else:
             raise NotImplementedError()
@@ -491,7 +459,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         form = status.form
         if form.ok_action:
             logging.debug(u'Выполнение действия формы "%s"', form.name)
-            form.compiled_ok_action.do_action(bot, session, interlocutor, None)
+            form.compiled_ok_action.do_action(bot, session, interlocutor, None, None, text_utils=self.text_utils)
         session.form_executed()
 
     def does_bot_know_answer(self, question, bot, session, interlocutor):
@@ -500,7 +468,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
                                                                            memory_phrases,
                                                                            self.text_utils,
-                                                                           self.word_embeddings,
                                                                            nb_results=1)
         return best_rel >= self.min_premise_relevancy
 
@@ -509,7 +476,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         best_premise, best_rel = self.relevancy_detector.get_most_relevant(question,
                                                                            memory_phrases,
                                                                            self.text_utils,
-                                                                           self.word_embeddings,
                                                                            nb_results=1)
         return best_premise if best_rel >= self.min_premise_relevancy else None
 
@@ -527,7 +493,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if len(bot_phrases) > 0:
                 best_phrase, best_rel = self.synonymy_detector.get_most_similar(phrase, bot_phrases,
                                                                                 self.text_utils,
-                                                                                self.word_embeddings,
                                                                                 nb_results=1)
                 if best_rel >= self.synonymy_detector.get_threshold():
                     found_same_replica = True
@@ -595,8 +560,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         if len(best_phrases) > 0:
             # TODO: возможно, вместо коэффициента Жаккара лучше использовать word mover's distance
-            sim_phrases = self.jsyndet.get_most_similar(phrase, best_phrases, self.text_utils,
-                                                        self.word_embeddings, nb_results=1)
+            sim_phrases = self.jsyndet.get_most_similar(phrase, best_phrases, self.text_utils, nb_results=1)
 
             for f, phrase_sim in [sim_phrases]:
                 if not self.bot_replica_already_uttered(bot, session, f):
@@ -626,8 +590,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     facts.append(fact0)
 
             if len(facts) > 0:
-                sim_facts = self.jsyndet.get_most_similar(phrase, facts, self.text_utils,
-                                                          self.word_embeddings, nb_results=1)
+                sim_facts = self.jsyndet.get_most_similar(phrase, facts, self.text_utils, nb_results=1)
                 for fact, fact_sim in [sim_facts]:
                     if fact_sim > 0.20 and fact.lower() != phrase:
                         if not self.bot_replica_already_uttered(bot, session, fact):
@@ -653,7 +616,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             best_phrases, best_rels = self.synonymy_detector.get_most_similar(prev_bot_phrase,
                                                                               story_rules.get_keyphrases3(),
                                                                               self.text_utils,
-                                                                              self.word_embeddings,
                                                                               nb_results=10)
 
             threshold = 0.7  # TODO - брать из конфига бота
@@ -675,10 +637,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             best_phrases, best_rels = self.synonymy_detector.get_most_similar(u' '.join(interpreted_phrase.raw_tokens),
                                                                               story_rules.get_keyphrases2(),
                                                                               self.text_utils,
-                                                                              self.word_embeddings,
                                                                               nb_results=10)
 
-            rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
+            rx = list(filter(lambda z: z[0] >= threshold, zip(best_rels, best_phrases)))
             if len(rx) > 0:
                 rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
                 best_keyphrase = rx[0][1]
@@ -697,6 +658,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     if rule_result.condition_success:
                         return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
 
+        # Ни одно из правил в insteadof_rules не подошло.
         return InsteadofRuleResult.GetFalse()
 
     def run_smalltalk_action(self, rule, bot, session, interlocutor, phrase, weight_factor):
@@ -777,8 +739,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase.interpretation,
                                                                                  [(item.get_condition_text(), -1, -1)
                                                                                   for item in text_rules],
-                                                                                 self.text_utils,
-                                                                                 self.word_embeddings)
+                                                                                 self.text_utils)
 
                 if best_rel > 0.7:  # TODO - брать из конфига бота
                     for rule in text_rules:
@@ -822,7 +783,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     similar_items = self.synonymy_detector.get_most_similar(phrase,
                                                                             [(s, -1, -1) for s in smalltalk_utterances],
                                                                             self.text_utils,
-                                                                            self.word_embeddings,
                                                                             nb_results=5
                                                                             )
                     for replica, rel in similar_items:
@@ -1006,7 +966,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
             if not order_processed:
                 # Сообщим, что не знаем как обработать приказ.
-                self.premise_not_found_model.order_not_understood(phrase, bot, self.text_utils, self.word_embeddings)
+                self.premise_not_found_model.order_not_understood(phrase, bot, self.text_utils)
                 order_processed = True
         elif interpreted_phrase.is_question or is_question2:
             self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
@@ -1089,7 +1049,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 best_faq_answer, best_faq_rel, best_faq_question = bot.faq.get_most_similar(
                     interpreted_phrase.interpretation,
                     self.synonymy_detector,
-                    self.word_embeddings,
                     self.text_utils)
                 if best_faq_rel > self.synonymy_detector.get_threshold():
                     self.logger.debug(u'Found FAQ rel=%g answer="%s"', best_faq_rel, best_faq_answer)
@@ -1108,8 +1067,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def apply_rule(self, bot, session, interpreted_phrase):
         return bot.apply_rule(session, interpreted_phrase)
 
-    def premise_not_found(self, phrase, bot, text_utils, word_embeddings):
-        return self.premise_not_found_model.generate_answer(phrase, bot, text_utils, word_embeddings)
+    def premise_not_found(self, phrase, bot, text_utils):
+        return self.premise_not_found_model.generate_answer(phrase, bot, text_utils)
 
     def build_answers0(self, session, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
@@ -1122,7 +1081,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if bot.faq:
             best_faq_answer, best_faq_rel, best_faq_question = bot.faq.get_most_similar(interpreted_phrase.interpretation,
                                                                                         self.synonymy_detector,
-                                                                                        self.word_embeddings,
                                                                                         self.text_utils)
 
         answers = []
@@ -1134,8 +1092,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # пустой список предпосылок достаточен.
         p_enough = self.enough_premises.is_enough(premise_str_list=[],
                                                   question_str=interpreted_phrase.interpretation,
-                                                  text_utils=self.text_utils,
-                                                  word_embeddings=self.word_embeddings)
+                                                  text_utils=self.text_utils)
         if p_enough > 0.5:
             # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
             answers, answer_rels = self.answer_builder.build_answer_text([u''], [1.0],
@@ -1153,7 +1110,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             best_premises, best_rels = self.relevancy_detector.get_most_relevant(interpreted_phrase.interpretation,
                                                                                  memory_phrases,
                                                                                  self.text_utils,
-                                                                                 self.word_embeddings,
                                                                                  nb_results=3)
             if self.trace_enabled:
                 if best_rels[0] >= self.min_premise_relevancy:
@@ -1191,13 +1147,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         else:
                             answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
                                                                                          interpreted_phrase.interpretation,
-                                                                                         self.text_utils,
-                                                                                         self.word_embeddings)
+                                                                                         self.text_utils)
 
         if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если
-            # генератор ответа вообще ничего не выдал (в базе фактов пусто), то берем
-            # тест ответа из FAQ.
+            # генератор ответа вообще ничего не выдал (в базе фактов пусто), то возьмем
+            # текст ответа из FAQ.
             answers = [best_faq_answer]
             answer_rels = [best_faq_rel]
             self.logger.info(u'FAQ entry provides nearest question="%s" with rel=%e', best_faq_question, best_faq_rel)
@@ -1220,8 +1175,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Правила не сработали, значит выдаем реплику "Информации нет"
                 answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
                                                                 bot,
-                                                                self.text_utils,
-                                                                self.word_embeddings)
+                                                                self.text_utils)
                 answers.append(answer)
                 answer_rels.append(1.0)
 
@@ -1253,4 +1207,4 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return self.text_utils
 
     def get_word_embeddings(self):
-        return self.word_embeddings
+        return self.text_utils.word_embeddings

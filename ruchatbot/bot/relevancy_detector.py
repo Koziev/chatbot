@@ -14,11 +14,11 @@ class RelevancyDetector(ModelApplicator):
         pass
 
     @abstractmethod
-    def get_most_relevant(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
+    def get_most_relevant(self, probe_phrase, phrases, text_utils, nb_results=1):
         raise NotImplemented()
 
     @abstractmethod
-    def calc_relevancy1(self, premise, question, text_utils, word_embeddings):
+    def calc_relevancy1(self, premise, question, text_utils):
         raise NotImplemented()
 
     def get_w2v_path(self):

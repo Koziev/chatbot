@@ -50,7 +50,7 @@ class NN_ReqInterpretation(BaseUtteranceInterpreter):
         else:
             return rpad_wordseq(words, n)
 
-    def require_interpretation(self, phrase0, text_utils, word_embeddings):
+    def require_interpretation(self, phrase0, text_utils):
         phrase = text_utils.remove_terminators(phrase0.strip())
         phrase_words = text_utils.tokenizer.tokenize(phrase)
 
@@ -60,7 +60,7 @@ class NN_ReqInterpretation(BaseUtteranceInterpreter):
         X_batch  = np.zeros((1, self.max_wordseq_len, self.word_dims), dtype=np.float32)
 
         words = self.pad_wordseq(phrase_words, self.max_wordseq_len)
-        word_embeddings.vectorize_words(self.w2v_filename, words, X_batch, 0)
+        text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, X_batch, 0)
 
         y_pred = self.model.predict(x=X_batch, verbose=0)
         y_pred = y_pred[0]

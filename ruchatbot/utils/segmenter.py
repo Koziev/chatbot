@@ -5,8 +5,8 @@
 
 from __future__ import print_function
 from __future__ import division  # for python2 compatability
-import utils.abbrev
-import utils.textnormalizer
+import ruchatbot.utils.abbrev
+import ruchatbot.utils.textnormalizer
 
 
 class Segmenter(object):

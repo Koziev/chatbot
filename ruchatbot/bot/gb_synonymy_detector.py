@@ -33,14 +33,14 @@ class GB_SynonymyDetector(SynonymyDetector):
         self.engine.x_matrix_type = self.x_matrix_type
         self.engine.init_model_params(model_config)
 
-    def get_most_similar(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
+    def get_most_similar(self, probe_phrase, phrases, text_utils, nb_results=1):
         return self.engine.get_most_relevant(probe_phrase,
                                              phrases,
                                              text_utils,
                                              predictor_func=lambda X_data: self.predict_by_model(X_data),
                                              nb_results=nb_results)
 
-    def calc_synonymy2(self, phrase1, phrase2, text_utils, word_embeddings):
+    def calc_synonymy2(self, phrase1, phrase2, text_utils):
         return self.engine.calc_relevancy1(phrase1, phrase2,
                                            text_utils,
                                            predictor_func=lambda X_data: self.predict_by_model(X_data))

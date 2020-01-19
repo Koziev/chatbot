@@ -19,3 +19,6 @@ class RunningFormStatus(RunningDialogStatus):
 
     def get_smalltalk_rules(self):
         return self.form.smalltalk_rules
+
+    def get_name(self):
+        return self.form.get_name()

@@ -227,7 +227,7 @@ class XGB_AnswerGeneratorModel(AnswerGeneratorModel):
 
         return u'{}'.format(answer_chain[1:-1]).strip()
 
-    def generate_answer(self, premise_str, question_str, text_utils, word_embeddings):
+    def generate_answer(self, premise_str, question_str, text_utils):
         answer = self.generate_answer0(self.generator, text_utils,
                                        self.outshingle2id, self.inshingle2id, self.outchar2id,
                                        self.SHINGLE_LEN, self.NB_PREV_CHARS, self.nb_features, self.id2outchar, self.phrase2sdr,

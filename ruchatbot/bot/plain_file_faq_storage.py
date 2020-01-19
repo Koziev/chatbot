@@ -76,7 +76,7 @@ class PlainFileFaqStorage(BaseFaqStorage):
 
             self.logger.info(u'{} QA entries loaded from {}'.format(len(self.questions), self.path))
 
-    def get_most_similar(self, question_str, similarity_detector, word_embeddings, text_utils):
+    def get_most_similar(self, question_str, similarity_detector, text_utils):
         assert question_str
         self.__load_entries()
 
@@ -84,7 +84,6 @@ class PlainFileFaqStorage(BaseFaqStorage):
         best_question, best_rel = similarity_detector.get_most_similar(question2,
                                                                        [(s, None, None) for s in self.questions],
                                                                        text_utils,
-                                                                       word_embeddings,
                                                                        nb_results=1)
         question_index = self.questions.index(best_question)
         best_answer = self.answers[question_index]

@@ -12,11 +12,13 @@ class SimpleModalityDetectorRU(ModalityDetector):
     def __init__(self):
         pass
 
-    def get_modality(self, phrase, text_utils, word_embeddings):
+    def get_modality(self, phrase, text_utils):
         """
         Определяем параметры модальности для фразы.
         Вернем пару значений: тип фразы (утверждение, вопрос, приказ) + лицо (не всегда, только для утверждений)
         """
+        word_embeddings = text_utils.word_embeddings
+
         person = -1
 
         words = text_utils.tokenize(phrase)

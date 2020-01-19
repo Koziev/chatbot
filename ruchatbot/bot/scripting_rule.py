@@ -62,10 +62,12 @@ class ScriptingRuleIf(ScriptingRule):
 
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         """Вернет True, если правило сформировало ответную реплику."""
-        if self.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+        condition_check = self.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine)
+        if condition_check.success:
             logging.debug('ScriptingRuleSwitch "%s" ==> case_handler.do_action', self.rule_name)
             session.rule_activated(self)
-            replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase)
+            replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase,
+                                                               condition_check, answering_engine.text_utils)
             return ScriptingRuleResult.matched(replica_generated)
         else:
             return ScriptingRuleResult.unmatched()
@@ -98,20 +100,24 @@ class ScriptingRuleSwitch(ScriptingRule):
             self.default_handler = ActorBase.from_yaml(yaml_node['switch']['default'], constants, text_utils)
 
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
-        if self.condition1.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+        condition_check = self.condition1.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine)
+        if condition_check.success:
             # Главное условие (проверка заданного вопроса) успешно проверено, теперь ищем подходящий
             # обработчик для ответа.
             for case_handler in self.case_handlers:
                 assert(isinstance(case_handler, ScriptingRuleIf))
-                if case_handler.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine):
+                case_check = case_handler.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine)
+                if case_check.success:
                     logging.debug('ScriptingRuleSwitch "%s" ==> case_handler.do_action', self.rule_name)
-                    replica_generated = case_handler.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase)
+                    replica_generated = case_handler.compiled_action.do_action(bot, session, interlocutor,
+                                                                               interpreted_phrase, case_check, answering_engine.text_utils)
                     return ScriptingRuleResult.matched(replica_generated)
 
             if self.default_handler:
                 # Ни один из обработчиков не отработал, запускаем default-обработчик
                 logging.debug('ScriptingRuleSwitch "%s" ==> default_handler.do_action', self.rule_name)
-                replica_generated = self.default_handler.do_action(bot, session, interlocutor, interpreted_phrase)
+                replica_generated = self.default_handler.do_action(bot, session, interlocutor, interpreted_phrase,
+                                                                   None, answering_engine.text_utils)
                 return ScriptingRuleResult.matched(replica_generated)
 
         return ScriptingRuleResult.unmatched()

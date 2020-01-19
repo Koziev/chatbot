@@ -53,7 +53,7 @@ class NN_ModelSelector(ModelSelector):
         self.inputs['question'] = self.Xn_probe[self.max_nb_premises]
 
 
-    def select_model(self, premise_str_list, question_str, text_utils, word_embeddings):
+    def select_model(self, premise_str_list, question_str, text_utils):
         """Определяем способ генерации ответа"""
 
         assert(len(premise_str_list) <= self.max_nb_premises)
@@ -69,13 +69,13 @@ class NN_ModelSelector(ModelSelector):
                 words = text_utils.rpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)
             else:
                 words = text_utils.lpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)
-            word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[ipremise], 0)
+            text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[ipremise], 0)
 
         if self.padding == 'right':
             words = text_utils.rpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
         else:
             words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
-        word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
+        text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
 
         with self.graph.as_default():
             y_probe = self.model.predict(x=self.inputs)

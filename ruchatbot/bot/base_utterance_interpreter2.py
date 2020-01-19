@@ -57,7 +57,7 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
                                   u'по-вашему': u'по-моему'
                                   }
 
-    def flip_person(self, src_phrase, text_utils, word_embeddings):
+    def flip_person(self, src_phrase, text_utils):
         inwords = text_utils.tokenize(src_phrase)
         outwords = []
         for word in inwords:
@@ -77,8 +77,8 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
 
         return u' '.join(outwords)
 
-    def normalize_person(self, raw_phrase, text_utils, word_embeddings):
-        return self.flip_person(raw_phrase, text_utils, word_embeddings)
+    def normalize_person(self, raw_phrase, text_utils):
+        return self.flip_person(raw_phrase, text_utils)
 
-    def denormalize_person(self, normal_phrase, text_utils, word_embeddings):
-        return self.flip_person(normal_phrase, text_utils, word_embeddings)
+    def denormalize_person(self, normal_phrase, text_utils):
+        return self.flip_person(normal_phrase, text_utils)

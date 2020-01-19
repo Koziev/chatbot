@@ -15,10 +15,10 @@ class SynonymyDetector(ModelApplicator):
     def __init__(self):
         super(SynonymyDetector, self).__init__()
 
-    def get_most_similar(self, probe_phrase, phrases, text_utils, word_embeddings, nb_results=1):
+    def get_most_similar(self, probe_phrase, phrases, text_utils, nb_results=1):
         raise NotImplementedError()
 
-    def calc_synonymy2(self, phrase1, phrase2, text_utils, word_embeddings):
+    def calc_synonymy2(self, phrase1, phrase2, text_utils):
         raise NotImplementedError()
 
     def get_threshold(self):

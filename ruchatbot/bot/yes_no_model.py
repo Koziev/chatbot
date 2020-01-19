@@ -10,5 +10,5 @@ class YesNoModel(ModelApplicator):
         pass
 
     @abstractmethod
-    def calc_yes_no(self, premise_str_list, question_str, text_utils, word_embeddings):
+    def calc_yes_no(self, premise_str_list, question_str, text_utils):
         raise NotImplementedError()

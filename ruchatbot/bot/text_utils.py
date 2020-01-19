@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Код для выполнения операций с текстом на русском языке (или на другом целевом),
-в частности - токенизация, лемматизация, частеречная разметка.
-Загрузка различных словарных баз.
+NLP Pipeline чатбота
+
+Содержит код для выполнения операций с текстом на русском языке (или на другом целевом),
+в частности - токенизация, лемматизация, частеречная разметка. Для этого грузит
+разнообразные пакеты, включая POS Tagger, чанкер etc.
+Различные словарные базы.
+
 Для проекта чатбота https://github.com/Koziev/chatbot
 """
 
@@ -12,19 +16,32 @@ import os
 import io
 import yaml
 
-#from pymystem3 import Mystem
 import rupostagger
 import rulemma
+import ruchunker
+#import rusyntax2
+import ruword2tags
 
 from ruchatbot.utils.tokenizer import Tokenizer
 from ruchatbot.bot.word2lemmas import Word2Lemmas
 from ruchatbot.bot.language_resources import LanguageResources
 from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarDictionaries
+from ruchatbot.bot.word_embeddings import WordEmbeddings
+from ruchatbot.bot.string_constants import BEG_WORD, END_WORD, PAD_WORD
 
 
-BEG_WORD = u'\b'
-END_WORD = u'\n'
-PAD_WORD = u''
+class PhraseToken:
+    def __init__(self):
+        self.word = None
+        self.norm_word = None
+        self.lemma = None
+        self.word_index = None
+        self.chunk_index = None
+        self.tagset = None
+        self.is_chunk_starter = None
+
+    def __repr__(self):
+        return self.word
 
 
 class TextUtils(object):
@@ -34,13 +51,30 @@ class TextUtils(object):
         self.lexicon = Word2Lemmas()
         self.language_resources = LanguageResources()
         self.postagger = rupostagger.RuPosTagger()
+        self.chunker = ruchunker.Chunker()
+        self.word2tags = ruword2tags.RuWord2Tags()
+        self.flexer = ruword2tags.RuFlexer()
+        self.syntan = None
         self.gg_dictionaries = GenerativeGrammarDictionaries()
         self.known_words = set()
         #self.lemmatizer = Mystem()
         self.lemmatizer = rulemma.Lemmatizer()
-        self.lemmatizer.load()
+        self.word_embeddings = None
+
+    def load_embeddings(self, w2v_dir, wc2v_dir):
+        # Загрузка векторных словарей
+        self.word_embeddings = WordEmbeddings()
+        self.word_embeddings.load_models(w2v_dir)
+
+        p = os.path.join(wc2v_dir, 'wc2v.kv')
+        self.word_embeddings.load_wc2v_model(p)
+
+        p = os.path.join(w2v_dir, 'w2v.kv')
+        self.word_embeddings.load_w2v_model(p)
 
     def load_dictionaries(self, data_folder, models_folder):
+        self.lemmatizer.load()
+
         # Общий словарь для генеративных грамматик
         self.gg_dictionaries.load(os.path.join(models_folder, 'generative_grammar_dictionaries.bin'))
 
@@ -50,6 +84,13 @@ class TextUtils(object):
         #word2tags_path = os.path.join(data_folder, 'chatbot_word2tags.dat')
         #self.postagger.load(word2tags_path)
         self.postagger.load()
+
+        self.word2tags.load()
+        self.flexer.load()
+        self.chunker.load()
+
+        #self.syntan = rusyntax2.Tagger(self.word2tags, w2v, self.postagger)
+        #self.syntan.load()
 
         rules_path = os.path.join(data_folder, 'rules.yaml')
         with io.open(rules_path, 'r', encoding='utf-8') as f:
@@ -158,4 +199,26 @@ class TextUtils(object):
 
         return -1
 
+    def extract_chunks(self, sample):
+        tokens = self.tokenizer.tokenize(sample)
+        tagsets = list(self.postagger.tag(tokens))
+        lemmas = self.lemmatizer.lemmatize(tagsets)
+        #edges = syntan.parse(tokens, tagsets)
 
+        phrase_tokens = []
+        for word_index, (token, tagset, lemma) in enumerate(zip(tokens, tagsets, lemmas)):
+            t = PhraseToken()
+            t.word = token
+            t.norm_word = token.lower()
+            t.lemma = lemma[2]
+            t.tagset = tagset[1]
+            t.word_index = word_index
+            phrase_tokens.append(t)
+
+        chunks = self.chunker.parse(tokens)
+        for chunk_index, chunk in enumerate(chunks):
+            phrase_tokens[chunk.tokens[0].index].is_chunk_starter = True
+            for token in chunk.tokens:
+                phrase_tokens[token.index].chunk_index = chunk_index
+
+        return chunks

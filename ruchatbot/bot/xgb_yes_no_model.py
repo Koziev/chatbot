@@ -67,7 +67,7 @@ class XGB_YesNoModel(YesNoModel):
             s = s[:-1]
         return s.replace('?', '').replace('!', '').strip()
 
-    def calc_yes_no(self, premise_str_list, question_str, text_utils, word_embeddings):
+    def calc_yes_no(self, premise_str_list, question_str, text_utils):
         assert(len(premise_str_list) <= 1)
 
         premise_str = premise_str_list[0] if len(premise_str_list) == 1 else u''

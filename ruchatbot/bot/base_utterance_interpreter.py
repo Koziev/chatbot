@@ -10,17 +10,17 @@ class BaseUtteranceInterpreter(ModelApplicator):
         pass
 
     @abstractmethod
-    def require_interpretation(self, phrase, text_utils, word_embeddings):
+    def require_interpretation(self, phrase, text_utils):
         raise NotImplementedError()
 
     @abstractmethod
-    def interpret(self, phrases, text_utils, word_embeddings):
+    def interpret(self, phrases, text_utils):
         raise NotImplementedError()
 
     @abstractmethod
-    def normalize_person(self, raw_phrase, text_utils, word_embeddings):
+    def normalize_person(self, raw_phrase, text_utils):
         raise NotImplementedError()
 
     @abstractmethod
-    def denormalize_person(self, normal_phrase, text_utils, word_embeddings):
+    def denormalize_person(self, normal_phrase, text_utils):
         raise NotImplementedError()

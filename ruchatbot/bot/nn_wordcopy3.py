@@ -46,7 +46,7 @@ class NN_WordCopy3(WordCopyModel):
         self.X2_probe = np.zeros((1, self.max_wordseq_len, self.word_dims), dtype=np.float32)
         self.w2v_filename = os.path.basename(self.w2v_path)
 
-    def generate_answer(self, premise_str, question_str, text_utils, word_embeddings):
+    def generate_answer(self, premise_str, question_str, text_utils):
         # определяем диапазон слов начала и конца копируемой цепочки слов
         self.X1_probe.fill(0)
         self.X2_probe.fill(0)
@@ -58,8 +58,8 @@ class NN_WordCopy3(WordCopyModel):
             premise_words = text_utils.lpad_wordseq(text_utils.tokenize(premise_str), self.max_wordseq_len)
             question_words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_wordseq_len)
 
-        word_embeddings.vectorize_words(self.w2v_filename, premise_words, self.X1_probe, 0)
-        word_embeddings.vectorize_words(self.w2v_filename, question_words, self.X2_probe, 0)
+        text_utils.word_embeddings.vectorize_words(self.w2v_filename, premise_words, self.X1_probe, 0)
+        text_utils.word_embeddings.vectorize_words(self.w2v_filename, question_words, self.X2_probe, 0)
 
         # for i1, word1 in enumerate(premise_words):
         #    if len(word1)>0:

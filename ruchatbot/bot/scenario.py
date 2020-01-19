@@ -16,6 +16,9 @@ class Scenario(object):
         self.smalltalk_rules = None
         self.insteadof_rules = None
 
+    def get_name(self):
+        return self.name
+
     @staticmethod
     def load_yaml(yaml_node, smalltalk_rule2grammar, constants, text_utils):
         scenario = Scenario()

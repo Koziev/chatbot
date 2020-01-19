@@ -132,7 +132,7 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
 
         return X1_data, X2_data, y_data
 
-    def interpret(self, phrases, text_utils, word_embeddings, generative_grammar):
+    def interpret(self, phrases, text_utils, generative_grammar):
         assert(len(phrases) == 2)
 
         question = text_utils.remove_terminators(phrases[0])
@@ -141,7 +141,7 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         short_answer_words = text_utils.tokenizer.tokenize(short_answer)
 
         samples = [Sample(question, question_words, short_answer, short_answer_words)]
-        X1_data, X2_data, y_data = self.vectorize_samples(samples, self.model_config, self.computed_params, word_embeddings)
+        X1_data, X2_data, y_data = self.vectorize_samples(samples, self.model_config, self.computed_params, text_utils.word_embeddings)
 
         y_pred = self.model.predict({'input1': X1_data, 'input2': X2_data}, verbose=0)
         if self.model_config['arch'] == 'bilstm':

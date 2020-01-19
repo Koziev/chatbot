@@ -10,5 +10,5 @@ class WordCopyModel(ModelApplicator):
         pass
 
     @abstractmethod
-    def generate_answer(self, premise_str, question_str, text_utils, word_embeddings):
+    def generate_answer(self, premise_str, question_str, text_utils):
         raise NotImplementedError()

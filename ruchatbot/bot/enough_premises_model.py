@@ -13,7 +13,7 @@ class EnoughPremisesModel(ModelApplicator):
     def __init__(self):
         pass
 
-    def is_enough(self, premise_str_list, question_str, text_utils, word_embeddings):
+    def is_enough(self, premise_str_list, question_str, text_utils):
         """
         Определяем, достаточен ли набор предпосылок для ответа на вопрос
         :param premise_str_list: список unicode строк с предпосылками, может быть 0 строк.
