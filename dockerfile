@@ -30,10 +30,17 @@ RUN pip install tensorflow==1.13.1
 RUN pip install colorama
 RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
+
+WORKDIR /home
+ADD ruword2tags.tar.gz /home
+WORKDIR /home/ruword2tags
+RUN pip install .
+
 RUN pip install git+https://github.com/Koziev/rutokenizer
 RUN pip install git+https://github.com/Koziev/rupostagger
-RUN pip install git+https://github.com/Koziev/ruword2tags
+#RUN pip install git+https://github.com/Koziev/ruword2tags
 RUN pip install git+https://github.com/Koziev/rusyllab
+RUN pip install git+https://github.com/Koziev/ruchunker
 
 RUN apt-get clean
 

@@ -170,7 +170,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.debug('All models loaded')
 
     def extract_entity(self, entity_name, phrase_str):
-        return self.entity_extractor.extract_entity(entity_name, phrase_str, self.text_utils, self.word_embeddings)
+        return self.entity_extractor.extract_entity(entity_name, phrase_str, self.text_utils, self.text_utils.word_embeddings)
 
     def start_conversation(self, bot, interlocutor):
         """

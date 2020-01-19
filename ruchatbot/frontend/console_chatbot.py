@@ -79,11 +79,14 @@ def main():
 
     init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'), args.debugging)
 
-    logging.debug('Starting bot...')
+    logging.debug('Bot loading...')
 
     # Создаем необходимое окружение для бота.
-    # Инструменты для работы с текстом, включая морфологию и таблицы словоформ.
+
+    # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
+    # part-of-speech tagger, NP chunker и прочее.
     text_utils = TextUtils()
+    text_utils.load_embeddings(w2v_dir=w2v_folder, wc2v_dir=models_folder)
     text_utils.load_dictionaries(data_folder, models_folder)
 
     # Настроечные параметры аватара собраны в профиле - файле в json формате.
@@ -93,7 +96,7 @@ def main():
     # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
     # ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
     machine = SimpleAnsweringMachine(text_utils=text_utils)
-    machine.load_models(data_folder, models_folder, w2v_folder, profile.constants)
+    machine.load_models(data_folder, models_folder, profile.constants)
     machine.trace_enabled = args.debugging
 
     # Контейнер для правил

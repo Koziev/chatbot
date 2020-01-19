@@ -68,6 +68,12 @@ def normalize_chunk(tokens, edges, flexer, word2tags, target_tags=dict()):
             for tag in uppermost_token.tagset.split('|'):
                 if tag.startswith('Gender'):
                     gender = tag.split('=')[1]
+                    if gender == 'Fem':
+                        gender = 'ЖЕН'
+                    elif gender == 'Masc':
+                        gender = 'МУЖ'
+                    else:
+                        gender = 'Neut'
                     break
 
         adj_anymacy = None

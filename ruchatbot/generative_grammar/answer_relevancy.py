@@ -51,7 +51,7 @@ class AnswerRelevancy(object):
             self.model = model_from_json(f.read())
         self.model.load_weights(weights_path)
 
-    def score_answers(self, premises, question, answers, word2vec, tokenizer, len2proba):
+    def score_answers(self, premises, question, answers, word2vec, len2proba):
         scored_answers = []
 
         self.nb_samples = len(answers)
