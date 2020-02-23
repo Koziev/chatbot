@@ -52,6 +52,10 @@ class SmalltalkComplexCondition(SmalltalkBaseCondition):
     def get_key(self):
         return self.condition.get_key()
 
+    def __repr__(self):
+        return self.condition.get_short_repr()
+
+
 class SmalltalkBasicRule(object):
     def __init__(self, condition):
         self.condition = condition
@@ -76,9 +80,13 @@ class SmalltalkBasicRule(object):
 
 
 class SmalltalkSayingRule(SmalltalkBasicRule):
-    def __init__(self, condition):
+    def __init__(self, name, condition):
         super(SmalltalkSayingRule, self).__init__(condition)
+        self.name = name
         self.answers = []
+
+    def get_name(self):
+        return self.name
 
     def add_answer(self, answer):
         self.answers.append(answer)
@@ -94,10 +102,14 @@ class SmalltalkSayingRule(SmalltalkBasicRule):
 
 
 class SmalltalkGeneratorRule(SmalltalkBasicRule):
-    def __init__(self, condition, action_templates):
+    def __init__(self, name, condition, action_templates):
         super(SmalltalkGeneratorRule, self).__init__(condition)
+        self.name = name
         self.action_templates = action_templates
         self.compiled_grammar = None
+
+    def get_name(self):
+        return self.name
 
     def is_generator(self):
         return True
@@ -133,16 +145,18 @@ class SmalltalkRules(object):
             # список, чтобы обрабатывать в модели синонимичности одним пакетом.
             if 'text' in condition and len(condition) == 1:
                 for condition1 in SmalltalkRules.__get_node_list(condition['text']):
+                    rule_name0 = 'smalltalk_rule_condition="{}"'.format(condition1)
+
                     rule_condition = SmalltalkTextCondition(replace_constant(condition1, constants, text_utils))
 
                     if 'say' in action:
-                        rule = SmalltalkSayingRule(rule_condition)
+                        rule = SmalltalkSayingRule(rule_name0, rule_condition)
                         for answer1 in SmalltalkRules.__get_node_list(action['say']):
                             rule.add_answer(replace_constant(answer1, constants, text_utils))
                         self.text_rules.append(rule)
                     elif 'generate' in action:
                         generative_templates = list(SmalltalkRules.__get_node_list(action['generate']))
-                        rule = SmalltalkGeneratorRule(rule_condition, generative_templates)
+                        rule = SmalltalkGeneratorRule(rule_name0, rule_condition, generative_templates)
                         key = rule_condition.get_key()
                         if key in smalltalk_rule2grammar:
                             rule.compiled_grammar = smalltalk_rule2grammar[key]
@@ -155,9 +169,10 @@ class SmalltalkRules(object):
                         raise NotImplementedError()
             else:
                 rule_condition = SmalltalkComplexCondition(condition, constants, text_utils)
+                rule_name0 = 'smalltalk_rule_condition="{}"'.format(str(rule_condition))
                 if 'generate' in action:
                     generative_templates = list(SmalltalkRules.__get_node_list(action['generate']))
-                    rule = SmalltalkGeneratorRule(rule_condition, generative_templates)
+                    rule = SmalltalkGeneratorRule(rule_name0, rule_condition, generative_templates)
                     key = rule_condition.get_key()
                     if key in smalltalk_rule2grammar:
                         rule.compiled_grammar = smalltalk_rule2grammar[key]
@@ -166,7 +181,7 @@ class SmalltalkRules(object):
 
                     self.complex_rules.append(rule)
                 elif 'say' in action:
-                    rule = SmalltalkSayingRule(rule_condition)
+                    rule = SmalltalkSayingRule(rule_name0, rule_condition)
                     for answer1 in SmalltalkRules.__get_node_list(action['say']):
                         rule.add_answer(replace_constant(answer1, constants, text_utils))
                     self.complex_rules.append(rule)

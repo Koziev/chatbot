@@ -30,18 +30,18 @@ from ruchatbot.bot.word_embeddings import WordEmbeddings
 from ruchatbot.bot.string_constants import BEG_WORD, END_WORD, PAD_WORD
 
 
-class PhraseToken:
-    def __init__(self):
-        self.word = None
-        self.norm_word = None
-        self.lemma = None
-        self.word_index = None
-        self.chunk_index = None
-        self.tagset = None
-        self.is_chunk_starter = None
-
-    def __repr__(self):
-        return self.word
+#class PhraseToken:
+#    def __init__(self):
+#        self.word = None
+#        self.norm_word = None
+#        self.lemma = None
+#        self.word_index = None
+#        self.chunk_index = None
+#        self.tagset = None
+#        self.is_chunk_starter = None
+#
+#    def __repr__(self):
+#        return self.word
 
 
 class TextUtils(object):
@@ -181,7 +181,7 @@ class TextUtils(object):
         return self.lexicon
 
     def is_question_word(self, word):
-        return word in u'насколько где кто что почему откуда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда какой какая какое какие какого какую каких каким какими какому какой'.split()
+        return word in u'насколько где кто что почему откуда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда какой какая какое какие какого какую каких каким какими какому какой каков какова каковы'.split()
 
     def build_output_phrase(self, words):
         s = u' '.join(words)

@@ -539,8 +539,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         key_stems = set()
         for token in phrase_tags:
             if u'NOUN' in token[1] or u'VERB' in token[1]:
-                if len(token[0]) >= 4:
-                    stem = token[0][:4]
+                if len(token[0]) >= 5:
+                    stem = token[0][:5]
                     key_stems.add(stem)
         common_phrase_weights = []
         max_weight = 0
@@ -576,6 +576,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         generated_replicas.append((f,
                                                    phrase_sim * discourse_rel * base_weight,
                                                    'generate_with_common_phrases(1)'))
+                        self.logger.debug('generate_with_common_phrases input="%s" output="%s"', phrase, f)
 
 
         if False:
@@ -730,9 +731,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
                 # Проверяем условия для сложных правил.
                 for rule in complex_rules:
-                    if rule.check_condition(bot, session, interlocutor, phrase, self):
+                    matching = rule.check_condition(bot, session, interlocutor, phrase, self)
+                    if matching.success:
                         rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, time_decay)
                         generated_replicas.extend(rx)
+
+                        for output_phrase in rx:
+                            self.logger.debug('generate_smalltalk_replica::1 rule="%s" input="%s" output="%s"', rule.get_name(), phrase, output_phrase)
+
                         break
 
                 # Правила с кондиктором text проверяем все сразу для эффективности.
@@ -749,16 +755,30 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             # содержать набор шаблонов генерации.
                             rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, best_rel * time_decay)
                             generated_replicas.extend(rx)
+
+                            for output_phrase in rx:
+                                self.logger.debug('generate_smalltalk_replica::2 rule="%s" input="%s" output="%s"',
+                                                  rule.get_name(),
+                                                  phrase.interpretation,
+                                                  output_phrase)
+
                             break
                 else:
                     # Проверяем smalltalk-правила, использующие intent фразы или другие условия
                     intent_rule_applied = False
                     last_interlocutor_utterance = session.get_last_interlocutor_utterance()
                     for rule in complex_rules:
-                        if rule.check_condition(bot, session, interlocutor, last_interlocutor_utterance, self):
+                        matching = rule.check_condition(bot, session, interlocutor, last_interlocutor_utterance, self)
+                        if matching.success:
                             intent_rule_applied = True
                             rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, time_decay)
                             generated_replicas.extend(rx)
+                            for output_phrase in rx:
+                                self.logger.debug('generate_smalltalk_replica::3 rule="%s" input="%s" output="%s"',
+                                                  rule.get_name(),
+                                                  phrase.interpretation,
+                                                  output_phrase)
+
 
                     if not intent_rule_applied:
                         list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase.interpretation, time_decay)
@@ -769,6 +789,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             list3 = self.generate_with_generative_grammar(bot, session, interlocutor, phrase.interpretation,
                                                                           time_decay)
                             generated_replicas.extend(list3)
+                            for output_phrase in list3:
+                                self.logger.debug('generate_smalltalk_replica::4 input="%s" output="%s"',
+                                                  phrase.interpretation,
+                                                  output_phrase)
+
 
             # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
             # максимально близкие к вопросам в smalltalk базе.

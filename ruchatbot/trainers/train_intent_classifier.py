@@ -74,7 +74,7 @@ def data_vectorization(samples, model_params):
     else:
         raise NotImplementedError()
 
-    # TODO: вообще методически более правильно было бы делать fit на тренимровочном наборе, а уже transform
+    # TODO: вообще методически более правильно было бы делать fit на тренировочном наборе, а уже transform
     # делать на всех данных.
     X_data = vectorizer.fit_transform(phrases)
 
@@ -329,7 +329,7 @@ if __name__ == '__main__':
 
     init_trainer_logging(os.path.join(tmp_dir, 'train_intent_classifier.log'), logging.DEBUG)
 
-    logging.info('Start using dataset_path="%s"', dataset_path)
+    logging.info('Start "%s" using dataset_path="%s"', run_mode, dataset_path)
 
     # файл в формате json с найденными оптимальными параметрами классификатора,
     # создается в ходе gridsearch, используется для train
@@ -338,11 +338,12 @@ if __name__ == '__main__':
     # файл с обученной моделью, создается в train, используется в query
     model_path = os.path.join(tmp_dir, 'intent_classifier.model')
 
-    df = pd.read_csv(dataset_path,
-                     encoding='utf-8',
-                     delimiter='\t',
-                     index_col=None,
-                     keep_default_na=False)
+    if run_mode in 'gridsearch train'.split():
+        df = pd.read_csv(dataset_path,
+                         encoding='utf-8',
+                         delimiter='\t',
+                         index_col=None,
+                         keep_default_na=False)
 
     if run_mode == 'gridsearch':
         logging.info('=== GRIDSEARCH ===')

@@ -10,3 +10,12 @@ class PhraseToken:
 
     def __repr__(self):
         return self.word
+
+    def is_noun(self):
+        return self.tagset.startswith('NOUN')
+
+    def is_inf(self):
+        return self.tagset.startswith('VERB') and 'VerbForm=Inf' in self.tagset
+
+    def is_adj(self):
+        return self.tagset.startswith('ADJ')

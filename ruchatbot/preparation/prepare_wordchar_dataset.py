@@ -17,10 +17,12 @@ import pandas as pd
 import csv
 import yaml
 
-from utils.tokenizer import Tokenizer
+from ruchatbot.utils.tokenizer import Tokenizer
 
 result_path = '../../tmp/known_words.txt'  # путь к файлу, где будет сохранен полный список слов для обучения
-result2_path = '../../tmp/dataset_words.txt'  # путь к файлу со списком слов, которые употребляются в датасетах
+result2_path = '../../tmp/dataset_words.txt'  # путь к файлу со списком слов, которые употребляются в датасетах чатбота
+
+data_folder = '../../data'
 
 n_misspelling_per_word = 0  # кол-во добавляемых вариантов с опечатками на одно исходное слово
 
@@ -29,7 +31,7 @@ n_misspelling_per_word = 0  # кол-во добавляемых вариант�
 if platform == "win32":
     corpus_path = r'f:\Corpus\word2vector\ru\SENTx.corpus.w2v.txt'
 else:
-    corpus_path = '/media/inkoziev/corpora/Corpus/word2vector/ru/SENTx.corpus.w2v.txt'
+    corpus_path = os.path.expanduser('~/corpora/Corpus/word2vector/ru/SENTx.corpus.w2v.txt')
 
 paraphrases_path = '../../data/premise_question_relevancy.csv'
 synonymy_path = '../../data/synonymy_dataset.csv'
@@ -45,16 +47,22 @@ interpretations = ['../../data/interpretation_auto_4.txt',
                    '../../data/entity_extraction.txt',
                    '../../data/intents.txt']
 
-postagger_corpora = ['united_corpora.dat', 'morpheval_corpus_solarix.full.dat']
+postagger_corpora = ['/home/inkoziev/polygon/rupostagger/tmp/samples.dat']
 yaml_path = '../../data/rules.yaml'
 
 
-goodchars = set(u'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'+
-                u'1234567890'+
+goodchars = set(u'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ' +
+                u'1234567890' +
                 u'+.,-?!()[]{}*<>$&=~№/\\«»%:;|#"\'°')
+
+letters = set(u'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ')
 
 
 stop_words = {u'_num_'}
+
+
+lexicon_words = set()
+
 
 def is_punkt(c):
     return c in u'+.,-?!()[]{}*<>$&=~№/\\«»%:;|#" \'’–'
@@ -67,7 +75,7 @@ def normalize_word(word):
 def collect_strings(d):
     res = []
 
-    if isinstance(d, unicode):
+    if isinstance(d, str):
         if u'[' not in d and u']' not in d:
             res.append(d)
     elif isinstance(d, list):
@@ -102,9 +110,17 @@ tokenizer.load()
 known_words = set()
 dataset_words = set()
 
+with io.open(os.path.join(data_folder, 'dict/word2lemma.dat'), 'r', encoding='utf-8') as rdr:
+    for line in rdr:
+        tx = line.replace(u'\ufeff', '').strip().split('\t')
+        if len(tx) > 1:
+            word = tx[0].lower().replace(' - ', '-')
+            if word[0] in letters:
+                lexicon_words.add(word)
+
 for corpus in postagger_corpora:
     print(u'Processing {}'.format(corpus))
-    with codecs.open(os.path.join('../../data', corpus), 'r', 'utf-8') as rdr:
+    with codecs.open(corpus, 'r', 'utf-8') as rdr:
         for line in rdr:
             line = line.strip()
             if line:
@@ -133,7 +149,7 @@ with codecs.open(corpus_path, 'r', 'utf-8') as rdr:
         words = [normalize_word(w) for w in line.split(u' ')]
         known_words.update(words)
         line_count += 1
-        if line_count > 1000000:
+        if line_count > 5000000:
             break
 
 # Добавим слова из основного тренировочного датасета

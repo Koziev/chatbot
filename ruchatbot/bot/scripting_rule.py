@@ -59,12 +59,17 @@ class ScriptingRuleIf(ScriptingRule):
         else:
             self.priority = 1.0
 
+    def __repr__(self):
+        s = self.rule_name
+        if s is None:
+            s = 'ScriptingRuleIf condition={}'.format(str(self.condition))
+        return s
 
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         """Вернет True, если правило сформировало ответную реплику."""
         condition_check = self.condition.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine)
         if condition_check.success:
-            logging.debug('ScriptingRuleSwitch "%s" ==> case_handler.do_action', self.rule_name)
+            logging.debug('ScriptingRuleIf "%s"', self.rule_name)
             session.rule_activated(self)
             replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase,
                                                                condition_check, answering_engine.text_utils)
@@ -98,6 +103,13 @@ class ScriptingRuleSwitch(ScriptingRule):
 
         if 'default' in yaml_node['switch']:
             self.default_handler = ActorBase.from_yaml(yaml_node['switch']['default'], constants, text_utils)
+
+    def __repr__(self):
+        if self.rule_name:
+            return self.rule_name
+        else:
+            return str(self.condition1)
+
 
     def execute(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         condition_check = self.condition1.check_condition(bot, session, interlocutor, interpreted_phrase, answering_engine)

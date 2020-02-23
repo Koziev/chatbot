@@ -34,6 +34,8 @@ class ActorBase(object):
             return ActorState.from_yaml(yaml_node[actor_keyword])
         elif actor_keyword == 'steps':
             return ActorSteps.from_yaml(yaml_node[actor_keyword], constants, text_utils)
+        elif actor_keyword == 'query':
+            return ActorQueryDb.from_yaml(yaml_node[actor_keyword], constants, text_utils)
         else:
             raise NotImplementedError(actor_keyword)
 
@@ -61,26 +63,58 @@ class SayingPhrase:
     def __init__(self, phrase_str):
         self.raw_text = phrase_str
         self.name2entry = dict()
-        if '$NP' in phrase_str:
-            for m in re.finditer(r'\$(NP\d+)', phrase_str):
-                entry_text = m.group(0)
-                entry_name = m.group(1)
-                entry_tags = None
+        for slot_prefix in ['NP', 'VI', 'AP']:
+            if '$'+slot_prefix in phrase_str:
+                for m in re.finditer(r'\$(' + slot_prefix + r'\d+)', phrase_str):
+                    entry_text = m.group(0)
+                    entry_name = m.group(1)
+                    entry_tags = None
 
-                args_pos = m.span()[1]
-                if args_pos<=len(phrase_str)-1 and phrase_str[args_pos] == '(':
-                    args_start = args_pos + 1
-                    args_end = phrase_str.index(')', args_start)
-                    entry_text = phrase_str[m.span()[0]:args_end+1]
+                    args_pos = m.span()[1]
+                    if args_pos <= len(phrase_str)-1 and phrase_str[args_pos] == '(':
+                        args_start = args_pos + 1
+                        args_end = phrase_str.index(')', args_start)
+                        entry_text = phrase_str[m.span()[0]:args_end+1]
 
-                    args_str = phrase_str[args_start:args_end]
-                    entry_tags = [a.strip() for a in args_str.strip().split(',')]
+                        args_str = phrase_str[args_start:args_end]
+                        entry_tags = [a.strip() for a in args_str.strip().split(',')]
 
-                entry = SayingPhraseEntry(entry_name, entry_text, entry_tags)
-                self.name2entry[entry_name] = entry
+                    entry = SayingPhraseEntry(entry_name, entry_text, entry_tags)
+                    self.name2entry[entry_name] = entry
 
     def has_entries(self):
         return len(self.name2entry) > 0
+
+
+def substitute_bound_variables(phrase, condition_matching_results, text_utils):
+    utterance = phrase.raw_text
+
+    # Если нужно сделать подстановку сматченных при проверке условия чанков.
+    if condition_matching_results and condition_matching_results.has_groups() and phrase.has_entries():
+        for name, group in condition_matching_results.groups.items():
+            group_ancor = name.upper()
+            if group_ancor in phrase.name2entry:
+                entry = phrase.name2entry[group_ancor]
+                words = group.words
+
+                # Нужно просклонять чанк?
+                if entry.tags:
+                    tokens = group.phrase_tokens
+                    target_tags = dict()
+                    for tag in entry.tags:
+                        if tag in ('ИМ', 'ВИН', 'РОД', 'ТВОР', 'ДАТ', 'ПРЕДЛ'):
+                            target_tags['ПАДЕЖ'] = tag
+                        else:
+                            raise NotImplementedError()
+
+                    words = normalize_chunk(tokens, edges=None, flexer=text_utils.flexer,
+                                            word2tags=text_utils.word2tags, target_tags=target_tags)
+
+                # Подставляем слова чанка вместо подстроки $NP1(...)
+                entry_value = ' '.join(words)
+                utterance = utterance.replace(entry.raw_text, entry_value)
+
+    return utterance
 
 
 class ActorSay(ActorBase):
@@ -129,34 +163,7 @@ class ActorSay(ActorBase):
         return actor
 
     def prepare4saying(self, phrase, condition_matching_results, text_utils):
-        utterance = phrase.raw_text
-
-        # Если нужно сделать подстановку сматченных при проверке условия чанков.
-        if condition_matching_results and condition_matching_results.has_groups() and phrase.has_entries():
-            for name, group in condition_matching_results.groups.items():
-                group_ancor = name.upper()
-                if group_ancor in phrase.name2entry:
-                    entry = phrase.name2entry[group_ancor]
-                    words = group.words
-
-                    # Нужно просклонять чанк?
-                    if entry.tags:
-                        tokens = group.phrase_tokens
-                        target_tags = dict()
-                        for tag in entry.tags:
-                            if tag in ('ИМ', 'ВИН', 'РОД', 'ТВОР', 'ДАТ', 'ПРЕДЛ'):
-                                target_tags['ПАДЕЖ'] = tag
-                            else:
-                                raise NotImplementedError()
-
-                        words = normalize_chunk(tokens, edges=None, flexer=text_utils.flexer,
-                                                word2tags=text_utils.word2tags, target_tags=target_tags)
-
-                    # Подставляем слова чанка вместо подстроки $NP1(...)
-                    entry_value = ' '.join(words)
-                    utterance = utterance.replace(entry.raw_text, entry_value)
-
-        return utterance
+        return substitute_bound_variables(phrase, condition_matching_results, text_utils)
 
     def do_action(self, bot, session, interlocutor, interpreted_phrase, condition_matching_results, text_utils):
         # Сначала попробуем убрать из списка те реплики, которые мы уже произносили.
@@ -196,8 +203,33 @@ class ActorSay(ActorBase):
                 else:
                     # Начиная с этого момента данное правило будет повторно выдавать
                     # одну из фраз.
-                    bot.say(session, random.choice(self.phrases))
+                    random_phrase = self.prepare4saying(random.choice(self.phrases), condition_matching_results, text_utils)
+                    bot.say(session, random_phrase)
                     uttered = True
+
+        return uttered
+
+
+class ActorQueryDb(ActorBase):
+    def __init__(self):
+        super(ActorQueryDb, self).__init__('query')
+        self.query_template = None  # SayingPhrase
+
+    @staticmethod
+    def from_yaml(yaml_node, constants, text_utils):
+        actor = ActorQueryDb()
+        s = replace_constant(yaml_node, constants, text_utils)
+        actor.query_template = SayingPhrase(s)
+        return actor
+
+    def do_action(self, bot, session, interlocutor, interpreted_phrase, condition_matching_results, text_utils):
+        query_str = substitute_bound_variables(self.query_template, condition_matching_results, text_utils)
+
+        # TODO - запрос к движку inference, формирование результатов или выдача заглушки в случае отсутствия результата.
+        query_results = ['Результаты выполнения запроса "{}"'.format(query_str)]
+        for query_result in query_results:
+            bot.say(session, query_result)
+        uttered = True
 
         return uttered
 
@@ -321,7 +353,7 @@ class ActorScenario(ActorBase):
 
 
 class ActorGenerate(ActorBase):
-    """Генерация реплики по заданому шаблону и вывод результата от имени бота."""
+    """ Генерация реплики по заданому шаблону и вывод результата от имени бота. """
     def __init__(self):
         super(ActorGenerate, self).__init__('generate')
         self.templates = []
@@ -347,6 +379,11 @@ class ActorGenerate(ActorBase):
                 else:
                     raise NotImplementedError()
         elif isinstance(yaml_node, str):
+            actor.templates.append(replace_constant(yaml_node, constants, text_utils))
+        elif isinstance(yaml_node, list):
+            for s in yaml_node:
+                actor.templates.append(replace_constant(s, constants, text_utils))
+        else:
             raise NotImplementedError()
 
         return actor
@@ -355,15 +392,18 @@ class ActorGenerate(ActorBase):
         uttered = False
 
         wordbag = []
-        for question in self.wordbag_questions:
-            if bot.get_engine().does_bot_know_answer(question, bot, session, interlocutor):
-                interpreted_phrase2 = InterpretedPhrase(question)
-                answers = bot.get_engine().build_answers(session, bot, interlocutor, interpreted_phrase2)
-                for answer in answers:
-                    tokens = bot.get_engine().get_text_utils().tokenize(answer)
-                    wordbag.extend((word, 1.0) for word in tokens)
-
-        wordbag.extend((word, 1.0) for word in self.wordbag_words)
+        if self.wordbag_questions:
+            for question in self.wordbag_questions:
+                if bot.get_engine().does_bot_know_answer(question, bot, session, interlocutor):
+                    interpreted_phrase2 = InterpretedPhrase(question)
+                    answers = bot.get_engine().build_answers(session, bot, interlocutor, interpreted_phrase2)
+                    for answer in answers:
+                        tokens = bot.get_engine().get_text_utils().tokenize(answer)
+                        wordbag.extend((word, 1.0) for word in tokens)
+        elif self.wordbag_words:
+            wordbag.extend((word, 1.0) for word in self.wordbag_words)
+        else:
+            wordbag.extend((word, 1.0) for word in text_utils.tokenize(interpreted_phrase.raw_phrase))
 
         if len(wordbag) > 0:
             replicas = []
@@ -375,7 +415,6 @@ class ActorGenerate(ActorBase):
                 replicas.extend(replicas1)
 
             if len(replicas) > 0:
-
                 # Выбираем одну рандомную реплику среди сгенерированных.
                 # TODO: взвешивать через модель уместности по контексту
                 bot.say(session, bot.get_engine().select_relevant_replica(replicas, session, interlocutor))
@@ -418,6 +457,6 @@ class ActorSteps(ActorBase):
     def do_action(self, bot, session, interlocutor, interpreted_phrase, condition_matching_results, text_utils):
         uttered = False
         for a in self.steps:
-            uttered |= a.do_action(bot, session, interlocutor, interpreted_phrase, text_utils)
+            uttered |= a.do_action(bot, session, interlocutor, interpreted_phrase, condition_matching_results, text_utils)
 
         return uttered

@@ -16,6 +16,9 @@ questions.txt - список вопросов для негативного сэ
 1 - есть полная семантическая релевантность
 Четвертая - вес сэмпла, 1 для автоматически сгенерированных, >1 для сэмплов
 из вручную сформированных файлов.
+
+24-12-2019 Добавлена аугментация датасета с помощью замен на синонимичные фразы, взятые
+           из paraphrases.txt
 """
 
 from __future__ import division  # for python2 compatability
@@ -27,8 +30,11 @@ import itertools
 import os
 import tqdm
 import numpy as np
+import io
 
-from ruchatbot.utils.tokenizer import Tokenizer
+import networkx as nx
+
+from rutokenizer import Tokenizer
 from preparation.corpus_searcher import CorpusSearcher
 
 
@@ -48,7 +54,7 @@ n_negative_per_positive = 10
 
 tmp_folder = '../../tmp'
 data_folder = '../../data'
-paraphrases_paths = ['../../data/paraphrases.txt', '../data/contradictions.txt']
+paraphrases_paths = ['../../data/paraphrases.txt']
 qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT, 10000000)]
 
 if USE_AUTOGEN:
@@ -69,6 +75,16 @@ stop_words = set(u'не ни ль и или ли что какой же ж ка�
 stop_words.update(u'о а в на у к с со по ко мне нам я он она над за из от до'.split())
 
 # ---------------------------------------------------------------
+
+
+class PhraseCleaner:
+    def __init__(self):
+        self.tokenizer = Tokenizer()
+        self.tokenizer.load()
+
+    def process(self, phrase):
+        return u' '.join(self.tokenizer.tokenize(phrase.lower()))
+
 
 
 def ngrams(s, n):
@@ -111,7 +127,7 @@ with codecs.open(questions_path, 'r', 'utf-8') as rdr:
     for line in rdr:
         if len(line) < 40:
             question = line.strip()
-            question = ru_sanitize(u' '.join(tokenizer.tokenize(question)))
+            question = ru_sanitize(u' '.join(tokenizer.tokenize(question.lower())))
             random_questions.add_phrase(normalize_qline(question))
 
 # Прочитаем список случайных фактов, чтобы потом генерировать отрицательные паттерны
@@ -151,6 +167,9 @@ class ResultantDataset(object):
             self.str_pairs.append((s1, s2))
             self.relevancy.append(rel)
             self.weights.append(weight)
+            return True
+
+        return False
 
     def positive_count(self):
         return sum(self.relevancy)
@@ -250,6 +269,62 @@ for premise, questions in manual_negatives_pq.items():
     for question in questions:
         res_dataset.add_pair(premise, question, 0, 1)
 
+
+# Загрузим датасет с перефразировками фраз, чтобы выполнить аугментацию pq-датасета синонимами.
+G = nx.Graph()  # для определения синонимичных фраз, записанных в разных группах.
+group = []
+all_positive_pairs = set()
+igroup = 0
+fcleaner = PhraseCleaner()
+phrase2group = dict()
+
+for p in paraphrases_paths:
+    with io.open(p, 'r', encoding='utf-8') as rdr:
+        for line in rdr:
+            phrase = line.strip()
+            if len(phrase) == 0:
+                if len(group) > 1:
+                    igroup += 1
+                    n = len(group)
+                    for i1 in range(n):
+                        phrase1 = group[i1]
+                        if phrase1.startswith(u'(-)'):
+                            continue
+
+                        if phrase1.startswith(u'(+)'):
+                            phrase1 = phrase1.replace(u'(+)', u'').strip()
+
+                        phrase1 = fcleaner.process(phrase1)
+
+                        phrase2group[phrase1] = igroup
+                        for i2 in range(i1 + 1, n):
+                            y = 1
+                            phrase2 = group[i2]
+
+                            if phrase2.startswith(u'(+)'):
+                                phrase2 = phrase2.replace(u'(+)', u'').strip()
+                            elif phrase2.startswith(u'(-)'):
+                                phrase2 = phrase2.replace(u'(-)', u'').strip()
+                                y = 0
+
+                            phrase2 = fcleaner.process(phrase2)
+
+                            phrase2group[phrase2] = igroup
+                            if y == 1 and phrase1 != phrase2:
+                                G.add_edge(phrase1, phrase2)
+                                all_positive_pairs.add((phrase1, phrase2))
+                                all_positive_pairs.add((phrase2, phrase1))
+
+                    group = []
+            else:
+                group.append(phrase)
+
+# Для каждой фразы соберем список ее перефразировок, учитывая еще и описанные в разных группах.
+phrase2synonyms = dict((phrase1, set(nx.algorithms.descendants(G, phrase1)))
+                       for phrase1, _
+                       in all_positive_pairs)
+
+
 # Теперь релевантные пары предпосылка-вопрос.
 for qa_path, qa_weight, max_samples in qa_paths:
     print('Parsing {}'.format(qa_path), end='\r')
@@ -278,8 +353,16 @@ for qa_path, qa_weight, max_samples in qa_paths:
 
                         for premise in text:
                             for question in questions:
-                                res_dataset.add_pair(premise, question, 1, qa_weight)
-                                posit_pairs_count += 1
+                                if res_dataset.add_pair(premise, question, 1, qa_weight):
+                                    posit_pairs_count += 1
+
+                                premise_syns = set([premise]) | phrase2synonyms.get(fcleaner.process(premise), set())
+                                premise_syns = [s for s in premise_syns if u'?' not in s and u'ли' not in s]
+                                question_syns = set([question]) | phrase2synonyms.get(fcleaner.process(question), set())
+                                for premise1 in premise_syns:
+                                    for question1 in question_syns:
+                                        if res_dataset.add_pair(premise1, question1, 1, qa_weight):
+                                            posit_pairs_count += 1
 
                     loading_state = 'T'
                     questions = []

@@ -50,6 +50,7 @@ from sklearn.model_selection import KFold
 from ruchatbot.utils.phrase_splitter import PhraseSplitter
 import ruchatbot.utils.console_helpers
 import ruchatbot.utils.logging_helpers
+from ruchatbot.utils.tokenizer import Tokenizer
 
 
 # алгоритм сэмплирования гиперпараметров
@@ -101,7 +102,7 @@ def ngrams2(s, n):
 def collect_strings(d):
     res = []
 
-    if isinstance(d, unicode):
+    if isinstance(d, str):
         res.append(d)
     elif isinstance(d, list):
         for item in d:
@@ -681,20 +682,23 @@ if run_mode == 'query2':
                         if phrase.startswith('#'):
                             continue
 
+                        if '$' in phrase:
+                            continue
+
                         if len(phrase) > 5:
                             phrase2 = u' '.join(tokenizer.tokenize(phrase))
                             if phrase2 not in added_phrases:
                                 added_phrases.add(phrase2)
                                 premises.append((phrase2, phrase))
 
-        if True:
+        if False:
             # Для hard negative mining берем все предпосылки из датасета PQA
             df = pd.read_csv(input_path, encoding='utf-8', delimiter='\t', quoting=3)
             all_premises = df['premise'].unique()
             logging.info('%d premises loaded from "%s"', len(all_premises), input_path)
             premises.extend((premise, premise) for premise in all_premises)
 
-        if True:
+        if False:
             for phrase in load_strings_from_yaml(os.path.join(data_folder, 'rules.yaml')):
                 phrase2 = u' '.join(tokenizer.tokenize(phrase))
                 if phrase2 not in added_phrases:
@@ -708,7 +712,14 @@ if run_mode == 'query2':
         if True:
             for phrase in load_strings_from_yaml(os.path.join(data_folder, 'rules.yaml')):
                 phrase2 = u' '.join(tokenizer.tokenize(phrase))
-                if phrase2 not in added_phrases:
+                if phrase2 not in added_phrases and 'NP' not in phrase and 'VI' not in phrase:
+                    added_phrases.add(phrase2)
+                    phrases2.add((phrase2, phrase))
+
+        if True:
+            for phrase in load_strings_from_yaml(os.path.join(data_folder, 'generated_rules.yaml')):
+                phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                if phrase2 not in added_phrases and 'NP' not in phrase and 'VI' not in phrase:
                     added_phrases.add(phrase2)
                     phrases2.add((phrase2, phrase))
 
@@ -877,7 +888,7 @@ if run_mode == 'hardnegative':
     known_pairs = set()
     test_phrases = set()
     if task == 'synonymy':
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'paraphrases.txt'), 'r', encoding='utf-8') as rdr:
                 block = []
                 for line in rdr:
@@ -895,7 +906,7 @@ if run_mode == 'hardnegative':
                                 test_phrases.add((phrase2, phrase))
                                 block.append(phrase)
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'intents.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -914,30 +925,94 @@ if run_mode == 'hardnegative':
                             phrase2 = u' '.join(words)
                             test_phrases.add((phrase2, phrase))
 
+        if True:
+            with io.open(os.path.join(data_folder, 'stories.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    if '$' not in line:
+                        phrase = line.replace('H:', '').replace('B:', '').strip()
+                        words = tokenizer.tokenize(phrase)
+                        if len(words) > 2:
+                            phrase2 = u' '.join(words)
+                            test_phrases.add((phrase2, phrase))
+
         premises = list(test_phrases)
         questions = list(test_phrases)
     elif task == 'relevancy':
+        # Модель будет выбирать группы максимально релевантных предпосылок для вопросов.
         premises = set()
         questions = set()
-        with io.open(os.path.join(data_folder, 'premise_question_relevancy.csv'), 'r', encoding='utf-8') as rdr:
-            header = rdr.readline()
-            for line in rdr:
-                fields = line.strip().split('\t')
-                premise = fields[0]
-                premises.add((premise, premise))
 
-                question = fields[1]
-                questions.add((question, question))
+        tokenizer0 = ruchatbot.utils.tokenizer.Tokenizer()
+        tokenizer0.load()
 
-                known_pairs.add((premise, question))
+        if True:
+            with io.open(os.path.join(data_folder, 'faq2.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    if line.startswith('Q:') and '?' in line:
+                        question = line.replace('Q:', '').strip()
+                        questions.add((question, question))
+
+        if True:
+            for p in ['facts6_1s.txt', 'facts7_1s.txt']:
+                with io.open(os.path.join(data_folder, p), 'r', encoding='utf-8') as rdr:
+                    for line in rdr:
+                        premise = line.strip()
+                        premise = u' '.join(tokenizer0.tokenize(premise))
+                        premises.add((premise, premise))
+
+        if True:
+            with io.open(os.path.join(data_folder, 'premise_question_relevancy.csv'), 'r', encoding='utf-8') as rdr:
+                header = rdr.readline()
+                for line in rdr:
+                    fields = line.strip().split('\t')
+                    premise = fields[0]
+
+                    if 'я' in premise or 'Я' in premise:
+                        premise_words = tokenizer0.tokenize(premise)
+                        if 'я' in premise_words:
+                            premises.add((premise, premise))
+
+                    question = fields[1]
+                    if 'я' in premise or 'Я' in question:
+                        question_words = tokenizer0.tokenize(question)
+                        if 'я' in question_words:
+                            #questions.add((question, question))
+                            pass
+
+                    known_pairs.add((premise, question))
+
+        if True:
+            # Предпосылки берем из фактов для чатбота Вика
+            with io.open(os.path.join(data_folder, 'profile_facts_1.dat'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    if '#' not in line and len(line) > 3 and '$' not in line:
+                        premise = line.strip()
+                        premises.add((premise, premise))
+
+        if True:
+            # Проверяемые вопросы возьмем из файла историй
+            with io.open(os.path.join(data_folder, 'stories.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    if line.startswith('H:') and '?' in line and '$' not in line:
+                        question = line.replace('H:', '').strip()
+                        questions.add((question, question))
+
+            # Добавляем тестовые вопросы
+            with io.open(os.path.join(data_folder, 'hardnegative_questions.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    if '?' in line and '$' not in line:
+                        question = line.strip()
+                        questions.add((question, question))
 
         questions = list(questions)
         premises = list(premises)
     else:
         raise NotImplementedError()
 
+    if task == 'relevancy':
+        print('len(questions)={} len(premises)={}'.format(len(questions), len(premises)))
+
     nb_premises = len(premises)
-    print('nb_premises={}'.format(nb_premises))
 
     with io.open(os.path.join(tmp_folder, 'lgb_relevancy.hard_negatives.{}.txt'.format(task)), 'w', encoding='utf-8') as wrt:
         nb_stored = 0  # кол-во найденных и сохраненных негативных примеров
@@ -959,10 +1034,17 @@ if run_mode == 'hardnegative':
                 if phrase2 != question and (question, phrase2) not in known_pairs and (phrase2, question) not in known_pairs:
                     selected_phrases2.append(phrase2)
             if len(selected_phrases2) > 0:
-                wrt.write(u'{}\n'.format(question))
+                if task == 'relevancy':
+                    if question.endswith('?'):
+                        wrt.write(u'{}\n'.format(question))
+                    else:
+                        wrt.write(u'{}?\n'.format(question))
+                else:
+                    wrt.write(u'{}\n'.format(question))
+
                 for phrase2 in selected_phrases2:
                     wrt.write(u'(-) {}\n'.format(phrase2))
                 wrt.write(u'\n\n')
                 wrt.flush()
                 nb_stored += len(selected_phrases2)
-                print('{}/{} processed, {} negative samples stored'.format(iphrase, nb_premises, nb_stored))
+                print('{}/{} processed, {} negative samples stored'.format(iphrase, len(questions), nb_stored))
