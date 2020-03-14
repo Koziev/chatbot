@@ -472,10 +472,20 @@ class ChunkMatcherMask:
     def __repr__(self):
         return ' '.join(str(term) for term in self.mask_terms)
 
+    def get_vars(self):
+        return list(term.chunk_name for term in self.mask_terms if term.chunk_name)
+
+
+class ChunkMatcher_W2V_Constraint:
+    def __init__(self, anchor, sim):
+        self.anchor = anchor
+        self.sim = sim
+
 
 class RuleCondition_ChunkMatcher(BaseRuleCondition):
     def __init__(self, mask_yaml, constants, text_utils):
         self.masks = []
+        self.constraints_w2v = dict()
 
         if 'match' in mask_yaml:
             mask_data = mask_yaml['match']
@@ -486,6 +496,22 @@ class RuleCondition_ChunkMatcher(BaseRuleCondition):
 
         if isinstance(mask_data, str):
             self.masks.append(ChunkMatcherMask(mask_data, constants, text_utils))
+        elif isinstance(mask_data, dict):
+            for mask_str in mask_data['masks']:
+                self.masks.append(ChunkMatcherMask(mask_str, constants, text_utils))
+
+            if 'constraints' in mask_data:
+                for constraint1 in mask_data['constraints']:
+                    # Предполагаем, что в constraint1 заданы ограничения на одну из сопоставляемых переменных.
+                    var_name = list(constraint1.keys())[0]
+                    constraints_str = constraint1[var_name]
+                    # сейчас хардкодим поддержку только w2v-предиката, но потом надо будет сделать более
+                    # универсальное решение.
+                    for m_w2v in re.finditer(r'w2v\(\s*(.+)\s*,\s*([0-9.]+)\s*\)', constraints_str):
+                        anchor = m_w2v.group(1).strip().lower()
+                        sim = float(m_w2v.group(2).strip())
+                        c = ChunkMatcher_W2V_Constraint(anchor, sim)
+                        self.constraints_w2v[var_name.lower()] = [c]
         else:
             for mask_str in mask_data:
                 self.masks.append(ChunkMatcherMask(mask_str, constants, text_utils))
@@ -533,9 +559,29 @@ class RuleCondition_ChunkMatcher(BaseRuleCondition):
                 #print('{} groups in matching:'.format(mx.groups_count()))
                 res = RuleConditionMatching.create(True)
                 for group_name, tokens in mx.index2group.items():
-                    normal_words = normalize_chunk(tokens, edges, text_utils.flexer, text_utils.word2tags)
+                    normal_words1 = normalize_chunk(tokens, edges, text_utils.flexer, text_utils.word2tags)
+                    normal_words2 = normalize_chunk(tokens, edges, text_utils.flexer, text_utils.word2tags, target_tags={'ЧИСЛО': 'ЕД'})
+                    normal_words = list(set(normal_words1) | set(normal_words2))
+
+                    if group_name in self.constraints_w2v:
+                        constraints_satisfied = True
+                        for c in self.constraints_w2v[group_name]:
+                            hit = False
+                            for chunk_word in normal_words:
+                                sim = text_utils.word_similarity(c.anchor, chunk_word)
+                                if sim >= c.sim:
+                                    hit = True
+                                    break
+                            if not hit:
+                                constraints_satisfied = False
+                                break
+
+                        if not constraints_satisfied:
+                            return RuleConditionMatching.create(False)
+
                     #print('{}={} normal={}'.format(group_name, ' '.join(t.word for t in tokens), ' '.join(normal_words)))
                     res.add_group(group_name.upper(), normal_words, tokens)
+
                 return res
 
         return RuleConditionMatching.create(False)

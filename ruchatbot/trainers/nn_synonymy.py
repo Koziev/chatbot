@@ -875,7 +875,6 @@ if run_mode == 'train':
     f1 = sklearn.metrics.f1_score(y_true=y_true2, y_pred=y_pred2)
     logging.info('val f1={}'.format(f1))
 
-# </editor-fold>
 
 # <editor-fold desc="query">
 if run_mode == 'query':

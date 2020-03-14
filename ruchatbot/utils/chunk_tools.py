@@ -1,3 +1,5 @@
+
+
 def normalize_chunk(tokens, edges, flexer, word2tags, target_tags=dict()):
     normal_tokens = [t.word for t in tokens]
 
@@ -97,12 +99,7 @@ def normalize_chunk(tokens, edges, flexer, word2tags, target_tags=dict()):
                 adj_tags.append(adj_anymacy)
 
             if gender:
-                if gender == 'Masc':
-                    adj_tags.append(('РОД', 'МУЖ'))
-                elif gender == 'Fam':
-                    adj_tags.append(('РОД', 'ЖЕН'))
-                elif gender == 'Neut':
-                    adj_tags.append(('РОД', 'СР'))
+                adj_tags.append(('РОД', gender))
 
             adj_forms = list(flexer.find_forms_by_tags(token.lemma, adj_tags))
             adj_form = adj_forms[0]

@@ -930,6 +930,9 @@ if run_mode == 'hardnegative':
                 for line in rdr:
                     if '$' not in line:
                         phrase = line.replace('H:', '').replace('B:', '').strip()
+                        if phrase.startswith('-'):
+                            phrase = phrase[1:].strip()
+
                         words = tokenizer.tokenize(phrase)
                         if len(words) > 2:
                             phrase2 = u' '.join(words)

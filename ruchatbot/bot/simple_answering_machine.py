@@ -353,7 +353,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         будет полностью прекращен."""
         if session.get_status():
             if scenario.get_priority() <= session.get_status().get_priority():
-                self.logger.warning(u'New status priority %d is not greater than priority %d of running "{}"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
+                self.logger.warning(u'New status priority %d is not greater than priority %d of running "%s"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
                 session.defer_status(scenario)
                 return
             else:
@@ -374,7 +374,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         status = RunningScenario(scenario, current_step_index=-1)
         session.call_scenario(status)
         if scenario.on_start:
-            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase)
+            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase, condition_matching_results=None, text_utils=self.text_utils)
 
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 

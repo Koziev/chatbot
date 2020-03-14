@@ -28,6 +28,7 @@ from ruchatbot.bot.language_resources import LanguageResources
 from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarDictionaries
 from ruchatbot.bot.word_embeddings import WordEmbeddings
 from ruchatbot.bot.string_constants import BEG_WORD, END_WORD, PAD_WORD
+from ruchatbot.bot.phrase_token import PhraseToken
 
 
 #class PhraseToken:
@@ -222,3 +223,6 @@ class TextUtils(object):
                 phrase_tokens[token.index].chunk_index = chunk_index
 
         return chunks
+
+    def word_similarity(self, word1, word2):
+        return self.word_embeddings.word_similarity(word1, word2)

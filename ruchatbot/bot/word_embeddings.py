@@ -4,6 +4,8 @@ import os
 import gensim
 import logging
 import numpy as np
+import math
+import scipy.spatial.distance
 
 from ruchatbot.bot.wordchar2vector_model import Wordchar2VectorModel
 from ruchatbot.bot.string_constants import PAD_WORD
@@ -78,3 +80,10 @@ class WordEmbeddings(object):
             v[w2v_dims:] = self.wordchar2vector_model.build_vector(word)
 
         return v
+
+    def word_similarity(self, word1, word2):
+        w2v = list(self.w2v.values())[0]
+        if word1 in w2v and word2 in w2v:
+            return 1.0 - abs(scipy.spatial.distance.cosine(w2v[word1], w2v[word2]))
+        else:
+            return 0.0
