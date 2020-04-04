@@ -10,6 +10,7 @@
 Для проекта чатбота https://github.com/Koziev/chatbot
 
 01.04.2019 Добавляем негативные примеры из файла nonrelevant_premise_questions.txt
+08-11-2019 Использование networkx для определения синонимичности фраз, описанных в разных блоках
 """
 
 from __future__ import division
@@ -20,6 +21,7 @@ import codecs
 import itertools
 import operator
 import os
+import re
 import sys
 import argparse
 import random
@@ -27,15 +29,19 @@ import collections
 import logging
 import tqdm
 import numpy as np
+import networkx as nx
 
-from utils.tokenizer import Tokenizer
-import utils.logging_helpers
+from ruchatbot.utils.tokenizer import Tokenizer
+import ruchatbot.utils.logging_helpers
 
 
 # Кол-во негативных сэмплов, автоматически подбираемых на один позитивный пример.
 nb_neg_per_posit = 1
 
 ADD_SIMILAR_NEGATIVES = False  # негативные вопросы подбирать по похожести к предпосылке (либо чисто рандомные)
+
+tmp_folder = '../../tmp'
+data_folder = '../../data'
 
 # Путь к файлу с отобранными вручную синонимичными фразами.
 input_path = '../../data/paraphrases.txt'
@@ -46,12 +52,13 @@ output_filepath = '../../data/synonymy_dataset.csv'
 # Путь к создаваемому датасету для модели детектора на базе triplet loss
 output_filepath3 = '../../data/synonymy_dataset3.csv'
 
-tmp_folder = '../../tmp'
-data_folder = '../../data'
-
 
 random.seed(123456789)
 np.random.seed(123456789)
+
+
+def is_int(s):
+    return re.match(r'^\d+$', s)
 
 
 class Sample:
@@ -88,8 +95,6 @@ class NegSamples:
         return self.neg_samples
 
 
-
-
 class Sample2:
     def __init__(self, anchor, positive):
         assert(len(anchor) > 0)
@@ -108,8 +113,6 @@ class Sample3:
 
     def key(self):
         return self.anchor + u'|' + self.positive + u'|' + self.negative
-
-
 
 
 def ngrams(s, n):
@@ -150,23 +153,79 @@ class PhraseCleaner:
         return u' '.join(self.tokenizer.tokenize(phrase))
 
 
-# настраиваем логирование в файл
-utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_synonymy_dataset.log'))
+class Samples:
+    def __init__(self):
+        self.samples = []
+        self.sample2source = dict()
+        self.pair2label = dict()
 
-logging.info('Start "{}"'.format(os.path.basename(__file__)))
+    def append(self, sample, source):
+        if sample.y == 0 and sample.phrase1 == sample.phrase2:
+            logging.error('Adding identity pair with label=0: phrase1="%s", phrase2="%s", source=%d', sample.phrase1, sample.phrase2, source)
+        else:
+            self.samples.append(sample)
+            p = (sample.phrase1, sample.phrase2)
+            if p in self.pair2label and self.pair2label[p] != sample.y:
+                logging.error('Adding pair with different label: phrase1="%s" phrase2="%s" old_label=%d old_source=%d new_label=%d new_source=%d',
+                              sample.phrase1, sample.phrase2, self.pair2label[p], self.sample2source[p], sample.y, source)
+
+            self.sample2source[p] = source
+            self.pair2label[p] = sample.y
+
+    def extend(self, samples, source):
+        for sample in samples:
+            self.append(sample, source)
+
+    def get_pair_source(self, phrase1, phrase2):
+        return self.sample2source[(phrase1, phrase2)]
+
+    def __len__(self):
+        return len(self.samples)
+
+    def get_all_phrases(self):
+        all_phrases = set()
+        for sample in self.samples:
+            all_phrases.add(sample.phrase1)
+            all_phrases.add(sample.phrase2)
+        return all_phrases
+
+    def get_positive_samples(self):
+        return filter(lambda s: s.y == 1, self.samples)
+
+    def enum(self):
+        return self.samples
+
+    def count_1(self):
+        return sum(sample.y == 1 for sample in self.samples)
+
+    def count_0(self):
+        return sum(sample.y == 0 for sample in self.samples)
+
+    def permutation(self):
+        self.samples = np.random.permutation(self.samples)
+
+
+# настраиваем логирование в файл
+ruchatbot.utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_synonymy_dataset.log'))
+
+logging.info('Start "%s"', os.path.basename(__file__))
 
 fcleaner = PhraseCleaner()
 
 # Для генерации негативных сэмплов нам надо исключать
 # вероятность попадания перефразировок в качестве негативных
 # примеров для групп, содержащих более 2 вариантов. Поэтому
-# каждую фразу пометим номеров ее исходной группы.
+# каждую фразу пометим номером ее исходной группы.
 phrase2group = dict()
 
+
 # Грузим датасеты с перефразировками
-samples = []  # список из экземпляров Sample
+samples = Samples()
 igroup = 0
 group = []
+G = nx.Graph()  # для определения синонимичных фраз, записанных в разных группах.
+all_positive_pairs = set()
+all_negative_pairs = set()
 with codecs.open(input_path, 'r', 'utf-8') as rdr:
     for line in rdr:
         phrase = line.strip()
@@ -194,23 +253,58 @@ with codecs.open(input_path, 'r', 'utf-8') as rdr:
                         elif phrase2.startswith(u'(-)'):
                             phrase2 = phrase2.replace(u'(-)', u'').strip()
                             y = 0
+
                         phrase2 = fcleaner.process(phrase2)
 
                         phrase2group[phrase2] = igroup
-                        samples.append(Sample(phrase1, phrase2, y))
+                        samples.append(Sample(phrase1, phrase2, y), 1)
                         if phrase1 != phrase2:
                             # меняем местами сравниваемые фразы
-                            samples.append(Sample(phrase2, phrase1, y))
+                            samples.append(Sample(phrase2, phrase1, y), 2)
+
+                        if y == 1 and phrase1 != phrase2:
+                            G.add_edge(phrase1, phrase2)
+                            all_positive_pairs.add((phrase1, phrase2))
+                            all_positive_pairs.add((phrase2, phrase1))
+
+                        if y == 0:
+                            all_negative_pairs.add((phrase1, phrase2))
+                            all_negative_pairs.add((phrase2, phrase1))
 
                 group = []
         else:
             group.append(phrase)
 
-logging.info('{} pairs (positive and negative ones) have been loaded from "{}"'.format(len(samples), input_path))
+logging.info('%d positive pairs, %d negative pairs have been loaded from "%s"',
+             len(all_positive_pairs), len(all_negative_pairs), input_path)
+
+# Для каждой фразы соберем список ее перефразировок, учитывая еще и описанные в разных группах.
+phrase2synonyms = dict((phrase1, set(nx.algorithms.descendants(G, phrase1)))
+                       for phrase1, _
+                       in all_positive_pairs)
+
+# Добавим перефразировки, которые на попали в одну группу, но определяются через связность в графе
+n_added_positives = 0
+for phrase1, synonyms in phrase2synonyms.items():
+    for phrase2 in synonyms:
+        p = (phrase1, phrase2)
+        if p not in all_positive_pairs:
+            samples.append(Sample(phrase1, phrase2, 1), 3)
+            all_positive_pairs.add(p)
+            n_added_positives += 1
+
+        p = (phrase2, phrase1)
+        if p not in all_positive_pairs:
+            samples.append(Sample(phrase2, phrase1, 1), 4)
+            all_positive_pairs.add(p)
+            n_added_positives += 1
+
+logging.info('%d positive pairs added from graph connectivity', n_added_positives)
 
 # Из датасета для "антонимов" берем обязательные негативные примеры.
 group = []
 nb_antonyms = 0
+nb_graph_antonyms = 0
 with codecs.open(os.path.join(data_folder, 'contradictions.txt'), 'r', 'utf-8') as rdr:
     for line in rdr:
         phrase = line.strip()
@@ -226,19 +320,35 @@ with codecs.open(os.path.join(data_folder, 'contradictions.txt'), 'r', 'utf-8') 
                         phrase2 = group[i2]
                         phrase2 = fcleaner.process(phrase2)
                         phrase2group[phrase2] = igroup
-                        samples.append(Sample(phrase1, phrase2, 0))
-                        nb_antonyms += 1
+                        p = (phrase1, phrase2)
+                        if p not in all_negative_pairs:
+                            samples.append(Sample(phrase1, phrase2, 0), 5)
+                            all_negative_pairs.add(p)
+                            nb_antonyms += 1
 
                         if phrase1 != phrase2:
                             # меняем местами сравниваемые фразы
-                            samples.append(Sample(phrase2, phrase1, 0))
-                            nb_antonyms += 1
+                            p = (phrase2, phrase2)
+                            if p not in all_negative_pairs:
+                                samples.append(Sample(phrase2, phrase1, 0), 6)
+                                all_negative_pairs.add(p)
+                                nb_antonyms += 1
+
+                        # Добавляем такой же антоним для всех синонимов первой фразы
+                        if phrase1 in phrase2synonyms:
+                            for synonym1 in phrase2synonyms[phrase1]:
+                                if synonym1 != phrase1:
+                                    p = (synonym1, phrase2)
+                                    if p not in all_negative_pairs:
+                                        samples.append(Sample(synonym1, phrase2, 0), 7)
+                                        all_negative_pairs.add(p)
+                                        nb_antonyms += 1
 
                 group = []
         else:
             group.append(phrase)
 
-logging.info('{} antonyms loaded from "contradictions.txt"'.format(nb_antonyms))
+logging.info('%d antonyms loaded from "contradictions.txt" and generated using graph', nb_antonyms)
 
 
 # Из датасета "нерелевантные пары" берем пары фраз, которые гарантированно не являются синонимами
@@ -249,27 +359,32 @@ with io.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r'
         if len(parts) == 2:
             phrase1 = fcleaner.process(parts[0])
             phrase2 = fcleaner.process(parts[1])
-            samples.append(Sample(phrase1, phrase2, 0))
-            phrase2group[phrase1] = -1
-            phrase2group[phrase2] = -1
-            nb_nonrelevants += 1
-logging.info('{} nonrelevant pairs loaded from "nonrelevant_premise_questions.txt"'.format(nb_nonrelevants))
+            p = (phrase1, phrase2)
+            if p not in all_negative_pairs:
+                samples.append(Sample(phrase1, phrase2, 0), 8)
+                phrase2group[phrase1] = -1
+                phrase2group[phrase2] = -1
+                all_negative_pairs.add(p)
+                nb_nonrelevants += 1
+logging.info('%d nonrelevant pairs loaded from "nonrelevant_premise_questions.txt"', nb_nonrelevants)
 
 
 # добавим некоторое кол-во идентичных пар.
-all_phrases = set()
-for sample in samples:
-    all_phrases.add(sample.phrase1)
-    all_phrases.add(sample.phrase2)
+all_phrases = samples.get_all_phrases()
 
 duplicates = []
 for phrase in all_phrases:
     duplicates.append(Sample(phrase, phrase, 1))
 
 duplicates = np.random.permutation(duplicates)[:len(samples)//10]
-samples.extend(duplicates)
+for sample in duplicates:
+    p = (sample.phrase1, sample.phrase2)
+    if p not in all_positive_pairs:
+        all_positive_pairs.add(p)
+        samples.append(sample, 9)
 
-# дубликаты
+
+# перестановочные дубликаты
 duplicates = []
 for p in ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']:
     group = []
@@ -284,23 +399,21 @@ for p in ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt'
                         phrase2group[group[i1]] = igroup
                         for i2 in range(i1+1, n):
                             phrase2group[group[i2]] = igroup
-                            duplicates.append(Sample(group[i1], group[i2], 1))
+                            p = group[i1], group[i2]
+                            if p not in all_positive_pairs:
+                                duplicates.append(Sample(group[i1], group[i2], 1))
                     group = []
             else:
                 group.append(fcleaner.process(phrase))
 
 # оставим кол-во дубликатов, сопоставимое с другими перефразировками
-duplicates = np.random.permutation(duplicates)[:len(samples) // 2]
-logging.info('{} duplicates with permutations loaded from \"SENT*.duplicates.txt\"'.format(len(duplicates)))
-samples.extend(duplicates)
+duplicates = np.random.permutation(duplicates)[:len(all_positive_pairs) // 4]
+logging.info('%d duplicates with permutations loaded from "SENT*.duplicates.txt"', len(duplicates))
 
-all_phrases = set()
-for sample in samples:
-    if sample.y == 1:
-        all_phrases.add(sample.phrase1)
-        all_phrases.add(sample.phrase2)
+samples.extend(duplicates, 10)
+all_positive_pairs.update((s.phrase1, s.phrase2) for s in duplicates)
 
-all_phrases = list(all_phrases)
+all_phrases = list(samples.get_all_phrases())
 
 # Для быстрого поиска похожих фраз создадим обратные индексы.
 word2phrases = dict()
@@ -337,10 +450,12 @@ if ADD_SIMILAR_NEGATIVES:
         phrases2 = set(itertools.chain(phrases2_a, phrases2_b))
 
         for phrase2 in phrases2:
-            neg_samples.add(phrase1, phrase2)
+            p = (phrase1, phrase2)
+            if p not in all_positive_pairs and p not in all_negative_pairs:
+                neg_samples.add(phrase1, phrase2)
 
 # Добавляем рандомные негативные сэмплы
-for sample in samples:
+for sample in samples.enum():
     igroup1 = phrase2group[sample.phrase1]
     n_neg = 0
     while n_neg < 10:
@@ -349,45 +464,114 @@ for sample in samples:
             pass
 
         if phrase2group[neg_phrase] != igroup1:
-            neg_samples.add(sample.phrase1, neg_phrase)
-            neg_samples.add(sample.phrase2, neg_phrase)
-            n_neg += 2
+            p = (sample.phrase1, neg_phrase)
+            if p not in all_positive_pairs and p not in all_negative_pairs:
+                neg_samples.add(sample.phrase1, neg_phrase)
+                n_neg += 1
+
+            p = (sample.phrase2, neg_phrase)
+            if p not in all_positive_pairs and p not in all_negative_pairs:
+                neg_samples.add(sample.phrase2, neg_phrase)
+                n_neg += 1
 
 # Сколько позитивных сэмплов
-nb_1 = sum(sample.y == 1 for sample in samples)
+nb_1 = samples.count_1()
 
 # ограничим кол-во негативных сэмплов
 neg_samples = neg_samples.get_samples()
 neg_samples = np.random.permutation(neg_samples)[:nb_1 * nb_neg_per_posit]
-logging.info('{} negative samples added'.format(len(neg_samples)))
-samples.extend(neg_samples)
-samples = np.random.permutation(samples)
+logging.info('%d negative samples added', len(neg_samples))
+samples.extend(neg_samples, 11)
+all_negative_pairs.update((s.phrase1, s.phrase2) for s in neg_samples)
+samples.permutation()
 
-nb_0 = sum(sample.y == 0 for sample in samples)
-logging.info('nb_0={} nb_1={}'.format(nb_0, nb_1))
+nb_0 = samples.count_0()
+logging.info('Final balance: nb_0=%d nb_1=%d', nb_0, nb_1)
 
 max_wordseq_len = 0
-for sample in samples:
+for sample in samples.enum():
     for phrase in [sample.phrase1, sample.phrase2]:
         words = phrase.split(u' ')
         max_wordseq_len = max(max_wordseq_len, len(words))
 
-logging.info('max_wordseq_len={}'.format(max_wordseq_len))
+logging.info('max_wordseq_len=%d', max_wordseq_len)
 
 # сохраним получившийся датасет в CSV
-logging.info(u'Storing result dataset with {} rows to "{}"'.format(len(samples), output_filepath))
+logging.info(u'Storing result dataset with %d rows to "%s"', len(samples), output_filepath)
 with codecs.open(output_filepath, 'w', 'utf-8') as wrt:
     # Заголовки делаем как у датасета relevancy моделей, чтобы их можно было использовать без переделок.
     wrt.write(u'premise\tquestion\trelevance\tweight\n')
-    for sample in samples:
+    for sample in samples.enum():
         wrt.write(u'{}\t{}\t{}\t1\n'.format(sample.phrase1, sample.phrase2, sample.y))
+
+# 16-03-2020 анализ частот символьных 3-грамм
+shingle_len = 3
+min_shingle_freq = 2
+shingle2freq = collections.Counter()
+for phrase in all_phrases:
+    shingle2freq.update(ngrams(phrase, shingle_len))
+
+# шинглы с частотой ниже пороговой
+rare_shingles = set(shingle for shingle, freq in shingle2freq.items() if freq < min_shingle_freq)
+
+# фразы с редкими шинглами
+phrases_with_rare_shingles = set()
+for phrase in all_phrases:
+    if any((shingle in rare_shingles) for shingle in ngrams(phrase, shingle_len)):
+        phrases_with_rare_shingles.add(phrase)
+
+# теперь выводим отчет по редким шинглам и содержащим их фразам
+with io.open(os.path.join(tmp_folder, 'synonymy_dataset_rare_shingles.txt'), 'w', encoding='utf-8') as wrt:
+    for shingle, freq in sorted(shingle2freq.items(), key=lambda z: z[0]):
+        if freq < min_shingle_freq:
+            wrt.write('\n\nshingle={} freq={}\n'.format(shingle, freq))
+            # ищем сэмплы с этим шинглом
+            for phrase in phrases_with_rare_shingles:
+                if shingle in ngrams(phrase, shingle_len):
+                    wrt.write('{}\n'.format(phrase))
+
+# Поищем слова, встречающиеся 1 раз
+word2freq = collections.Counter()
+for phrase in all_phrases:
+    word2freq.update(phrase.split(' '))
+
+rare_words = set(word for (word, freq) in word2freq.items() if freq == 1)
+with io.open(os.path.join(tmp_folder, 'synonymy_dataset_rare_words.txt'), 'w', encoding='utf-8') as wrt:
+    for phrase in all_phrases:
+        words = phrase.split()
+        for w in words:
+            if w in rare_words:
+                wrt.write('{:<20s} ===> {}\n\n'.format(w, phrase))
+
+# Поищем несловарные и нечисловые токены
+vocabulary = set()
+with io.open(os.path.join(data_folder, 'dict/word2lemma.dat'), 'r', encoding='utf-8') as rdr:
+    for line in rdr:
+        fields = line.strip().split('\t')
+        if len(fields) == 4:
+            word = fields[0].lower().replace(' - ', '-')
+            vocabulary.add(word)
+
+oov_tokens = set()
+for word, freq in word2freq.items():
+    if word not in vocabulary and not is_int(word) and word not in '. ? ! : - , — – ) ( " \' « » „ “ ; …'.split():
+        oov_tokens.add(word)
+
+with io.open(os.path.join(tmp_folder, 'synonymy_dataset_oov_words.txt'), 'w', encoding='utf-8') as wrt:
+    for phrase in all_phrases:
+        words = phrase.split()
+        for w in words:
+            if w in oov_tokens:
+                wrt.write('{:<20s} ===> {}\n\n'.format(w, phrase))
+
+
+
 
 # --------------------------------------------------------------------------
 # Теперь готовим датасет для модели детектора перефразировок с triplet loss
 # Тут нам надо готовить триплеты (anchor, positive, negative)
 logging.info('Start building dataset for triplet loss model of synonymy')
 
-# nb_neg_per_posit = 2
 samples3 = []  # финальный список из экземпляров Sample, содержащих тройки (anchor, positive, negative)
 samples2 = []  # вспомогательный список из экземпляров Sample2, содержащих пары (anchor, positive)
 
@@ -419,139 +603,7 @@ with codecs.open(os.path.join(data_folder, 'contradictions.txt'), 'r', 'utf-8') 
             group.append(phrase)
 
 
-
-# Для генерации негативных сэмплов нам надо исключать
-# вероятность попадания перефразировок в качестве негативных
-# примеров для групп, содержащих более 2 вариантов. Поэтому
-# каждую фразу пометим номером ее исходной группы.
-phrase2group = dict()
-
-# Грузим датасеты с перефразировками
-igroup = 0
-group = []
-nb_paraphrases1 = 0
-with codecs.open('../../data/paraphrases.txt', 'r', 'utf-8') as rdr:
-    for line in rdr:
-        phrase = line.strip()
-        if len(phrase) == 0:
-            if len(group) > 1:
-                igroup += 1
-                n = len(group)
-
-                pos_phrases = []
-                neg_phrases = []
-
-                for i1 in range(n):
-                    phrase1 = group[i1]
-                    sim = 0
-                    if phrase1.startswith(u'(-)'):
-                        phrase1 = phrase1.replace(u'(-)', u'').strip()
-                        sim = -1
-
-                    if phrase1.startswith(u'(+)'):
-                        phrase1 = phrase1.replace(u'(+)', u'').strip()
-                        sim = 1
-
-                    phrase1 = fcleaner.process(phrase1)
-                    phrase2group[phrase1] = igroup
-                    if sim == -1:
-                        neg_phrases.append(phrase1)
-                    else:
-                        pos_phrases.append(phrase1)
-
-                # сочетания положительных фраз
-                for i1 in range(len(pos_phrases) - 1):
-                    phrase1 = pos_phrases[i1]
-                    for i2 in range(1, len(pos_phrases)):
-                        phrase2 = pos_phrases[i2]
-                        if phrase1 != phrase2:  # исключаем сэмплы, в которых постулируется похожесть одинаковых предложений
-                            nb_paraphrases1 += 1
-                            samples2.append(Sample2(phrase1, phrase2))
-
-                            # если есть негативные фразы, то сразу можем генерировать
-                            # финальные триплеты.
-                            for negative in neg_phrases:
-                                samples3.append(Sample3(phrase1, phrase2, negative))
-
-                            if phrase1 in phrase2contradict:
-                                for negative in phrase2contradict[phrase1]:
-                                    samples3.append(Sample3(phrase1, phrase2, negative))
-
-                for i1 in range(n):
-                    phrase1 = group[i1]
-                    if phrase1.startswith(u'(-)'):
-                        continue
-
-                    if phrase1.startswith(u'(+)'):
-                        phrase1 = phrase1.replace(u'(+)', u'').strip()
-
-                    phrase1 = fcleaner.process(phrase1)
-
-                    phrase2group[phrase1] = igroup
-
-                    for i2 in range(i1 + 1, n):
-                        y = 1
-                        phrase2 = group[i2]
-
-                        if phrase2.startswith(u'(+)'):
-                            phrase2 = phrase2.replace(u'(+)', u'').strip()
-                        elif phrase2.startswith(u'(-)'):
-                            phrase2 = phrase2.replace(u'(-)', u'').strip()
-                            y = 0
-
-                        if y == 1:
-                            phrase2 = fcleaner.process(phrase2)
-
-                            phrase2group[phrase2] = igroup
-
-                            samples2.append(Sample2(phrase1, phrase2))
-                            if phrase1 != phrase2:
-                                # меняем местами сравниваемые фразы
-                                samples2.append(Sample2(phrase2, phrase1))
-
-                group = []
-        else:
-            group.append(phrase)
-
-logging.info('{} positive pairs have been loaded from "{}"'.format(nb_paraphrases1, input_path))
-
-# добавим некоторое кол-во идентичных пар.
-all_phrases = set()
-for sample in samples2:
-    all_phrases.add(sample.anchor)
-    all_phrases.add(sample.positive)
-
-duplicates = []
-for phrase in all_phrases:
-    duplicates.append(Sample2(phrase, phrase))
-
-duplicates = np.random.permutation(duplicates)[:len(samples2) // 10]
-samples2.extend(duplicates)
-
-# дубликаты
-duplicates = []
-for p in ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']:
-    group = []
-    with codecs.open(os.path.join(data_folder, p), 'r', 'utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if len(phrase) == 0:
-                if len(group) > 1:
-                    igroup += 1
-                    n = len(group)
-                    for i1 in range(n):
-                        phrase2group[group[i1]] = igroup
-                        for i2 in range(i1 + 1, n):
-                            phrase2group[group[i2]] = igroup
-                            duplicates.append(Sample2(group[i1], group[i2]))
-                    group = []
-            else:
-                group.append(fcleaner.process(phrase))
-
-# оставим кол-во дубликатов, сопоставимое с другими перефразировками
-duplicates = np.random.permutation(duplicates)[:len(samples2) // 2]
-logging.info('{} duplicates with permutations loaded from \"SENT*.duplicates.txt\"'.format(len(duplicates)))
-samples2.extend(duplicates)
+samples2 = [Sample2(s.phrase1, s.phrase2) for s in samples.get_positive_samples()]
 
 all_phrases = set()
 for sample in samples2:
@@ -611,12 +663,12 @@ for sample in samples2:
 samples3 = dict((s.key(), s) for s in samples3).values()
 
 # сохраним получившийся датасет в CSV
-logging.info(u'Storing {} triplets to dataset "{}"'.format(len(samples), output_filepath3))
+logging.info(u'Storing %d triplets to dataset "%s"', len(samples), output_filepath3)
 with codecs.open(output_filepath3, 'w', 'utf-8') as wrt:
     # Заголовки делаем как у датасета relevancy моделей, чтобы их можно было использовать без переделок.
     wrt.write(u'anchor\tpositive\tnegative\n')
     for sample in samples3:
         wrt.write(u'{}\t{}\t{}\n'.format(sample.anchor, sample.positive, sample.negative))
 
-logging.info('Finish "{}"'.format(os.path.basename(__file__)))
+logging.info('Finish "%s"', os.path.basename(__file__))
 

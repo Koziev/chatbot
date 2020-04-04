@@ -3,15 +3,22 @@
 Подготовка датасета для тренировки модели интерпретации ответов в чатботе. Эта модель
 восстанавливает полный (подразумеваемый, развернутый) текст ответа по фактическому
 краткому ответу собеседника, используя контекст в виде заданного вопроса.
+
+28-03-2020 Добавлен отчет по OOV словам в датасете
 """
 
 import io
 import collections
+import os
+import re
 
 import rutokenizer
 import rupostagger
 import ruword2tags
 
+
+def is_int(s):
+    return re.match(r'^\d+$', s)
 
 
 class Sample(object):
@@ -165,11 +172,14 @@ def create_template(expanded_anser, tokenizer, tagger, gren):
 
 
 if __name__ == '__main__':
-    input_dataset = '../../data/interpretation.txt'
-    output_dataset = '../../tmp/interpreter_templates.tsv'
-    rare_path = '../../tmp/most_rare_interpretaions.txt'
-    terms_path = '../../tmp/interpretation_template_terms.tsv'
-    no_expansion_path = '../../tmp/interpretation_no_expansion_phrases.txt'
+    data_dir = '../../data'
+    tmp_dir = '../../tmp'
+
+    input_dataset = os.path.join(data_dir, 'interpretation.txt')
+    output_dataset = os.path.join(tmp_dir, 'interpreter_templates.tsv')
+    rare_path = os.path.join(tmp_dir, 'most_rare_interpretaions.txt')
+    terms_path = os.path.join(tmp_dir, 'interpretation_template_terms.tsv')
+    no_expansion_path = os.path.join(tmp_dir, 'interpretation_no_expansion_phrases.txt')
 
     tokenizer = rutokenizer.Tokenizer()
     tokenizer.load()
@@ -252,10 +262,37 @@ if __name__ == '__main__':
         for term, freq in all_terms.most_common():
             wrt.write('{}\t{}\n'.format(term, freq))
 
-
     # Сформируем отчет о самых редких шаблонах
     with io.open(rare_path, 'w', encoding='utf-8') as wrt:
         for template, freq in reversed(template2freq.most_common()):
             if freq < 5:
                 sample = template2sample[template]
                 wrt.write('{}\n{}|{}\n{}\nfreq={}\n\n'.format(sample.question, sample.short_answer, sample.expanded_answer, template, freq))
+
+    # Поищем несловарные и нечисловые токены
+    vocabulary = set()
+    with io.open(os.path.join(data_dir, 'dict/word2lemma.dat'), 'r', encoding='utf-8') as rdr:
+        for line in rdr:
+            fields = line.strip().split('\t')
+            if len(fields) == 4:
+                word = fields[0].lower().replace(' - ', '-')
+                vocabulary.add(word)
+
+    oov_tokens = set()
+    with io.open(os.path.join(tmp_dir, 'prepare_interpreter_templates.oov.txt'), 'w', encoding='utf-8') as wrt:
+        for sample in samples:
+            for phrase in [sample.question, sample.short_answer, sample.expanded_answer]:
+                words = tokenizer.tokenize(phrase)
+                for word in words:
+                    uword = word.lower().replace('ё', 'е')
+                    if uword not in vocabulary and not is_int(word) and word not in '. ? ! : - , — – ) ( " \' « » „ “ ; …'.split():
+                        if uword not in oov_tokens:
+                            wrt.write('Sample with oov-word "{}":\n'.format(word))
+                            wrt.write('Question:        {}\n'.format(sample.question))
+                            wrt.write('Short answer:    {}\n'.format(sample.short_answer))
+                            wrt.write('Expanded answer: {}\n'.format(sample.expanded_answer))
+                            wrt.write('\n\n')
+                            oov_tokens.add(uword)
+                            break
+
+
