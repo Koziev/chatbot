@@ -75,6 +75,7 @@ class BaseRuleCondition(object):
         elif u'match' in condition_yaml or u'match_raw' in condition_yaml:
             return RuleCondition_ChunkMatcher(condition_yaml, constants, text_utils)
         else:
+            logging.error('Unknown condition keyword "%s"', list(condition_yaml.keys())[0])
             raise NotImplementedError()
 
         return res
