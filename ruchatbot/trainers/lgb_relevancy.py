@@ -329,7 +329,7 @@ def objective(space):
 
     logging.info('LightGBM objective call #{} cur_best_score={:7.5f}'.format(obj_call_count, cur_best_score))
     lgb_params = get_params(space)
-    sorted_params = sorted(space.iteritems(), key=lambda z: z[0])
+    sorted_params = sorted(space.items(), key=lambda z: z[0])
     logging.info('Params: %s', str.join(' ', ['{}={}'.format(k, v) for k, v in sorted_params]))
     shingle_len = int(space['shingle_len']) if 'shingle_len' in space else 3
 
@@ -464,9 +464,8 @@ def get_best_params(task):
     lgb_params['metric'] = 'binary_logloss'
 
     if task == 'synonymy':
-        # learning_rate=0.148895498098 min_data_in_leaf=7.0 num_leaves=61.0
-        lgb_params['learning_rate'] = 0.15
-        lgb_params['num_leaves'] = 61
+        lgb_params['learning_rate'] = 0.21228438289846577
+        lgb_params['num_leaves'] = 99
         lgb_params['min_data_in_leaf'] = 7
         lgb_params['min_sum_hessian_in_leaf'] = 1
         lgb_params['max_depth'] = -1
@@ -477,9 +476,9 @@ def get_best_params(task):
         lgb_params['bagging_fraction'] = 1.0
         lgb_params['bagging_freq'] = 1
     else:
-        lgb_params['learning_rate'] = 0.20
-        lgb_params['num_leaves'] = 40
-        lgb_params['min_data_in_leaf'] = 15
+        lgb_params['learning_rate'] = 0.21228438289846577
+        lgb_params['num_leaves'] = 99
+        lgb_params['min_data_in_leaf'] = 7
         lgb_params['min_sum_hessian_in_leaf'] = 1
         lgb_params['max_depth'] = -1
         lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
@@ -523,7 +522,7 @@ shingle_len = args.shingle_len
 ruchatbot.utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'lgb_{}.log'.format(task)))
 
 if run_mode == 'hyperopt':
-    ho_samples, ho_shingle2id = load_samples(input_path, lemmatize, 100000)
+    ho_samples, ho_shingle2id = load_samples(input_path, lemmatize, 300000)
 
     space = {'num_leaves': hp.quniform('num_leaves', 20, 100, 1),
              #'shingle_len': hp.quniform('shingle_len', 3, 3, 1),
@@ -670,9 +669,11 @@ if run_mode == 'query2':
 
     premises = []
 
+    prompt = ':> '
     added_phrases = set()
     if task == 'relevancy':
         # Поиск лучшей предпосылки, релевантной введенному вопросу
+        prompt = 'question:> '
 
         if True:
             for fname in ['profile_facts_1.dat']:
@@ -708,6 +709,8 @@ if run_mode == 'query2':
 
     elif task == 'synonymy':
         # поиск ближайшего приказа или вопроса из списка FAQ
+        prompt = 'phrase:> '
+
         phrases2 = set()
         if True:
             for phrase in load_strings_from_yaml(os.path.join(data_folder, 'rules.yaml')):
@@ -754,7 +757,7 @@ if run_mode == 'query2':
     while True:
         X_data = lil_matrix((nb_premises, xgb_relevancy_nb_features), dtype='float32')
 
-        question = ruchatbot.utils.console_helpers.input_kbd('question:> ').strip().lower()
+        question = ruchatbot.utils.console_helpers.input_kbd(prompt).strip().lower()
         if len(question) == 0:
             break
 
