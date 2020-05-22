@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import csv
 
-import utils.logging_helpers
+import ruchatbot.utils.logging_helpers
 
 
 random.seed(123456789)
@@ -58,7 +58,7 @@ def load_samples(input_path):
 
                             right = px[1].strip()
                             if not right:
-                                print(u'Empty left part in line #{}'.format(iline))
+                                print(u'Empty right part in line #{}'.format(iline))
                                 exit(0)
                             else:
                                 # правая часть интерпретации не нуждается в переинтерпретации,
@@ -82,9 +82,9 @@ if __name__ == '__main__':
     tmp_folder = '../../tmp'
 
     # настраиваем логирование в файл
-    utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_req_interpretation_classif.log'))
+    ruchatbot.utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_req_interpretation_classif.log'))
 
-    logging.info('Start')
+    logging.info('Start "prepare_req_interpretation_classif.py"')
 
     samples = []
 

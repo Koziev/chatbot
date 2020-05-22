@@ -202,6 +202,9 @@ if __name__ == '__main__':
                             exit(0)
                         short_answer, expanded_answer = tx[0], tx[1]
                         expanded_answer = expanded_answer.strip()
+                        if len(expanded_answer) < 2:
+                            print('Empty expanded answer for question="{}", short_question="{}"'.format(question, short_answer))
+
                         if expanded_answer[-1] in ('.', '?', '!'):
                             expanded_answer = expanded_answer[:-1]
 
