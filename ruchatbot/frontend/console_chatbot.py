@@ -18,6 +18,8 @@ from ruchatbot.bot.bot_personality import BotPersonality
 from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 
+from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
+
 
 def on_order(order_anchor_str, bot, session):
     bot.say(session, u'Выполняю команду \"{}\"'.format(order_anchor_str))
@@ -102,6 +104,9 @@ def main():
     # Контейнер для правил
     scripting = BotScripting(data_folder)
     scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
+
+    # Добавляем скрипты на питоне
+    scripting.add_scenario(Scenario_WhoAmI())
 
     # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
     profile_facts = ProfileFactsReader(text_utils=text_utils,
