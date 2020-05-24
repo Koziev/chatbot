@@ -364,17 +364,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         status = RunningScenario(scenario, current_step_index=-1)
         session.set_status(status)
-        if scenario.on_start:
-            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
-
+        scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def call_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
         """Запуск вложенного сценария, при этом текущий сценарий приостанавливается до окончания нового."""
         status = RunningScenario(scenario, current_step_index=-1)
         session.call_scenario(status)
-        if scenario.on_start:
-            scenario.on_start.do_action(bot, session, interlocutor, interpreted_phrase, condition_matching_results=None, text_utils=self.text_utils)
+        scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
 
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
@@ -386,41 +383,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def run_scenario_step(self, bot, session, interlocutor, interpreted_phrase):
         running_scenario = session.get_status()
-        assert(isinstance(running_scenario, RunningScenario))
-        if running_scenario.scenario.is_sequential_steps():
-            # Шаги сценария выполняются в заданном порядке
-            while True:
-                new_step_index = running_scenario.current_step_index + 1
-                if new_step_index == len(running_scenario.scenario.steps):
-                    # Сценарий исчерпан
-                    if running_scenario.scenario.on_finish:
-                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, self.text_utils)
-                    self.exit_scenario(bot, session, interlocutor, interpreted_phrase)
-                    break
-                else:
-                    running_scenario.current_step_index = new_step_index
-                    step = running_scenario.scenario.steps[new_step_index]
-                    running_scenario.passed_steps.add(new_step_index)
-                    step_ok = step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
-                    if step_ok:
-                        break
-
-        elif running_scenario.scenario.is_random_steps():
-            # Шаги сценария выбираются в рандомном порядке, не более 1 раза каждый шаг.
-            nsteps = len(running_scenario.scenario.steps)
-            step_indeces = list(i for i in range(nsteps) if i not in running_scenario.passed_steps)
-            new_step_index = random.choice(step_indeces)
-            running_scenario.passed_steps.add(new_step_index)
-            step = running_scenario.scenario.steps[new_step_index]
-            step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
-
-            if len(running_scenario.passed_steps) == nsteps:
-                # Больше шагов нет
-                if running_scenario.scenario.on_finish:
-                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=self.text_utils)
-                self.exit_scenario(bot, session, interlocutor, interpreted_phrase)
+        if not isinstance(running_scenario, RunningScenario):
+            self.logger.error('Expected instance of RunningScenario, found %s', type(running_scenario).__name__)
         else:
-            raise NotImplementedError()
+            running_scenario.scenario.run_step(running_scenario, bot, session, interlocutor, interpreted_phrase, self.text_utils)
 
     def run_form(self, form, bot, session, user_id, interpreted_phrase):
         filled_fields = dict()
@@ -526,7 +492,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     break
 
         return generated_replicas
-
 
     def generate_with_common_phrases(self, bot, session, interlocutor, phrase, base_weight):
         generated_replicas = []
@@ -952,6 +917,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                     # пока не запускаем
                                     do_next_step = False
 
+                    if not rule_applied:
+                        # TODO
+                        # Сценарий может содержать код обработки некоторых вопросов.
+                        pass
+
                     replica = None
                     if not rule_applied:
                         # генерируем smalltalk-реплику для текущего контекста
@@ -984,6 +954,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                     if rule_applied:
                         return
+            else:
+                # В некоторых случаях мы можем обрабатывать какие-то вопросы внутри сценария.
+                if isinstance(session.get_status(), RunningScenario):
+                    running_scenario = session.get_status()
+                    scenario = running_scenario.scenario
+                    if scenario.can_process_questions():
+                        question_answered = scenario.process_question(running_scenario, bot, session, interlocutor,
+                                                                      interpreted_phrase, self.text_utils)
+
+                        if question_answered:
+                            return
+
 
         if interpreted_phrase.is_imperative:
             self.logger.debug(u'Processing as imperative: "%s"', interpreted_phrase.interpretation)
@@ -1122,8 +1104,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
             answers, answer_rels = self.answer_builder.build_answer_text([u''], [1.0],
                                                                          interpreted_phrase.interpretation,
-                                                                         self.text_utils,
-                                                                         self.word_embeddings)
+                                                                         self.text_utils)
             if len(answers) != 1:
                 self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
 

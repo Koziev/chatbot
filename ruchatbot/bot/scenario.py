@@ -1,8 +1,14 @@
 # coding: utf-8
+"""
+Сценарии - автономные фрагменты диалога.
+"""
+
+import random
 
 from ruchatbot.bot.actors import ActorBase
 from ruchatbot.bot.smalltalk_rules import SmalltalkRules
 from ruchatbot.bot.scripting_rule import ScriptingRule
+from ruchatbot.bot.running_scenario import RunningScenario
 
 
 class Scenario(object):
@@ -15,6 +21,13 @@ class Scenario(object):
         self.steps_policy = None
         self.smalltalk_rules = None
         self.insteadof_rules = None
+
+    def can_process_questions(self):
+        # Обычно сценарии не обрабатывают вопросы.
+        return False
+
+    def process_question(self, running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils):
+        raise NotImplementedError()
 
     def get_name(self):
         return self.name
@@ -64,3 +77,49 @@ class Scenario(object):
 
     def is_sequential_steps(self):
         return self.steps_policy == 'sequential'
+
+    def started(self, running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils):
+        if self.on_start:
+            self.on_start.do_action(bot, session, interlocutor, interpreted_phrase, condition_matching_results=None, text_utils=text_utils)
+
+        self.run_step(running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils=text_utils)
+
+    def run_step(self, running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils):
+        # Через running_scenario передается состояние выполняющегося сценария - номер текущего шага,
+        # пометки о пройденных шагах и прочая информация, которая уже не будет нужна после завершения сценария.
+        assert(isinstance(running_scenario, RunningScenario))
+
+        if self.is_sequential_steps():
+            # Шаги сценария выполняются в заданном порядке
+            while True:
+                new_step_index = running_scenario.current_step_index + 1
+                if new_step_index == len(running_scenario.scenario.steps):
+                    # Сценарий исчерпан
+                    if running_scenario.scenario.on_finish:
+                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
+                    bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+                    break
+                else:
+                    running_scenario.current_step_index = new_step_index
+                    step = running_scenario.scenario.steps[new_step_index]
+                    running_scenario.passed_steps.add(new_step_index)
+                    step_ok = step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
+                    if step_ok:
+                        break
+
+        elif running_scenario.scenario.is_random_steps():
+            # Шаги сценария выбираются в рандомном порядке, не более 1 раза каждый шаг.
+            nsteps = len(running_scenario.scenario.steps)
+            step_indeces = list(i for i in range(nsteps) if i not in running_scenario.passed_steps)
+            new_step_index = random.choice(step_indeces)
+            running_scenario.passed_steps.add(new_step_index)
+            step = running_scenario.scenario.steps[new_step_index]
+            step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
+
+            if len(running_scenario.passed_steps) == nsteps:
+                # Больше шагов нет
+                if running_scenario.scenario.on_finish:
+                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
+                bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+        else:
+            raise NotImplementedError()
