@@ -20,12 +20,12 @@ RUN yes | apt-get install python-numpy
 
 RUN pip install sentencepiece
 RUN pip install lightgbm
-RUN pip install keras
+RUN pip install keras==2.2.4
 RUN pip install --upgrade scikit-learn
 RUN pip install gensim
 RUN pip install pathlib
 RUN pip install python-crfsuite
-RUN pip install tensorflow==1.13.1
+RUN pip install tensorflow==1.14
 RUN pip install colorama
 RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
@@ -54,6 +54,12 @@ COPY ./ruchatbot/bot_service/*.py ./
 
 WORKDIR /chatbot/ruchatbot/utils
 COPY ./ruchatbot/utils/*.py ./
+
+WORKDIR /chatbot/ruchatbot/layers
+COPY ./ruchatbot/layers/*.py ./
+
+WORKDIR /chatbot/ruchatbot/scenarios
+COPY ./ruchatbot/scenarios/*.py ./
 
 WORKDIR /chatbot/ruchatbot/generative_grammar
 COPY ./ruchatbot/generative_grammar/*.py ./
