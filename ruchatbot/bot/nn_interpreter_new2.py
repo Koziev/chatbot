@@ -133,7 +133,9 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         return X1_data, X2_data, y_data
 
     def interpret(self, phrases, text_utils, generative_grammar):
-        assert(len(phrases) == 2)
+        if len(phrases) != 2:
+            logging.warning('%d input phrase(s) in NN_InterpreterNew2::interpret, 2 expected', len(phrases))
+            return phrases[-1]
 
         question = text_utils.remove_terminators(phrases[0])
         short_answer = text_utils.remove_terminators(phrases[1])

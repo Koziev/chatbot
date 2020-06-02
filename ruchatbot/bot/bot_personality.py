@@ -19,7 +19,7 @@ class BotPersonality:
         self.facts = facts
         self.faq = faq
         self.scripting = scripting
-
+        self.profile = profile
         self.enable_scripting = profile.rules_enabled
         self.enable_smalltalk = profile.smalltalk_enabled
         self.force_question_answering = profile.force_question_answering

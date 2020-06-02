@@ -2,6 +2,12 @@ from ruchatbot.bot.running_dialog_status import RunningDialogStatus
 
 
 class RunningScenario(RunningDialogStatus):
+    """
+    Переменные состояния исполняющегося сценария.
+    Экземпляр создается при запуске сценария и удаляется после завршения сценария,
+    поэтому накопленная в этой структуре информация о выполнении шагов не будет
+    влиять на новый запуск сценария.
+    """
     def __init__(self, scenario, current_step_index):
         super(RunningScenario, self).__init__(scenario.get_priority())
         self.scenario = scenario

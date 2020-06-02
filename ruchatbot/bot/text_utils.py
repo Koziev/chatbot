@@ -49,7 +49,7 @@ class TextUtils(object):
     def __init__(self):
         self.tokenizer = Tokenizer()
         self.tokenizer.load()
-        self.lexicon = Word2Lemmas()
+        #self.lexicon = Word2Lemmas()
         self.language_resources = LanguageResources()
         self.postagger = rupostagger.RuPosTagger()
         self.chunker = ruchunker.Chunker()
@@ -79,8 +79,8 @@ class TextUtils(object):
         # Общий словарь для генеративных грамматик
         self.gg_dictionaries.load(os.path.join(models_folder, 'generative_grammar_dictionaries.bin'))
 
-        word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
-        self.lexicon.load(word2lemmas_path)
+        #word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
+        #self.lexicon.load(word2lemmas_path)
 
         #word2tags_path = os.path.join(data_folder, 'chatbot_word2tags.dat')
         #self.postagger.load(word2tags_path)
@@ -178,8 +178,8 @@ class TextUtils(object):
         """ Справа добавляем пустые слова """
         return list(itertools.chain(words, itertools.repeat(PAD_WORD, n - len(words))))
 
-    def get_lexicon(self):
-        return self.lexicon
+    #def get_lexicon(self):
+    #    return self.lexicon
 
     def is_question_word(self, word):
         return word in u'насколько где кто что почему откуда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда какой какая какое какие какого какую каких каким какими какому какой каков какова каковы'.split()

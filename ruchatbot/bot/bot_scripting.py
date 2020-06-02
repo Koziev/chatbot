@@ -169,6 +169,9 @@ class BotScripting(object):
                     common_phrase = replace_constant(common_phrase, constants, text_utils)
                     self.common_phrases.append(common_phrase)
 
+    def add_scenario(self, scenario):
+        self.scenarios.append(scenario)
+
     def get_smalltalk_rules(self):
         return self.smalltalk_rules
 
