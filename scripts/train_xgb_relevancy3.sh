@@ -1,1 +1,0 @@
-python ../PyModels/xgb_relevancy3.py --run_mode train --shingle_len 3 --max_depth 6 --eta 0.10 --use_sent2vec 0 --use_skip_shingles 1 --min_skipshingle_dist 1 --max_skipshingle_dist 5 --input ../data/premise_question_relevancy.csv --tmp ../tmp

@@ -1,1 +1,0 @@
-KERAS_BACKEND=tensorflow python ../PyModels/nn_word_selector.py --run_mode train --input ../data/pqa_all.dat --data_dir ../data --tmp ../tmp --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=64.bin
