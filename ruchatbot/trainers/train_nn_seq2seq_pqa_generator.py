@@ -8,6 +8,8 @@ import os
 import itertools
 import random
 import json
+import argparse
+
 
 import numpy as np
 import sklearn.model_selection
@@ -220,23 +222,33 @@ class VizualizeCallback(keras.callbacks.Callback):
 
 
 if __name__ == '__main__':
-    tmp_dir = '../../tmp'
-    data_dir = '../../data'
+    parser = argparse.ArgumentParser(description='Model trainer for answer generator')
+    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='gridsearch')
+    parser.add_argument('--tmp_dir', default='../../tmp')
+    parser.add_argument('--data_dir', default='../../data')
+    args = parser.parse_args()
 
-    weights_path = os.path.join(tmp_dir, 'nn_seq2seq_pqa_generator.weights')
+    tmp_dir = args.tmp_dir
+    data_dir = args.data_dir
+    run_mode = args.run_mode
+
     arch_path = os.path.join(tmp_dir, 'nn_seq2seq_pqa_generator.arch')
     config_path = os.path.join(tmp_dir, 'nn_seq2seq_pqa_generator.config')
 
-    run_mode = 'train'
+    if run_mode == 'gridsearch':
+        weights_path = os.path.join(tmp_dir, 'gridsearch.nn_seq2seq_pqa_generator.weights.tmp')
+    else:
+        weights_path = os.path.join(tmp_dir, 'nn_seq2seq_pqa_generator.weights')
 
-    batch_size = 150
-    best_score = 0
-    best_params_path = os.path.join(tmp_dir, 'nn_seq2seq_pqa_generator.best_params.json')
+    batch_size = 100
 
     if run_mode == 'gridsearch':
-        for spm_items in [10000, 20000]:
+        best_score = 0
+        best_params_path = os.path.join(tmp_dir, 'nn_seq2seq_pqa_generator.best_params.json')
+
+        for spm_items in [20000, 30000]:
             for token_dim in [50, 80]:
-                for hidden_dim in [100, 150]:
+                for hidden_dim in [150, 200]:
                     for is_monotonic in [False, True]:
                         params = dict()
                         params['spm_items'] = spm_items
@@ -249,8 +261,7 @@ if __name__ == '__main__':
                         computed_params['bpe_model_name'] = bpe_model_name
 
                         bpe_model = load_bpe_model(bpe_model_name)
-
-                        samples = load_samples(bpe_model, computed_params, max_samples=100000)
+                        samples = load_samples(bpe_model, computed_params, max_samples=20000)
 
                         index2token = dict((i, t) for t, i in computed_params['token2index'].items())
 
@@ -352,7 +363,7 @@ if __name__ == '__main__':
         viz = VizualizeCallback(model, viz_samples, computed_params)
         callbacks.append(viz)
 
-        model.fit(X, y, validation_split=0.1, epochs=100, verbose=2, batch_size=150, callbacks=callbacks)
+        model.fit(X, y, validation_split=0.1, epochs=100, verbose=2, batch_size=batch_size, callbacks=callbacks)
 
     if run_mode == 'report':
         # Финальная оценка "на глазок" по всем сэмплам (будет слишком оптимистичная оценка, конечно).
@@ -362,6 +373,7 @@ if __name__ == '__main__':
             computed_params = json.load(f)
             arch_file = computed_params['arch_path']
             weights_file = computed_params['weights_path']
+            bpe_model_name = computed_params['bpe_model_name']
 
         with open(arch_file, 'r') as f:
             model = model_from_json(f.read(), {'AttentionDecoder': AttentionDecoder})
