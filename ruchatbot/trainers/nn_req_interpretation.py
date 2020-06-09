@@ -34,15 +34,15 @@ from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 import sklearn.metrics
 
+import ruchatbot.utils.console_helpers
+import ruchatbot.utils.logging_helpers
 from ruchatbot.utils.tokenizer import Tokenizer
 from ruchatbot.utils.padding_utils import lpad_wordseq, rpad_wordseq
 from ruchatbot.utils.padding_utils import PAD_WORD
 from trainers.word_embeddings import WordEmbeddings
-import ruchatbot.utils.console_helpers
-import ruchatbot.utils.logging_helpers
 
 
-padding = 'left'
+padding = 'right'
 
 random.seed(123456789)
 np.random.seed(123456789)
@@ -54,6 +54,11 @@ class Sample:
         assert(y in [0, 1])
         self.phrase = phrase
         self.y = y
+
+
+def remove_terminators(s):
+    """ Убираем финальные пунктуаторы ! ? ."""
+    return s[:-1].strip() if s[-1] in u'?!.' else s
 
 
 def get_params_str(params):
@@ -467,7 +472,6 @@ if run_mode == 'gridsearch':
     logging.info('Grid search complete, best_score=%f best_params=%s', best_score, get_params_str(best_params))
     best_score_wrt.close()
 
-
 if run_mode == 'train':
     logging.info('Start with run_mode==train')
 
@@ -482,16 +486,16 @@ if run_mode == 'train':
     computed_params['embeddings'] = embeddings
     computed_params['word_dims'] = word_dims
 
-    params['net_arch'] = 'rnn(cnn)'
+    params['net_arch'] = 'rnn'  #'rnn(cnn)'
     params['rnn_size'] = 200  # 500
-    params['units1'] = 15
+    params['units1'] = 0  #15
     params['activation1'] = 'relu'
     params['nb_filters'] = 150
     params['min_kernel_size'] = 1
     params['max_kernel_size'] = 2
     params['pooling'] = 'max'
     params['optimizer'] = 'nadam'
-    params['batch_size'] = 250  # 150
+    params['batch_size'] = 100  # 150
 
     # Соберем фразы, которые не надо раскрывать
     with io.open(os.path.join(tmp_folder, 'interpretation_no_expansion_phrases.txt'), 'r', encoding='utf-8') as rdr:
@@ -535,11 +539,10 @@ if run_mode == 'train':
     score = score_model(model, eval_samples, params, computed_params)
     logging.info('eval score={}'.format(score))
 
-    # Для отладки - прогоним весь набор данных через модель и сохраним
-    # результаты классификации в файл для визуальной проверки.
-    report_model(model, samples, params, computed_params,
-                 os.path.join(tmp_folder, 'nn_req_interpretation.validation.txt'))
-
+    if False:
+        # Для отладки - прогоним весь набор данных через модель и сохраним
+        # результаты классификации в файл для визуальной проверки.
+        report_model(model, samples, params, computed_params, os.path.join(tmp_folder, 'nn_req_interpretation.validation.txt'))
 
 if run_mode == 'query':
     # загружаем ранее натренированную сетку и остальные параметры модели.
@@ -572,6 +575,7 @@ if run_mode == 'query':
 
     while True:
         phrase = ruchatbot.utils.console_helpers.input_kbd(':> ').strip()
+        phrase = remove_terminators(phrase)
         sample1 = Sample(phrase, 0)
         sample1.words = tokenizer.tokenize(phrase)
 
