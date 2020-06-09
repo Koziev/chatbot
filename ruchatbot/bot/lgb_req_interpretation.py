@@ -32,7 +32,7 @@ class LGB_ReqInterpretation(BaseUtteranceInterpreter):
             self.model_config = json.load(f)
 
         model_path = os.path.join(models_folder, os.path.basename(self.model_config['model_filename']))
-        self.model = lightgbm.Booster(model_file=self.model_config['model_filename'])
+        self.model = lightgbm.Booster(model_file=model_path)
 
         vectorizer_path = os.path.join(models_folder, os.path.basename(self.model_config['vectorizer_filename']))
         with open(vectorizer_path, 'rb') as f:
