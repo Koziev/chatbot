@@ -126,7 +126,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.synonymy_detector.load(models_folder)
         # self.synonymy_detector = Jaccard_SynonymyDetector()
 
-        #self.interpreter = NN_Interpreter()
+        # Интерпретатор для раскрытия анафоры, заполнения гэппинга, эллипсиса и т.д.
         self.interpreter = NN_InterpreterNew2()
         self.interpreter.load(models_folder)
 
@@ -240,6 +240,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             return None
 
     def interpret_phrase(self, bot, session, raw_phrase, internal_issuer):
+        """
+        ИНТЕРПРЕТАЦИЯ РЕПЛИКИ
+        В ходе интерпретации раскрывается анаформа, заполняется гэппинг, эллипсис, в некоторых
+        случаях происходит нормализация текста реплики.
+        """
         interpreted = InterpretedPhrase(raw_phrase)
         phrase = raw_phrase
         phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(phrase, self.text_utils)
@@ -266,10 +271,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                     if self.req_interpretation.require_interpretation(raw_phrase, self.text_utils):
                         context_phrases = list()
-                        # Контекст состоит из двух предыдущих фраз
-                        context_phrases.append(last2_phrase.raw_phrase)
+                        # Контекст состоит из двух или трех предыдущих фраз.
+                        # Ситуация с тремя фразами возникает в случае, если предпоследняя фраза тоже
+                        # нуждается в интерпретации:
+                        # - Сколько сейчас времени?
+                        # - 10 часов 15 минут
+                        # - А сейчас?
+                        if self.req_interpretation.require_interpretation(last_phrase.raw_phrase, self.text_utils):
+                                context_phrases.append(last2_phrase.raw_phrase)
+
                         context_phrases.append(last_phrase.raw_phrase)
-                        context_phrases.append(raw_phrase)
+                        context_phrases.append(raw_phrase)  # это интерпретируемая реплика
                         phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
 
                         if self.intent_detector is not None:
