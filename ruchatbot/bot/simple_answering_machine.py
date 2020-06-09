@@ -24,7 +24,7 @@ from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
 from ruchatbot.bot.jaccard_synonymy_detector import Jaccard_SynonymyDetector
 #from ruchatbot.bot.nn_interpreter import NN_Interpreter
 from ruchatbot.bot.nn_interpreter_new2 import NN_InterpreterNew2
-from ruchatbot.bot.nn_req_interpretation import NN_ReqInterpretation
+from ruchatbot.bot.lgb_req_interpretation import LGB_ReqInterpretation
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.no_information_model import NoInformationModel
@@ -130,7 +130,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.interpreter = NN_InterpreterNew2()
         self.interpreter.load(models_folder)
 
-        self.req_interpretation = NN_ReqInterpretation()
+        #self.req_interpretation = NN_ReqInterpretation()
+        self.req_interpretation = LGB_ReqInterpretation()
         self.req_interpretation.load(models_folder)
 
         # Определение достаточности набора предпосылок для ответа на вопрос
