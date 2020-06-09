@@ -28,13 +28,28 @@ class SimpleFactsStorage(BaseFactsStorage):
     def enumerate_facts(self, interlocutor):
         memory_phrases = []
 
-        # Добавляем текущие факты
-        # День недели
-        dw = [u'понедельник', u'вторник', u'среда', u'четверг',
-              u'пятница', u'суббота', u'воскресенье'][datetime.datetime.today().weekday()]
-        memory_phrases.append((u'сегодня ' + dw, '3', 'current_day of week'))
+        # Добавляем динамические факты
+        # ==== День недели ====
+        dwos = 'понедельник вторник среда четверг пятница суббота воскресенье'.split()
+        today = datetime.datetime.today()
+        s = dwos[today.weekday()]
+        memory_phrases.append(('сегодня ' + s, '3', 'current_day_of_week'))
 
-        # Время года
+        yesterday = today - datetime.timedelta(days=1)
+        s = dwos[yesterday.weekday()]
+        if s[-1] in 'кг':
+            memory_phrases.append(('вчера был ' + s, '3', 'yesterday_day_of_week'))
+        elif s[-1] == 'е':
+            memory_phrases.append(('вчера было ' + s, '3', 'yesterday_day_of_week'))
+        else:
+            memory_phrases.append(('вчера была ' + s, '3', 'yesterday_day_of_week'))
+
+        tomorrow = today + datetime.timedelta(days=1)
+        s = dwos[tomorrow.weekday()]
+        memory_phrases.append(('завтра будет ' + s, '3', 'tomorrow_day_of_week'))
+
+
+        # === Время года ===
         cur_month = datetime.datetime.now().month
         season = {12: u'зима', 1: u'зима', 2: u'зима',
                   3: u'весна', 4: u'весна', 5: u'весна',
@@ -42,7 +57,7 @@ class SimpleFactsStorage(BaseFactsStorage):
                   9: u'осень', 10: u'осень', 11: u'осень'}[cur_month]
         memory_phrases.append((u'сейчас ' + season, '3', 'current_season'))
 
-        # Текущий месяц
+        # === Текущий месяц ===
         month = {1: u'январь', 2: u'февраль', 3: u'март',
                  4: u'апрель', 5: u'май', 6: u'июнь', 7: u'июль',
                  8: u'август', 9: u'сентябрь', 10: u'октябрь', 11: u'ноябрь', 12: u'декабрь'}[cur_month]
