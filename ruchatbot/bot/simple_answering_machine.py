@@ -279,6 +279,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         # - 10 часов 15 минут
                         # - А сейчас?
                         if self.req_interpretation.require_interpretation(last_phrase.raw_phrase, self.text_utils):
+                            if last2_phrase.interpretation:
+                                context_phrases.append(last2_phrase.interpretation)
+                            else:
                                 context_phrases.append(last2_phrase.raw_phrase)
 
                         context_phrases.append(last_phrase.raw_phrase)
