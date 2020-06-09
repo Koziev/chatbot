@@ -1,1 +1,7 @@
-KERAS_BACKEND=tensorflow python ../PyModels/nn_interpreter.py --run_mode train --batch_size 250 --arch 'lstm(cnn)' --wordchar2vector ../data/wordchar2vector.dat --word2vector ~/polygon/w2v/w2v.CBOW=1_WIN=5_DIM=32.bin
+ 
+#PYTHONPATH=../pycode KERAS_BACKEND=tensorflow python3 ../pycode/trainers/nn_interpreter_new2.py --run_mode train --wordchar2vector ../tmp/wc2v.kv --word2vector ../tmp/w2v.kv
+
+PYTHONPATH=../pycode KERAS_BACKEND=tensorflow python3 ../pycode/trainers/nn_seq2seq_interpreter.py \
+  --run_mode train \
+  --tmp_dir ../tmp \
+  --data_dir ../data
