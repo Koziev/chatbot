@@ -476,9 +476,14 @@ def get_best_params(task):
         lgb_params['bagging_fraction'] = 1.0
         lgb_params['bagging_freq'] = 1
     else:
-        lgb_params['learning_rate'] = 0.21228438289846577
+        if task == 'partial_relevancy':
+            lgb_params['learning_rate'] = 0.10
+            lgb_params['min_data_in_leaf'] = 2
+        else:
+            lgb_params['min_data_in_leaf'] = 7
+            lgb_params['learning_rate'] = 0.21228438289846577
+
         lgb_params['num_leaves'] = 99
-        lgb_params['min_data_in_leaf'] = 7
         lgb_params['min_sum_hessian_in_leaf'] = 1
         lgb_params['max_depth'] = -1
         lgb_params['lambda_l1'] = 0.0  # space['lambda_l1'],
@@ -502,7 +507,7 @@ parser.add_argument('--input', type=str, default='../data/premise_question_relev
 parser.add_argument('--tmp', type=str, default='../tmp', help='folder to store results')
 parser.add_argument('--data_dir', type=str, default='../data', help='folder containing some evaluation datasets')
 parser.add_argument('--lemmatize', type=int, default=1, help='canonize phrases before shingle extraction: 0 - none, 1 - lemmas, 2 - stems')
-parser.add_argument('--task', type=str, default='relevancy', choices='relevancy synonymy'.split(), help='model filenames keyword')
+parser.add_argument('--task', type=str, default='relevancy', choices='relevancy synonymy partial_relevancy'.split(), help='model filenames keyword')
 
 args = parser.parse_args()
 
@@ -671,7 +676,7 @@ if run_mode == 'query2':
 
     prompt = ':> '
     added_phrases = set()
-    if task == 'relevancy':
+    if task in 'relevancy partial_relevancy'.split():
         # Поиск лучшей предпосылки, релевантной введенному вопросу
         prompt = 'question:> '
 
@@ -918,6 +923,14 @@ if run_mode == 'hardnegative':
                         test_phrases.add((phrase2, phrase))
 
         if True:
+            with io.open(os.path.join(data_folder, 'questions_2s.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    phrase = line.strip()
+                    if len(phrase) > 8:
+                        phrase2 = u' '.join(tokenizer.tokenize(phrase))
+                        test_phrases.add((phrase2, phrase))
+
+        if False:
             with io.open(os.path.join(data_folder, 'faq2.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -928,7 +941,7 @@ if run_mode == 'hardnegative':
                             phrase2 = u' '.join(words)
                             test_phrases.add((phrase2, phrase))
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'stories.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     if '$' not in line:
@@ -943,7 +956,8 @@ if run_mode == 'hardnegative':
 
         premises = list(test_phrases)
         questions = list(test_phrases)
-    elif task == 'relevancy':
+
+    elif task in 'relevancy'.split():
         # Модель будет выбирать группы максимально релевантных предпосылок для вопросов.
         premises = set()
         questions = set()

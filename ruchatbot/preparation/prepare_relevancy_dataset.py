@@ -28,6 +28,7 @@ import codecs
 import collections
 import itertools
 import os
+import random
 import tqdm
 import numpy as np
 import io
@@ -107,48 +108,10 @@ def normalize_qline(line):
     line = line.replace(u'A:', u'')
     line = line.replace(u'\t', u' ')
     line = line.replace('.', ' ').replace('?', ' ').replace('!', ' ')
-    line = line.replace('  ', ' ').strip().lower()
+    line = line.replace('  ', ' ')
+    line = line.strip().lower()
     line = ru_sanitize(line)
     return line
-
-
-# ---------------------------------------------------------------
-
-tokenizer = Tokenizer()
-tokenizer.load()
-random_questions = CorpusSearcher()
-random_facts = CorpusSearcher()
-
-# прочитаем список случайных вопросов из заранее сформированного файла
-# (см. код на C# https://github.com/Koziev/chatbot/tree/master/CSharpCode/ExtractFactsFromParsing
-# и результаты его работы https://github.com/Koziev/NLP_Datasets/blob/master/Samples/questions4.txt)
-print('Loading random questions and facts...')
-with codecs.open(questions_path, 'r', 'utf-8') as rdr:
-    for line in rdr:
-        if len(line) < 40:
-            question = line.strip()
-            question = ru_sanitize(u' '.join(tokenizer.tokenize(question.lower())))
-            random_questions.add_phrase(normalize_qline(question))
-
-# Прочитаем список случайных фактов, чтобы потом генерировать отрицательные паттерны
-for facts_path in ['paraphrases.txt', 'facts4.txt', 'facts5.txt', 'facts6.txt', ]:
-    with codecs.open(os.path.join(data_folder, facts_path), 'r', 'utf-8') as rdr:
-        n = 0
-        for line in rdr:
-            s = line.strip()
-            if s:
-                if s[-1] == u'?':
-                    random_questions.add_phrase(normalize_qline(s))
-                else:
-                    random_facts.add_phrase(normalize_qline(s))
-
-                n += 1
-                if n > 2000000:
-                    break
-
-print('{} random facts in set'.format(len(random_facts)))
-print('{} random questions in set'.format(len(random_questions)))
-# ------------------------------------------------------------------------
 
 
 class ResultantDataset(object):
@@ -220,254 +183,327 @@ class ResultantDataset(object):
         self.weights = list(itertools.chain(weights1, weights0))
 
 
-# ------------------------------------------------------------------------
+if __name__ == '__main__':
+    tokenizer = Tokenizer()
+    tokenizer.load()
+    random_questions = CorpusSearcher()
+    random_facts = CorpusSearcher()
 
-res_dataset = ResultantDataset()
+    # прочитаем список случайных вопросов из заранее сформированного файла
+    # (см. код на C# https://github.com/Koziev/chatbot/tree/master/CSharpCode/ExtractFactsFromParsing
+    # и результаты его работы https://github.com/Koziev/NLP_Datasets/blob/master/Samples/questions4.txt)
+    print('Loading random questions and facts...')
+    with codecs.open(questions_path, 'r', 'utf-8') as rdr:
+        for line in rdr:
+            if len(line) < 40:
+                question = line.strip()
+                question = ru_sanitize(u' '.join(tokenizer.tokenize(question.lower())))
+                random_questions.add_phrase(normalize_qline(question))
 
-lines = []
-posit_pairs_count = 0
-negat_pairs_count = 0
-random_negat_pairs_count = 0
-
-# Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
-manual_negatives_pq = dict()
-manual_negatives_qp = dict()
-with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
-    for line in rdr:
-        line = line.strip()
-        if line:
-            tx = line.split('|')
-            if len(tx) == 2:
-                premise = normalize_qline(tx[0])
-                question = normalize_qline(tx[1])
-                if premise not in manual_negatives_pq:
-                    manual_negatives_pq[premise] = [question]
-                else:
-                    manual_negatives_pq[premise].append(question)
-
-                if question not in manual_negatives_qp:
-                    manual_negatives_qp[question] = [premise]
-                else:
-                    manual_negatives_qp[question].append(premise)
-            elif len(tx) == 1:
-                # Второй формат, аналогичный негативным синонимам
-                # Первая строка задает вопрос, далее идут строки, начинающиеся на (-) с нерелевантными предпосылками.
-                question = normalize_qline(tx[0])
-                for line in rdr:
-                    if line.startswith('(-)'):
-                        premise = normalize_qline(line.replace('(-)', '').strip())
-                        if question not in manual_negatives_qp:
-                            manual_negatives_qp[question] = [premise]
-                        else:
-                            manual_negatives_qp[question].append(premise)
+    # Прочитаем список случайных фактов, чтобы потом генерировать отрицательные паттерны
+    for facts_path in ['paraphrases.txt', 'facts4.txt', 'facts5.txt', 'facts6.txt', ]:
+        with codecs.open(os.path.join(data_folder, facts_path), 'r', 'utf-8') as rdr:
+            n = 0
+            for line in rdr:
+                s = line.strip()
+                if s:
+                    if s[-1] == u'?':
+                        random_questions.add_phrase(normalize_qline(s))
                     else:
+                        random_facts.add_phrase(normalize_qline(s))
+
+                    n += 1
+                    if n > 2000000:
                         break
 
+    print('{} random facts in set'.format(len(random_facts)))
+    print('{} random questions in set'.format(len(random_questions)))
+    # ------------------------------------------------------------------------
 
+    res_dataset = ResultantDataset()
 
-for premise, questions in manual_negatives_pq.items():
-    for question in questions:
-        res_dataset.add_pair(premise, question, 0, 1)
-
-
-# Загрузим датасет с перефразировками фраз, чтобы выполнить аугментацию pq-датасета синонимами.
-G = nx.Graph()  # для определения синонимичных фраз, записанных в разных группах.
-group = []
-all_positive_pairs = set()
-igroup = 0
-fcleaner = PhraseCleaner()
-phrase2group = dict()
-
-for p in paraphrases_paths:
-    with io.open(p, 'r', encoding='utf-8') as rdr:
-        for line in rdr:
-            phrase = line.strip()
-            if len(phrase) == 0:
-                if len(group) > 1:
-                    igroup += 1
-                    n = len(group)
-                    for i1 in range(n):
-                        phrase1 = group[i1]
-                        if phrase1.startswith(u'(-)'):
-                            continue
-
-                        if phrase1.startswith(u'(+)'):
-                            phrase1 = phrase1.replace(u'(+)', u'').strip()
-
-                        phrase1 = fcleaner.process(phrase1)
-
-                        phrase2group[phrase1] = igroup
-                        for i2 in range(i1 + 1, n):
-                            y = 1
-                            phrase2 = group[i2]
-
-                            if phrase2.startswith(u'(+)'):
-                                phrase2 = phrase2.replace(u'(+)', u'').strip()
-                            elif phrase2.startswith(u'(-)'):
-                                phrase2 = phrase2.replace(u'(-)', u'').strip()
-                                y = 0
-
-                            phrase2 = fcleaner.process(phrase2)
-
-                            phrase2group[phrase2] = igroup
-                            if y == 1 and phrase1 != phrase2:
-                                G.add_edge(phrase1, phrase2)
-                                all_positive_pairs.add((phrase1, phrase2))
-                                all_positive_pairs.add((phrase2, phrase1))
-
-                    group = []
-            else:
-                group.append(phrase)
-
-# Для каждой фразы соберем список ее перефразировок, учитывая еще и описанные в разных группах.
-phrase2synonyms = dict((phrase1, set(nx.algorithms.descendants(G, phrase1)))
-                       for phrase1, _
-                       in all_positive_pairs)
-
-
-# Теперь релевантные пары предпосылка-вопрос.
-for qa_path, qa_weight, max_samples in qa_paths:
-    print('Parsing {}'.format(qa_path), end='\r')
-    premise_questions = []
+    lines = []
     posit_pairs_count = 0
     negat_pairs_count = 0
-    with codecs.open(os.path.join(data_folder, qa_path), "r", "utf-8") as inf:
-        loading_state = 'T'
+    random_negat_pairs_count = 0
 
-        text = []
-        questions = []
-
-        for line in inf:
+    # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
+    manual_negatives_pq = dict()
+    manual_negatives_qp = dict()
+    with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
+        for line in rdr:
             line = line.strip()
+            if line:
+                tx = line.split('|')
+                if len(tx) == 2:
+                    premise = normalize_qline(tx[0])
+                    question = normalize_qline(tx[1])
+                    if premise not in manual_negatives_pq:
+                        manual_negatives_pq[premise] = [question]
+                    else:
+                        manual_negatives_pq[premise].append(question)
 
-            if line.startswith(u'T:'):
-                if loading_state == 'T':
-                    text.append(normalize_qline(line))
+                    if question not in manual_negatives_qp:
+                        manual_negatives_qp[question] = [premise]
+                    else:
+                        manual_negatives_qp[question].append(premise)
+                elif len(tx) == 1:
+                    # Второй формат, аналогичный негативным синонимам
+                    # Первая строка задает вопрос, далее идут строки, начинающиеся на (-) с нерелевантными предпосылками.
+                    question = normalize_qline(tx[0])
+                    for line in rdr:
+                        if line.startswith('(-)'):
+                            premise = normalize_qline(line.replace('(-)', '').strip())
+                            if question not in manual_negatives_qp:
+                                manual_negatives_qp[question] = [premise]
+                            else:
+                                manual_negatives_qp[question].append(premise)
+                        else:
+                            break
+
+
+    for premise, questions in manual_negatives_pq.items():
+        for question in questions:
+            res_dataset.add_pair(premise, question, 0, 1)
+
+
+    # Загрузим датасет с перефразировками фраз, чтобы выполнить аугментацию pq-датасета синонимами.
+    G = nx.Graph()  # для определения синонимичных фраз, записанных в разных группах.
+    group = []
+    all_positive_pairs = set()
+    igroup = 0
+    fcleaner = PhraseCleaner()
+    phrase2group = dict()
+
+    for p in paraphrases_paths:
+        with io.open(p, 'r', encoding='utf-8') as rdr:
+            for line in rdr:
+                phrase = line.strip()
+                if len(phrase) == 0:
+                    if len(group) > 1:
+                        igroup += 1
+                        n = len(group)
+                        for i1 in range(n):
+                            phrase1 = group[i1]
+                            if phrase1.startswith(u'(-)'):
+                                continue
+
+                            if phrase1.startswith(u'(+)'):
+                                phrase1 = phrase1.replace(u'(+)', u'').strip()
+
+                            phrase1 = fcleaner.process(phrase1)
+
+                            phrase2group[phrase1] = igroup
+                            for i2 in range(i1 + 1, n):
+                                y = 1
+                                phrase2 = group[i2]
+
+                                if phrase2.startswith(u'(+)'):
+                                    phrase2 = phrase2.replace(u'(+)', u'').strip()
+                                elif phrase2.startswith(u'(-)'):
+                                    phrase2 = phrase2.replace(u'(-)', u'').strip()
+                                    y = 0
+
+                                phrase2 = fcleaner.process(phrase2)
+
+                                phrase2group[phrase2] = igroup
+                                if y == 1 and phrase1 != phrase2:
+                                    G.add_edge(phrase1, phrase2)
+                                    all_positive_pairs.add((phrase1, phrase2))
+                                    all_positive_pairs.add((phrase2, phrase1))
+
+                        group = []
                 else:
-                    # закончился парсинг предыдущего блока из текста (предпосылки),
-                    # вопросов и ответов.
+                    group.append(phrase)
 
-                    # Из загруженных записей добавим пары в обучающий датасет
-                    if len(text) == 1:
-                        premise_questions.append((text[0], questions))
+    # Для каждой фразы соберем список ее перефразировок, учитывая еще и описанные в разных группах.
+    phrase2synonyms = dict((phrase1, set(nx.algorithms.descendants(G, phrase1)))
+                           for phrase1, _
+                           in all_positive_pairs)
 
-                        for premise in text:
-                            for question in questions:
-                                if res_dataset.add_pair(premise, question, 1, qa_weight):
-                                    posit_pairs_count += 1
 
-                                premise_syns = set([premise]) | phrase2synonyms.get(fcleaner.process(premise), set())
-                                premise_syns = [s for s in premise_syns if u'?' not in s and u'ли' not in s]
-                                question_syns = set([question]) | phrase2synonyms.get(fcleaner.process(question), set())
-                                for premise1 in premise_syns:
-                                    for question1 in question_syns:
-                                        if res_dataset.add_pair(premise1, question1, 1, qa_weight):
-                                            posit_pairs_count += 1
+    # Теперь релевантные пары предпосылка-вопрос.
+    for qa_path, qa_weight, max_samples in qa_paths:
+        print('Parsing {}'.format(qa_path), end='\r')
+        premise_questions = []
+        posit_pairs_count = 0
+        negat_pairs_count = 0
+        with codecs.open(os.path.join(data_folder, qa_path), "r", "utf-8") as inf:
+            loading_state = 'T'
 
-                    loading_state = 'T'
-                    questions = []
-                    text = [normalize_qline(line)]
+            text = []
+            questions = []
 
-                    if posit_pairs_count >= max_samples:
-                        break
+            for line in inf:
+                line = line.strip()
 
-            elif line.startswith(u'Q:'):
-                loading_state = 'Q'
-                questions.append(normalize_qline(line))
+                if line.startswith(u'T:'):
+                    if loading_state == 'T':
+                        text.append(normalize_qline(line))
+                    else:
+                        # закончился парсинг предыдущего блока из текста (предпосылки),
+                        # вопросов и ответов.
 
-    print('{:<40s} ==> posit_pairs_count={}'.format(qa_path, posit_pairs_count))
+                        # Из загруженных записей добавим пары в обучающий датасет
+                        if len(text) == 1:
+                            premise_questions.append((text[0], questions))
 
-# Добавляем негативные сэмплы
-for premise, question in tqdm.tqdm(res_dataset.list_positives(), total=res_dataset.positive_count(), desc='Adding negative'):
-    # Добавим несколько нерелевантных вопросов и предпосылок, используя части релевантного сэмпла
-    neg_2_add = n_negative_per_positive
+                            for premise in text:
+                                for question in questions:
+                                    if res_dataset.add_pair(premise, question, 1, qa_weight):
+                                        posit_pairs_count += 1
 
-    if ADD_SIMILAR_NEGATIVES:
-        # Берем ближайшие случайные вопросы и предпосылки
-        for neg_question in random_questions.find_similar(premise, neg_2_add // 2 if neg_2_add > 0 else 1):
-            res_dataset.add_pair(premise, neg_question, 0, AUTOGEN_WEIGHT)
-            negat_pairs_count += 1
-            neg_2_add -= 1
+                                    premise_syns = set([premise]) | phrase2synonyms.get(fcleaner.process(premise), set())
+                                    premise_syns = [s for s in premise_syns if u'?' not in s and u'ли' not in s]
+                                    question_syns = set([question]) | phrase2synonyms.get(fcleaner.process(question), set())
+                                    for premise1 in premise_syns:
+                                        for question1 in question_syns:
+                                            if res_dataset.add_pair(premise1, question1, 1, qa_weight):
+                                                posit_pairs_count += 1
 
-        for neg_premise in random_facts.find_similar(question, neg_2_add):
-            res_dataset.add_pair(neg_premise, question, 0, AUTOGEN_WEIGHT)
-            negat_pairs_count += 1
-            neg_2_add -= 1
+                        loading_state = 'T'
+                        questions = []
+                        text = [normalize_qline(line)]
 
-    # Добавим случайные нерелевантные вопросы и предпосылки
-    if neg_2_add > 0:
-        for neg_question in random_questions.get_random(neg_2_add // 2 if neg_2_add > 0 else 1):
-            res_dataset.add_pair(premise, neg_question, 0, AUTOGEN_WEIGHT)
-            negat_pairs_count += 1
-            neg_2_add -= 1
+                        if posit_pairs_count >= max_samples:
+                            break
 
-        if neg_2_add > 0:
-            for neg_premise in random_facts.get_random(neg_2_add):
+                elif line.startswith(u'Q:'):
+                    loading_state = 'Q'
+                    questions.append(normalize_qline(line))
+
+        print('{:<40s} ==> posit_pairs_count={}'.format(qa_path, posit_pairs_count))
+
+    # Добавляем негативные сэмплы
+    for premise, question in tqdm.tqdm(res_dataset.list_positives(), total=res_dataset.positive_count(), desc='Adding negative'):
+        # Добавим несколько нерелевантных вопросов и предпосылок, используя части релевантного сэмпла
+        neg_2_add = n_negative_per_positive
+
+        if ADD_SIMILAR_NEGATIVES:
+            # Берем ближайшие случайные вопросы и предпосылки
+            for neg_question in random_questions.find_similar(premise, neg_2_add // 2 if neg_2_add > 0 else 1):
+                res_dataset.add_pair(premise, neg_question, 0, AUTOGEN_WEIGHT)
+                negat_pairs_count += 1
+                neg_2_add -= 1
+
+            for neg_premise in random_facts.find_similar(question, neg_2_add):
                 res_dataset.add_pair(neg_premise, question, 0, AUTOGEN_WEIGHT)
                 negat_pairs_count += 1
                 neg_2_add -= 1
 
-    assert (neg_2_add == 0)
+        # Добавим случайные нерелевантные вопросы и предпосылки
+        if neg_2_add > 0:
+            for neg_question in random_questions.get_random(neg_2_add // 2 if neg_2_add > 0 else 1):
+                res_dataset.add_pair(premise, neg_question, 0, AUTOGEN_WEIGHT)
+                negat_pairs_count += 1
+                neg_2_add -= 1
 
-# ---------------------------------------------------------------------------
+            if neg_2_add > 0:
+                for neg_premise in random_facts.get_random(neg_2_add):
+                    res_dataset.add_pair(neg_premise, question, 0, AUTOGEN_WEIGHT)
+                    negat_pairs_count += 1
+                    neg_2_add -= 1
 
-# Добавляем перестановочные перефразировки.
-# Подготовка датасетов с перестановочными перефразировками выполняется
-# C# кодом, находящимся здесь: https://github.com/Koziev/NLP_Datasets/tree/master/ParaphraseDetection
-if False:
-    srcpaths = ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']
+        assert (neg_2_add == 0)
 
-    # кол-во перестановочных перефразировок одной длины,
-    # чтобы в итоге кол-во перестановочных пар не превысило число
-    # явно заданных положительных пар.
-    nb_permut = res_dataset.positive_count() / len(srcpaths)
+    # ---------------------------------------------------------------------------
 
-    print('nb_permut={}'.format(nb_permut))
-    total_permutations = 0
-    include_repeats = False  # включать ли нулевые перефразировки - когда левая и правая части идентичны
-    emitted_perm = set()
+    # Добавляем перестановочные перефразировки.
+    # Подготовка датасетов с перестановочными перефразировками выполняется
+    # C# кодом, находящимся здесь: https://github.com/Koziev/NLP_Datasets/tree/master/ParaphraseDetection
+    if False:
+        srcpaths = ['SENT4.duplicates.txt', 'SENT5.duplicates.txt', 'SENT6.duplicates.txt']
 
-    for srcpath in srcpaths:
-        print('source=', srcpath)
+        # кол-во перестановочных перефразировок одной длины,
+        # чтобы в итоге кол-во перестановочных пар не превысило число
+        # явно заданных положительных пар.
+        nb_permut = res_dataset.positive_count() / len(srcpaths)
+
+        print('nb_permut={}'.format(nb_permut))
+        total_permutations = 0
+        include_repeats = False  # включать ли нулевые перефразировки - когда левая и правая части идентичны
+        emitted_perm = set()
+
+        for srcpath in srcpaths:
+            print('source=', srcpath)
+            lines = []
+            with codecs.open(os.path.join(data_folder, srcpath), "r", "utf-8") as inf:
+                nperm = 0
+                for line in inf:
+                    line = line.strip()
+                    if len(line) == 0:
+                        if len(lines) > 1:
+
+                            for i1 in range(len(lines)):
+                                for i2 in range(len(lines)):
+                                    if i1 == i2 and not include_repeats:
+                                        continue
+                                    k1 = lines[i1].strip() + u'|' + lines[i2].strip()
+                                    k2 = lines[i2].strip() + u'|' + lines[i1].strip()
+                                    if k1 not in emitted_perm and k2 not in emitted_perm:
+                                        emitted_perm.add(k1)
+                                        emitted_perm.add(k2)
+
+                                        res_dataset.add_pair(lines[i1], lines[i2], 1, AUTOGEN_WEIGHT)
+                                        total_permutations += 1
+                                        nperm += 1
+                                        if nperm > nb_permut:
+                                            break
+
+                        lines = []
+                    else:
+                        lines.append(normalize_qline(line))
+
+        print('total_permutations={}'.format(total_permutations))
+
+    # ---------------------------------------------------------------------------
+
+    # Теперь сокращаем кол-во негативных сэмплов
+    # nb_negative = res_dataset.positive_count() * n_negative_per_positive
+    # res_dataset.remove_redundant_negatives(nb_negative)
+
+    # Выведем итоговую статистику
+    res_dataset.print_stat()
+
+    # сохраним получившийся датасет в CSV
+    print('Storing dataset..')
+    res_dataset.save_csv(os.path.join(data_folder, 'premise_question_relevancy.csv'))
+
+    # ------------------------------------------------------------
+    # Генерация датасета для модели частичной релевантности (сэмплы с 2-мя предпосылками)
+    p2qa_samples = []
+    with io.open(os.path.join(data_folder, 'qa_multy.txt'), 'r', encoding='utf-8') as rdr:
         lines = []
-        with codecs.open(os.path.join(data_folder, srcpath), "r", "utf-8") as inf:
-            nperm = 0
-            for line in inf:
-                line = line.strip()
-                if len(line) == 0:
-                    if len(lines) > 1:
+        for line in rdr:
+            line = normalize_qline(line)
+            if line:
+                lines.append(line)
+            else:
+                if len(lines) == 4:
+                    premises = lines[:-2]
+                    question = lines[-2]
+                    answer = lines[-1]
+                    p2qa_samples.append((premises, question, answer))
 
-                        for i1 in range(len(lines)):
-                            for i2 in range(len(lines)):
-                                if i1 == i2 and not include_repeats:
-                                    continue
-                                k1 = lines[i1].strip() + u'|' + lines[i2].strip()
-                                k2 = lines[i2].strip() + u'|' + lines[i1].strip()
-                                if k1 not in emitted_perm and k2 not in emitted_perm:
-                                    emitted_perm.add(k1)
-                                    emitted_perm.add(k2)
+                lines = []
 
-                                    res_dataset.add_pair(lines[i1], lines[i2], 1, AUTOGEN_WEIGHT)
-                                    total_permutations += 1
-                                    nperm += 1
-                                    if nperm > nb_permut:
-                                        break
+    print('{} p2qa samples loaded from qa_multi.txt'.format(len(p2qa_samples)))
+    partial_p2q = dict()
+    random_premises = list(set(s[0] for s in res_dataset.str_pairs))
 
-                    lines = []
-                else:
-                    lines.append(normalize_qline(line))
+    for premises, question, answer in p2qa_samples:
+        for premise in premises:
+            partial_p2q[(premise, question)] = 1
 
-    print('total_permutations={}'.format(total_permutations))
+            # добавим негативный пример, рандомно выбирая предпосылку
+            neg_premise = random.choice(random_premises)
+            k = (neg_premise, question)
+            if k not in partial_p2q:
+                partial_p2q[k] = 0
 
-# ---------------------------------------------------------------------------
-
-# Теперь сокращаем кол-во негативных сэмплов
-# nb_negative = res_dataset.positive_count() * n_negative_per_positive
-# res_dataset.remove_redundant_negatives(nb_negative)
-
-# Выведем итоговую статистику
-res_dataset.print_stat()
-
-# сохраним получившийся датасет в CSV
-print('Storing dataset..')
-res_dataset.save_csv(os.path.join(data_folder, 'premise_question_relevancy.csv'))
+    filepath = os.path.join(data_folder, 'partial_premise_question_relevancy.tsv')
+    print('Writing {} samples to "{}"'.format(len(partial_p2q), filepath))
+    with io.open(filepath, 'w', encoding='utf-8') as wrt:
+        wrt.write(u'premise\tquestion\trelevance\tweight\n')
+        for (premise, question), r in partial_p2q.items():
+            wrt.write(u'{}\t{}\t{}\t{}\n'.format(premise, question, r, 1))
