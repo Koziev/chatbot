@@ -16,6 +16,7 @@ import sklearn.model_selection
 from sklearn.model_selection import KFold
 
 import sentencepiece as spm
+import terminaltables
 
 import keras
 import keras.callbacks
@@ -128,9 +129,10 @@ def load_samples(bpe_model, computed_params, max_samples):
                 lines = []
 
     # Ограничим количество сэмплов с ответом 'да'
-    nyes = len(samples_others) // 20
-    if len(samples_yes) > nyes:
-        samples_yes = sorted(samples_yes, key=lambda z: random.random())[:nyes]
+    #nyes = len(samples_others) // 20
+    #if len(samples_yes) > nyes:
+    #    samples_yes = sorted(samples_yes, key=lambda z: random.random())[:nyes]
+    print('samples_yes.count={}'.format(len(samples_yes)))
 
     # Объединяем сэмплы
     samples = samples_others + samples_yes
@@ -168,10 +170,10 @@ def vectorize_samples(samples, computed_params):
     X = np.zeros((nb_samples, seq_len), dtype=np.int32)
     y = np.zeros((nb_samples, seq_len), dtype=np.int32)
     for isample, sample in enumerate(samples):
-        for itoken, token in enumerate(sample.left_tokens):
+        for itoken, token in enumerate(sample.left_tokens[:seq_len]):
             X[isample, itoken] = token2index[token]
 
-        for itoken, token in enumerate(sample.right_tokens):
+        for itoken, token in enumerate(sample.right_tokens[:seq_len]):
             y[isample, itoken] = token2index[token]
 
     return X, y
@@ -213,17 +215,20 @@ class VizualizeCallback(keras.callbacks.Callback):
 
         index2token = dict((i, t) for t, i in computed_params['token2index'].items())
 
+        table = ['context true_output predicted_output'.split()]
         for sample, y_pred_sample in zip(samples2, y_pred):
             # Декодируем список индексов предсказанных токенов
             tokens = [index2token[itok] for itok in y_pred_sample]
             pred_right = ''.join(tokens).replace('▁', ' ').strip()
-            print('\nContext: {}'.format(sample.left_str))
-            print('True={:<20s} Predicted={}'.format(sample.right_str, pred_right))
+            table.append((sample.left_str, sample.right_str, pred_right))
+
+        table = terminaltables.AsciiTable(table)
+        print(table.table)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Model trainer for answer generator')
-    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='gridsearch')
+    parser = argparse.ArgumentParser(description='Answer generation model trainer')
+    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='report')
     parser.add_argument('--tmp_dir', default='../../tmp')
     parser.add_argument('--data_dir', default='../../data')
     args = parser.parse_args()
@@ -371,8 +376,8 @@ if __name__ == '__main__':
         # Загружаем конфиг натренированной модели
         with open(config_path, 'r') as f:
             computed_params = json.load(f)
-            arch_file = computed_params['arch_path']
-            weights_file = computed_params['weights_path']
+            arch_file = os.path.join(tmp_dir, os.path.basename(computed_params['arch_path']))
+            weights_file = os.path.join(tmp_dir, os.path.basename(computed_params['weights_path']))
             bpe_model_name = computed_params['bpe_model_name']
 
         with open(arch_file, 'r') as f:
@@ -383,8 +388,8 @@ if __name__ == '__main__':
         bpe_model = load_bpe_model(bpe_model_name)
 
         # Все сэмплы
-        samples = load_samples(bpe_model, computed_params, max_samples=1000000)
-
+        dummy = dict()
+        samples = load_samples(bpe_model, dummy, max_samples=1000000)
 
         print('Final assessment on {} samples'.format(len(samples)))
         nb_good = 0
@@ -392,22 +397,32 @@ if __name__ == '__main__':
         batch_size = 200
         index2token = dict((i, t) for t, i in computed_params['token2index'].items())
 
-        with io.open(os.path.join(tmp_dir, 'train_nn_seq2seq_pqa_generator.report.txt'), 'w', encoding='utf-8') as wrt:
+        with io.open(os.path.join(tmp_dir, 'train_nn_seq2seq_pqa_generator.report.txt'), 'w', encoding='utf-8') as wrt,\
+             io.open(os.path.join(tmp_dir, 'train_nn_seq2seq_pqa_generator.errors.txt'), 'w', encoding='utf-8') as wrt2:
             for isample in range(0, len(samples), batch_size):
                 batch_samples = samples[isample:isample+batch_size]
                 X_batch, y_batch = vectorize_samples(batch_samples, computed_params)
                 y_pred = model.predict(X_batch, batch_size=batch_size, verbose=0)
                 for sample, sample_y_pred, y_true in zip(samples, y_pred, y_batch):
                     sample_y_pred = np.argmax(sample_y_pred, axis=-1)
+
+                    tokens = [index2token[itok] for itok in sample_y_pred]
+                    pred_right = ''.join(tokens).replace('▁', ' ').strip()
+                    wrt.write('\n\nContext:          {}\n'.format(sample.left_str))
+                    wrt.write('True answer:      {}\n'.format(sample.right_str))
+                    wrt.write('Predicted answer: {}\n'.format(pred_right))
+
                     nb_total += 1
                     if np.array_equal(sample_y_pred, y_true):
                         nb_good += 1
                     else:
-                        # Выведем в текстовый ответ описание ошибки
-                        tokens = [index2token[itok] for itok in sample_y_pred]
-                        pred_right = ''.join(tokens).replace('▁', ' ').strip()
-                        wrt.write('\n\nContext:          {}\n'.format(sample.left_str))
-                        wrt.write('True answer:      {}\n'.format(sample.right_str))
-                        wrt.write('Predicted answer: {}\n'.format(pred_right))
+                        sx = [s.strip() for s in sample.left_str.split('|')]
+                        premises = sx[:-1]
+                        question = sx[-1]
+                        wrt2.write('\n\n')
+                        for premise in premises:
+                            wrt2.write('T: {}\n'.format(premise))
+                        wrt2.write('Q: {}\n'.format(question))
+                        wrt2.write('A: {}\n'.format(sample.right_str))
 
         print('Dirty accuracy={}'.format(nb_good/float(nb_total)))
