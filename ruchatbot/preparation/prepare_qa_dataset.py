@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-'''
+"""
 Парсим файл с текстами, вопросами и ответами, готовим датасет
 для тренировки моделей генерации текста ответа из пары предпосылка+вопрос.
 (c) by Koziev Ilya inkoziev@gmail.com
-'''
+"""
 
 from __future__ import division
 from __future__ import print_function
@@ -12,12 +12,13 @@ import codecs
 import os
 import tqdm
 import io
+import random
 
 import pandas as pd
 import csv
 import sklearn.utils
 
-from utils.tokenizer import Tokenizer
+from ruchatbot.utils.tokenizer import Tokenizer
 
 tmp_folder = '../../tmp'
 data_folder = '../../data'
@@ -30,7 +31,7 @@ MAX_AUTOGEN_SAMPLES = 100000
 
 # ---------------------------------------------------------------
 
-class Sample_YesNo:
+class Sample:
     def __init__(self, premises, question, answer):
         self.premises = premises[:]
         self.question = question
@@ -126,8 +127,9 @@ if True:
                             continue
 
                         for question in questions:
-                            add_record(premise, question, u'да', False)
-                            nb_paraphrases += 1
+                            if random.random() < 0.1:
+                                add_record(premise, question, u'да', False)
+                                nb_paraphrases += 1
 
                 lines = []
             else:
@@ -205,9 +207,17 @@ for p, is_handmade in px:
                                     # Исключаем паттерны с ответами типа "я" и "ты", так как их
                                     # очень много, и для тренировки сеточного генератора ответов
                                     # они дают бесполезную нагрузку.
-                                    add_record(premise, question[0], answer, is_handmade)
-                                    nb_patterns0 += 1
-                                    samples_count += 1
+
+                                    if answer == 'да' and not is_handmade:
+                                        # ограничим кол-во автоматических сэмплов с ответом 'да'
+                                        if random.random() < 0.1:
+                                            samples_count += 1
+                                            add_record(premise, question[0], answer, is_handmade)
+                                            nb_patterns0 += 1
+                                    else:
+                                        add_record(premise, question[0], answer, is_handmade)
+                                        samples_count += 1
+                                        nb_patterns0 += 1
 
                     loading_state = 'T'
                     questions = []
@@ -276,7 +286,7 @@ else:
 print('Random permutation of dataframe...')
 df = sklearn.utils.shuffle(df)
 
-print(u'Writing dataframe to {}'.format(result_path))
+print(u'Writing dataframe to "{}"'.format(result_path))
 df.to_csv(result_path, sep='\t', encoding='utf-8', header=True, index=False, quoting=csv.QUOTE_NONE)
 
 # Отдельно сохраним датасет для тренировки yes/no классификатора, добавив туда
@@ -291,15 +301,16 @@ with codecs.open(input_path, 'r', 'utf-8') as rdr:
     prev_line = u''
     for iline, line in enumerate(rdr):
         line = line.strip()
-        #print(line)
         if len(line) == 0:
             if len(prev_line) != 0:
-                assert(len(answer) != 0)
-                assert(len(question) != 0)
-                sample = Sample_YesNo(premises, question, answer)
-                samples_all.append(sample)
-                if sample.answer in [u'да', u'нет']:
-                    samples_yesno.append(sample)
+                if len(answer) ==0 or len(question) == 0:
+                    print('Empty answer or question in sample near line #{} in file "{}"'.format(iline+1, input_path))
+
+                if len(premises) in (0, 1, 2):
+                    sample = Sample(premises, question, answer)
+                    samples_all.append(sample)
+                    if sample.answer in [u'да', u'нет']:
+                        samples_yesno.append(sample)
 
                 premises = []
                 question = u''
@@ -323,7 +334,7 @@ for irow, row in df.iterrows():
     premise = row['premise']
     question = row['question']
     answer = row['answer']
-    sample = Sample_YesNo([premise], question, answer)
+    sample = Sample([premise], question, answer)
     samples_all.append(sample)
     if answer in [u'да', u'нет']:
         samples_yesno.append(sample)
