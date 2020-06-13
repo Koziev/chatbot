@@ -25,8 +25,8 @@ import rupostagger
 import rulemma
 import ruword2tags
 
-from utils.tokenizer import Tokenizer
-import utils.logging_helpers
+from ruchatbot.utils.tokenizer import Tokenizer
+import ruchatbot.utils.logging_helpers
 
 
 def decode_pos(pos):
@@ -182,7 +182,7 @@ def load_samples(input_paths, tokenizer):
     all_answers = set()
 
     for input_path, samples_label in input_paths:
-        logging.info(u'Loading samples from {}'.format(input_path))
+        logging.info('Loading samples from "%s"', input_path)
 
         with io.open(input_path, 'r', encoding='utf-8') as rdr:
             lines = []
@@ -191,31 +191,33 @@ def load_samples(input_paths, tokenizer):
                 line = line.strip()
                 if len(line) == 0:
                     if len(lines) > 0:
-                        if len(lines) == 3:  # пока берем только сэмплы с 1 предпосылкой
+                        if len(lines) in (3, 4):  # пока берем только сэмплы с 1 или 2 предпосылками
                             premises = [l.lower() for l in lines[:-2]]
                             question = lines[-2].lower()
                             answer = lines[-1].lower()
 
-                            if answer not in (u'да', u'нет'):
-                                max_nb_premises = max(max_nb_premises, len(premises))
-                                for phrase in lines:
-                                    words = tokenizer.tokenize(phrase)
-                                    max_inputseq_len = max(max_inputseq_len, len(words))
+                            if answer == 'да' and random.random() < 0.8:
+                                continue
 
-                                key = u'|'.join(lines)
-                                if key not in all_samples:
-                                    all_samples.add(key)
-                                    sample = Sample(premises, question, answer, samples_label)
-                                    samples.append(sample)
-                                    all_answers.add(answer)
+                            max_nb_premises = max(max_nb_premises, len(premises))
+                            for phrase in lines:
+                                words = tokenizer.tokenize(phrase)
+                                max_inputseq_len = max(max_inputseq_len, len(words))
+
+                            key = u'|'.join(lines)
+                            if key not in all_samples:
+                                all_samples.add(key)
+                                sample = Sample(premises, question, answer, samples_label)
+                                samples.append(sample)
+                                all_answers.add(answer)
 
                         lines = []
                 else:
                     lines.append(clean_phrase(line, tokenizer))
 
-    logging.info('samples.count={}'.format(len(samples)))
-    logging.info('max_inputseq_len={}'.format(max_inputseq_len))
-    logging.info('max_nb_premises={}'.format(max_nb_premises))
+    logging.info('samples.count=%d', len(samples))
+    logging.info('max_inputseq_len=%d', max_inputseq_len)
+    logging.info('max_nb_premises=%d', max_nb_premises)
 
     # генерируем негативные сэмплы
     all_answers = list(all_answers)
@@ -262,153 +264,155 @@ def get_tagvals(tags, required_tag):
         if tag.startswith(required_tag):
             yield tag.split('=')[1]
 
-data_folder = '../../data'
-tmp_folder = '../../tmp'
 
-# настраиваем логирование в файл
-utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_answer_relevancy_dataset.log'))
+if __name__ == '__main__':
+    data_folder = '../../data'
+    tmp_folder = '../../tmp'
 
-input_paths = [(os.path.join(data_folder, 'nonrelevant_answers_handmade_dataset.txt'), 0),
-               (os.path.join(data_folder, 'pqa_all.dat'), 1), ]
+    # настраиваем логирование в файл
+    ruchatbot.utils.logging_helpers.init_trainer_logging(os.path.join(tmp_folder, 'prepare_answer_relevancy_dataset.log'))
 
-logging.info('Start "prepare_answer_relevancy_dataset.py"')
+    input_paths = [(os.path.join(data_folder, 'nonrelevant_answers_handmade_dataset.txt'), 0),
+                   (os.path.join(data_folder, 'pqa_all.dat'), 1), ]
 
-tokenizer = Tokenizer()
-tokenizer.load()
+    logging.info('Start "prepare_answer_relevancy_dataset.py"')
 
-samples = load_samples(input_paths, tokenizer)
+    tokenizer = Tokenizer()
+    tokenizer.load()
 
-logging.info('Loading dictionaries...')
+    samples = load_samples(input_paths, tokenizer)
 
-thesaurus = Thesaurus()
-thesaurus.load(os.path.join(data_folder, 'dict/links.csv'))  # , corpus)
+    logging.info('Loading dictionaries...')
 
-lexicon = Word2Lemmas()
-lexicon.load(os.path.join(data_folder, 'dict/word2lemma.dat'))
+    thesaurus = Thesaurus()
+    thesaurus.load(os.path.join(data_folder, 'dict/links.csv'))  # , corpus)
 
-grdict = ruword2tags.RuWord2Tags()
-grdict.load()
+    lexicon = Word2Lemmas()
+    lexicon.load(os.path.join(data_folder, 'dict/word2lemma.dat'))
 
-flexer = ruword2tags.RuFlexer()
-flexer.load()
+    grdict = ruword2tags.RuWord2Tags()
+    grdict.load()
 
-# Аугментация: генерируем негативных сэмплы через выбор вариантов словоформ, отличающихся
-# от использованных в валидном ответе.
-logging.info('Generating negative samples...')
-all_keys = set(sample.get_key() for sample in samples)
-neg_samples = []
-for sample in samples:
-    if sample.label == 1:
-        answer_words = tokenizer.tokenize(sample.answer)
-        answer_len = len(answer_words)
-        if answer_len == 1:
-            # Аугментация для однословного ответа.
-            # Формы единственного слова, кроме упомянутой в ответе
-            for lemma, part_of_speech in lexicon.get_lemmas(answer_words[0]):
-                forms = list(lexicon.get_forms(lemma, part_of_speech))
-                forms = np.random.permutation(forms)[:5]
-                for form in forms:
-                    if form != answer_words[0]:
-                        sample0 = Sample(sample.premises, sample.question, form, 0)
-                        key0 = sample0.get_key()
-                        if key0 not in all_keys:
-                            all_keys.add(key0)
-                            neg_samples.append(sample0)
-                # Смена части речи и любые формы нового слова
-                tmp_samples = []
-                for word2, pos2, relation in thesaurus.get_linked(lemma, part_of_speech):
-                    for form in lexicon.get_forms(word2, part_of_speech):
+    flexer = ruword2tags.RuFlexer()
+    flexer.load()
+
+    # Аугментация: генерируем негативных сэмплы через выбор вариантов словоформ, отличающихся
+    # от использованных в валидном ответе.
+    logging.info('Generating negative samples...')
+    all_keys = set(sample.get_key() for sample in samples)
+    neg_samples = []
+    for sample in samples:
+        if sample.label == 1:
+            answer_words = tokenizer.tokenize(sample.answer)
+            answer_len = len(answer_words)
+            if answer_len == 1:
+                # Аугментация для однословного ответа.
+                # Формы единственного слова, кроме упомянутой в ответе
+                for lemma, part_of_speech in lexicon.get_lemmas(answer_words[0]):
+                    forms = list(lexicon.get_forms(lemma, part_of_speech))
+                    forms = np.random.permutation(forms)[:5]
+                    for form in forms:
                         if form != answer_words[0]:
                             sample0 = Sample(sample.premises, sample.question, form, 0)
                             key0 = sample0.get_key()
                             if key0 not in all_keys:
                                 all_keys.add(key0)
-                                tmp_samples.append(sample0)
-
-                neg_samples.extend(np.random.permutation(tmp_samples)[:5])
-
-        elif answer_len == 2:
-            if is_prepos(answer_words[0], grdict) and is_noun(answer_words[1], grdict):
-                # Аугментация для словосочетаний ПРЕДЛОГ+СУЩ
-                # Соберем пары ПАДЕЖ+ЧИСЛО, которые уже есть среди вариантов для словосочетания
-                found_cases = []
-                for noun_tagset in grdict[answer_words[1]]:
-                    tx = noun_tagset.split()
-                    noun_case = get_tagval(tx, u'ПАДЕЖ')
-                    found_cases.append(noun_case)
-
-                # Теперь перебираем все варианды падежа, пропуская уже известные
-                prep_cases = list(get_tagvals(list(grdict[answer_words[0]])[0].split(), u'ПАДЕЖ'))
-                for new_case in u'ИМ РОД ТВОР ВИН ДАТ ПРЕДЛ'.split():
-                    if new_case not in found_cases and new_case in prep_cases:
-                        for new_noun in flexer.find_forms_by_tags(answer_words[1], [(u'ПАДЕЖ', new_case)]):
-                            new_answer = answer_words[0] + u' ' + new_noun
-                            if new_answer != sample.answer:
-                                sample0 = Sample(sample.premises, sample.question, new_answer, 0)
+                                neg_samples.append(sample0)
+                    # Смена части речи и любые формы нового слова
+                    tmp_samples = []
+                    for word2, pos2, relation in thesaurus.get_linked(lemma, part_of_speech):
+                        for form in lexicon.get_forms(word2, part_of_speech):
+                            if form != answer_words[0]:
+                                sample0 = Sample(sample.premises, sample.question, form, 0)
                                 key0 = sample0.get_key()
                                 if key0 not in all_keys:
                                     all_keys.add(key0)
-                                    neg_samples.append(sample0)
+                                    tmp_samples.append(sample0)
+
+                    neg_samples.extend(np.random.permutation(tmp_samples)[:5])
+
+            elif answer_len == 2:
+                if is_prepos(answer_words[0], grdict) and is_noun(answer_words[1], grdict):
+                    # Аугментация для словосочетаний ПРЕДЛОГ+СУЩ
+                    # Соберем пары ПАДЕЖ+ЧИСЛО, которые уже есть среди вариантов для словосочетания
+                    found_cases = []
+                    for noun_tagset in grdict[answer_words[1]]:
+                        tx = noun_tagset.split()
+                        noun_case = get_tagval(tx, u'ПАДЕЖ')
+                        found_cases.append(noun_case)
+
+                    # Теперь перебираем все варианды падежа, пропуская уже известные
+                    prep_cases = list(get_tagvals(list(grdict[answer_words[0]])[0].split(), u'ПАДЕЖ'))
+                    for new_case in u'ИМ РОД ТВОР ВИН ДАТ ПРЕДЛ'.split():
+                        if new_case not in found_cases and new_case in prep_cases:
+                            for new_noun in flexer.find_forms_by_tags(answer_words[1], [(u'ПАДЕЖ', new_case)]):
+                                new_answer = answer_words[0] + u' ' + new_noun
+                                if new_answer != sample.answer:
+                                    sample0 = Sample(sample.premises, sample.question, new_answer, 0)
+                                    key0 = sample0.get_key()
+                                    if key0 not in all_keys:
+                                        all_keys.add(key0)
+                                        neg_samples.append(sample0)
 
 
-            elif is_adj(answer_words[0], grdict) and is_noun(answer_words[1], grdict):
-                # Аугментация для двусловных словосочетаний ПРИЛ+СУЩ
-                a_tagsets = []
-                for adj_tagset in grdict[answer_words[0]]:
-                    tx = adj_tagset.split()
-                    a_case = get_tagval(tx, u'ПАДЕЖ')
-                    a_num = get_tagval(tx, u'ЧИСЛО')
-                    a_tagsets.append((a_case, a_num))
+                elif is_adj(answer_words[0], grdict) and is_noun(answer_words[1], grdict):
+                    # Аугментация для двусловных словосочетаний ПРИЛ+СУЩ
+                    a_tagsets = []
+                    for adj_tagset in grdict[answer_words[0]]:
+                        tx = adj_tagset.split()
+                        a_case = get_tagval(tx, u'ПАДЕЖ')
+                        a_num = get_tagval(tx, u'ЧИСЛО')
+                        a_tagsets.append((a_case, a_num))
 
-                # Соберем пары ПАДЕЖ+ЧИСЛО, которые уже есть среди вариантов для словосочетания
-                found_tagsets = []
-                noun_gender = None
-                noun_anim = None
-                for noun_tagset in grdict[answer_words[1]]:
-                    tx = noun_tagset.split()
-                    noun_case = get_tagval(tx, u'ПАДЕЖ')
-                    noun_num = get_tagval(tx, u'ЧИСЛО')
-                    noun_gender = get_tagval(tx, u'РОД')
-                    noun_anim = get_tagval(tx, u'ОДУШ')
-                    pair = (noun_case, noun_num)
-                    if pair in a_tagsets:
-                        found_tagsets.append(pair)
+                    # Соберем пары ПАДЕЖ+ЧИСЛО, которые уже есть среди вариантов для словосочетания
+                    found_tagsets = []
+                    noun_gender = None
+                    noun_anim = None
+                    for noun_tagset in grdict[answer_words[1]]:
+                        tx = noun_tagset.split()
+                        noun_case = get_tagval(tx, u'ПАДЕЖ')
+                        noun_num = get_tagval(tx, u'ЧИСЛО')
+                        noun_gender = get_tagval(tx, u'РОД')
+                        noun_anim = get_tagval(tx, u'ОДУШ')
+                        pair = (noun_case, noun_num)
+                        if pair in a_tagsets:
+                            found_tagsets.append(pair)
 
-                # Теперь перебираем все пары ПАДЕЖ+ЧИСЛО, пропуская уже известные в found_tagsets,
-                # и генерируем соответствующие словоформы
-                for new_case in u'ИМ РОД ТВОР ВИН ДАТ ПРЕДЛ'.split():
-                    for new_num in u'ЕД МН'.split():
-                        if (new_case, new_num) not in found_tagsets:
-                            new_adj_tags = [(u'ЧИСЛО', new_num), (u'ПАДЕЖ', new_case)]
-                            if new_num == u'ЕД':
-                                new_adj_tags.append((u'РОД', noun_gender))
+                    # Теперь перебираем все пары ПАДЕЖ+ЧИСЛО, пропуская уже известные в found_tagsets,
+                    # и генерируем соответствующие словоформы
+                    for new_case in u'ИМ РОД ТВОР ВИН ДАТ ПРЕДЛ'.split():
+                        for new_num in u'ЕД МН'.split():
+                            if (new_case, new_num) not in found_tagsets:
+                                new_adj_tags = [(u'ЧИСЛО', new_num), (u'ПАДЕЖ', new_case)]
+                                if new_num == u'ЕД':
+                                    new_adj_tags.append((u'РОД', noun_gender))
 
-                            if new_case == u'ВИН' and noun_gender == u'МУЖ':
-                                new_adj_tags.append((u'ОДУШ', noun_anim))
+                                if new_case == u'ВИН' and noun_gender == u'МУЖ':
+                                    new_adj_tags.append((u'ОДУШ', noun_anim))
 
-                            for new_adj in flexer.find_forms_by_tags(answer_words[0], new_adj_tags):
-                                for new_noun in flexer.find_forms_by_tags(answer_words[1], [(u'ЧИСЛО', new_num), (u'ПАДЕЖ', new_case)]):
-                                    new_answer = new_adj + u' ' + new_noun
-                                    if new_answer != sample.answer:
-                                        sample0 = Sample(sample.premises, sample.question, new_answer, 0)
-                                        key0 = sample0.get_key()
-                                        if key0 not in all_keys:
-                                            all_keys.add(key0)
-                                            neg_samples.append(sample0)
+                                for new_adj in flexer.find_forms_by_tags(answer_words[0], new_adj_tags):
+                                    for new_noun in flexer.find_forms_by_tags(answer_words[1], [(u'ЧИСЛО', new_num), (u'ПАДЕЖ', new_case)]):
+                                        new_answer = new_adj + u' ' + new_noun
+                                        if new_answer != sample.answer:
+                                            sample0 = Sample(sample.premises, sample.question, new_answer, 0)
+                                            key0 = sample0.get_key()
+                                            if key0 not in all_keys:
+                                                all_keys.add(key0)
+                                                neg_samples.append(sample0)
 
-neg_samples = np.random.permutation(neg_samples)[:len(samples)*2]
+    neg_samples = np.random.permutation(neg_samples)[:len(samples)*2]
 
-samples.extend(neg_samples)
+    samples.extend(neg_samples)
 
-logging.info('Generation completed')
+    logging.info('Generation completed')
 
-nb_0 = sum((sample.label == 0) for sample in samples)
-nb_1 = sum((sample.label == 1) for sample in samples)
+    nb_0 = sum((sample.label == 0) for sample in samples)
+    nb_1 = sum((sample.label == 1) for sample in samples)
 
-logging.info('nb_0={}'.format(nb_0))
-logging.info('nb_1={}'.format(nb_1))
+    logging.info('nb_0=%d', nb_0)
+    logging.info('nb_1=%d', nb_1)
 
-# Сохраняем общий получившийся датасет
-with io.open(os.path.join(data_folder, 'answer_relevancy_dataset.dat'), 'w', encoding='utf-8') as wrt:
-    for sample in samples:
-        sample.write(wrt)
+    # Сохраняем общий получившийся датасет
+    with io.open(os.path.join(data_folder, 'answer_relevancy_dataset.dat'), 'w', encoding='utf-8') as wrt:
+        for sample in samples:
+            sample.write(wrt)

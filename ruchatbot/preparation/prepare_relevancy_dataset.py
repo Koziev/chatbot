@@ -32,6 +32,7 @@ import random
 import tqdm
 import numpy as np
 import io
+import pandas as pd
 
 import networkx as nx
 
@@ -507,3 +508,51 @@ if __name__ == '__main__':
         wrt.write(u'premise\tquestion\trelevance\tweight\n')
         for (premise, question), r in partial_p2q.items():
             wrt.write(u'{}\t{}\t{}\t{}\n'.format(premise, question, r, 1))
+
+    # Датасет для тренировки модели релевантности 2P<==>Q
+    added_p2q = set()
+    filepath = os.path.join(data_folder, '2premises_question_relevancy.tsv')
+    with io.open(filepath, 'w', encoding='utf-8') as wrt:
+        wrt.write(u'premise1\tpremise2\tquestion\trelevance\n')
+        for premises, question, answer in p2qa_samples:
+            k = premises[0], premises[1], question
+            if k not in added_p2q:
+                wrt.write('{}\t{}\t{}\t1\n'.format(premises[0], premises[1], question))
+                added_p2q.add(k)
+
+            k = premises[1], premises[0], question
+            if k not in added_p2q:
+                wrt.write('{}\t{}\t{}\t1\n'.format(premises[1], premises[0], question))
+                added_p2q.add(k)
+
+            # Заменяем рандомно одну или обе предпосылки - получаем нерелевантный сэмпл.
+            premise1 = random.choice(random_premises)
+            wrt.write('{}\t{}\t{}\t0\n'.format(premise1, premises[1], question))
+
+            premise2 = random.choice(random_premises)
+            wrt.write('{}\t{}\t{}\t0\n'.format(premises[0], premise2, question))
+
+            premise1 = random.choice(random_premises)
+            premise2 = random.choice(random_premises)
+            wrt.write('{}\t{}\t{}\t0\n'.format(premise1, premise2, question))
+
+        # добавка ручных негативных сэмплов
+        with io.open(os.path.join(data_folder, 'nonrelevant_2premises_questions.txt'), 'r', encoding='utf-8') as rdr:
+            lines = []
+            for line in rdr:
+                line = line.strip()
+                if line:
+                    lines.append(line)
+                else:
+                    if len(lines) == 3:
+                        premise1 = lines[0]
+                        premise2 = lines[1]
+                        question = lines[2]
+                        wrt.write('{}\t{}\t{}\t0\n'.format(premise1, premise2, question))
+
+                    lines = []
+
+    df = pd.read_csv(filepath, delimiter='\t')
+    n0 = df[df['relevance'] == 0].shape[0]
+    n1 = df[df['relevance'] == 1].shape[0]
+    print('{} samples stored in "{}": n0={}, n1={}'.format(n0+n1, filepath, n0, n1))
