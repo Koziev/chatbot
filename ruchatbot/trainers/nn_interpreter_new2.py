@@ -265,7 +265,7 @@ def create_model(computed_params, model_params):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--run_mode', type=str, default='gridsearch', choices='train query gridsearch report'.split())
+    parser.add_argument('--run_mode', type=str, default='train', choices='train query gridsearch report'.split())
     parser.add_argument('--tmp', type=str, default='../tmp')
     parser.add_argument('--dataset', default='../tmp/interpreter_templates.tsv')
     parser.add_argument('--wordchar2vector', type=str, default='../tmp/wc2v.kv', help='path to wordchar2vector model dataset')
