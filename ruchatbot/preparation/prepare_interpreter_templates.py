@@ -5,12 +5,15 @@
 краткому ответу собеседника, используя контекст в виде заданного вопроса.
 
 28-03-2020 Добавлен отчет по OOV словам в датасете
+30-05-2020 Добавлена загрузка сэмплов из question interpretation датасета в общую кучу
 """
 
 import io
 import collections
 import os
 import re
+
+import sklearn.model_selection
 
 import rutokenizer
 import rupostagger
@@ -26,6 +29,13 @@ class Sample(object):
         self.question = question
         self.short_answer = short_answer
         self.expanded_answer = expanded_answer
+
+
+class Sample2:
+    def __init__(self, left, short_phrase, expanded_phrase):
+        self.left = left
+        self.short_phrase = short_phrase
+        self.expanded_phrase = expanded_phrase
 
 
 def create_template_item(token, gren):
@@ -171,12 +181,20 @@ def create_template(expanded_anser, tokenizer, tagger, gren):
     return u' '.join(template_items)
 
 
+def wx(s):
+    return ' '.join(tokenizer.tokenize(s)).lower()
+
+
 if __name__ == '__main__':
     data_dir = '../../data'
     tmp_dir = '../../tmp'
 
     input_dataset = os.path.join(data_dir, 'interpretation.txt')
+    input_dataset2 = os.path.join(data_dir, 'question_interpretation.txt')
+
     output_dataset = os.path.join(tmp_dir, 'interpreter_templates.tsv')
+    output_dataset2 = os.path.join(tmp_dir, 'interpreter_samples.tsv')
+
     rare_path = os.path.join(tmp_dir, 'most_rare_interpretaions.txt')
     terms_path = os.path.join(tmp_dir, 'interpretation_template_terms.tsv')
     no_expansion_path = os.path.join(tmp_dir, 'interpretation_no_expansion_phrases.txt')
@@ -185,6 +203,7 @@ if __name__ == '__main__':
     tokenizer.load()
 
     samples = []
+    samples2 = []
     no_expansion_phrases = []
     with io.open(input_dataset, 'r', encoding='utf-8') as rdr:
         lines = []
@@ -200,16 +219,20 @@ if __name__ == '__main__':
                         if len(tx) > 2:
                             print('Data format in line "{}"'.format(lines[1]))
                             exit(0)
-                        short_answer, expanded_answer = tx[0], tx[1]
-                        expanded_answer = expanded_answer.strip()
+                        short_answer = tx[0].strip()
+                        expanded_answer = tx[1].strip()
                         if len(expanded_answer) < 2:
                             print('Empty expanded answer for question="{}", short_question="{}"'.format(question, short_answer))
+
+                        sample2 = Sample2(wx(question), wx(short_answer), wx(expanded_answer))
+                        samples2.append(sample2)
 
                         if expanded_answer[-1] in ('.', '?', '!'):
                             expanded_answer = expanded_answer[:-1]
 
                         sample = Sample(question, short_answer.strip(), expanded_answer)
                         samples.append(sample)
+
                 elif len(lines) == 1:
                     tx = lines[0].split('|')
                     if len(tx) == 2:
@@ -219,8 +242,87 @@ if __name__ == '__main__':
                             no_expansion_phrases.append(u' '.join(tokenizer.tokenize(phrase1)))
                 lines = []
 
-    print('{} samples, {} no-expansion phrases'.format(len(samples), len(no_expansion_phrases)))
+    with io.open(input_dataset2, 'r', encoding='utf-8') as rdr:
+        lines = []
+        for iline, line in enumerate(rdr):
+            line = line.strip()
+            if line:
+                lines.append(line)
+            else:
+                if len(lines) == 3:
+                    question = lines[0]
+                    answer = lines[1]
 
+                    tx = lines[-1].split('|')
+                    if len(tx) != 2:
+                        print('Corrupted data format in line {} "{}" file="{}"'.format(iline, lines[-1], input_dataset2))
+                        exit(0)
+
+                    short_phrase = tx[0].strip()
+                    expanded_phrase = tx[1].strip()
+
+                    if len(expanded_phrase) < 2:
+                        print('Empty expanded phrase for short_phrase="{}" in line {}'.format(short_phrase), iline)
+                        exit(0)
+
+                    left = ' | '.join(lines[:-1])
+                    left = wx(left)
+                    short_phrase = wx(short_phrase)
+                    expanded_phrase = wx(expanded_phrase)
+
+                    sample2 = Sample2(left, short_phrase, expanded_phrase)
+                    samples2.append(sample2)
+
+                lines = []
+
+    print('{} samples, {} no-expansion phrases'.format(len(samples2), len(no_expansion_phrases)))
+
+    print('Writing {} samples to "{}"'.format(len(samples2), output_dataset2))
+    output2freq = collections.Counter()
+    with io.open(output_dataset2, 'w', encoding='utf-8') as wrt:
+        wrt.write('context\toutput\n')
+        for sample in samples2:
+            context = sample.left + ' | ' + sample.short_phrase
+            output = sample.expanded_phrase
+            wrt.write('{}\t{}\n'.format(context, output))
+            output2freq[output] += 1
+
+    # Сформируем отчет о самых редких интерпретациях, чтобы можно было аугментировать их руками и нарастить частоту.
+    with io.open(rare_path, 'w', encoding='utf-8') as wrt:
+        rare_outputs = set(output for output, freq in output2freq.items() if freq == 1)
+        for sample in samples2:
+            if sample.expanded_phrase in rare_outputs:
+                for context_phrase in sample.left.split('|'):
+                    wrt.write('{}\n'.format(context_phrase.strip()))
+                wrt.write('{} | {}\n\n\n'.format(sample.short_phrase, sample.expanded_phrase))
+
+    if False:
+        d = '/home/inkoziev/polygon/NLPContests/MLBootCamp/2020_26/data'
+        train_samples, testval_samples = sklearn.model_selection.train_test_split(samples2, test_size=0.2)
+        test_samples, val_samples = sklearn.model_selection.train_test_split(testval_samples, test_size=0.5)
+
+        with io.open(os.path.join(d, 'sent_zh_train.txt'), 'w', encoding='utf-8') as wrt_src, \
+             io.open(os.path.join(d, 'sent_ru_train.txt'), 'w', encoding='utf-8') as wrt_trg:
+            for sample in train_samples:
+                context = sample.left + ' | ' + sample.short_phrase
+                wrt_src.write('{}\n'.format(context))
+                wrt_trg.write('{}\n'.format(sample.expanded_phrase))
+
+        with io.open(os.path.join(d, 'sent_zh_val.txt'), 'w', encoding='utf-8') as wrt_src, \
+             io.open(os.path.join(d, 'sent_ru_val.txt'), 'w', encoding='utf-8') as wrt_trg:
+            for sample in val_samples:
+                context = sample.left + ' | ' + sample.short_phrase
+                wrt_src.write('{}\n'.format(context))
+                wrt_trg.write('{}\n'.format(sample.expanded_phrase))
+
+        with io.open(os.path.join(d, 'sent_zh_test.txt'), 'w', encoding='utf-8') as wrt_src, \
+             io.open(os.path.join(d, 'sent_ru_test.txt'), 'w', encoding='utf-8') as wrt_trg:
+            for sample in test_samples:
+                context = sample.left + ' | ' + sample.short_phrase
+                wrt_src.write('{}\n'.format(context))
+                wrt_trg.write('{}\n'.format(sample.expanded_phrase))
+
+    print('Writing {} samples to "{}"'.format(len(no_expansion_phrases), no_expansion_path))
     with io.open(no_expansion_path, 'w', encoding='utf=8') as wrt:
         for phrase in no_expansion_phrases:
             wrt.write(phrase+'\n')
@@ -244,6 +346,7 @@ if __name__ == '__main__':
     template2sample = dict()
     all_terms = collections.Counter()
 
+    print('Writing {} samples to "{}"'.format(len(samples), output_dataset))
     with io.open(output_dataset, 'w', encoding='utf=8') as wrt:
         wrt.write('question\tshort_answer\texpanded_answer\ttemplate\n')
         for sample in samples:
@@ -266,11 +369,11 @@ if __name__ == '__main__':
             wrt.write('{}\t{}\n'.format(term, freq))
 
     # Сформируем отчет о самых редких шаблонах
-    with io.open(rare_path, 'w', encoding='utf-8') as wrt:
-        for template, freq in reversed(template2freq.most_common()):
-            if freq < 5:
-                sample = template2sample[template]
-                wrt.write('{}\n{}|{}\n{}\nfreq={}\n\n'.format(sample.question, sample.short_answer, sample.expanded_answer, template, freq))
+    #with io.open(rare_path, 'w', encoding='utf-8') as wrt:
+    #    for template, freq in reversed(template2freq.most_common()):
+    #        if freq < 5:
+    #            sample = template2sample[template]
+    #            wrt.write('{}\n{}|{}\n{}\nfreq={}\n\n'.format(sample.question, sample.short_answer, sample.expanded_answer, template, freq))
 
     # Поищем несловарные и нечисловые токены
     vocabulary = set()
@@ -297,5 +400,3 @@ if __name__ == '__main__':
                             wrt.write('\n\n')
                             oov_tokens.add(uword)
                             break
-
-
