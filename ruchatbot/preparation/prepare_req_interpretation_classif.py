@@ -57,6 +57,15 @@ def load_samples(input_path):
 
             if len(line) == 0:
                 if len(phrases) > 0:
+                    # Из набора берем первую строку и последнюю.
+
+                    # Первая строка у нас всегда содержит полную фразу.
+                    if len(phrases) > 1:
+                        phrase = phrases[0]
+                        if '|' not in phrase:
+                            samples0.add(remove_terminators(phrase.strip()))
+
+                    # Последняя строка должна содержать краткую реплика и полную, разделенные символом |
                     phrase = phrases[-1]
                     if '|' in phrase:
                         px = phrase.lower().split('|')
