@@ -16,6 +16,7 @@ import sklearn.model_selection
 from sklearn.model_selection import KFold
 
 import sentencepiece as spm
+from colorclass import Color, Windows
 import terminaltables
 
 import keras
@@ -44,6 +45,13 @@ def dress_context_line(s):
         return s
     else:
         return s + ' .'
+
+
+def undress_output_line(s):
+    if s[-1] in '.?!':
+        return s[:-1].strip()
+    else:
+        return s
 
 
 def train_bpe_model(params):
@@ -315,13 +323,9 @@ class VizualizeCallback(keras.callbacks.Callback):
             self.model.save_weights(self.weights_path, overwrite=True)
 
             # отберем немного сэмлов для визуализации текущего состояния модели
-
-            # Для визуализации отберем сэмплы, в которых ответ не "да"
-            # viz_samples1 = filter(lambda z: z.right_str != 'да', samples)
-            # viz_samples2 = filter(lambda z: z.right_str == 'да', samples)
-            # viz_samples = list(viz_samples1)[:80] + list(viz_samples2)[:5]
-
-            samples2 = sorted(test_samples, key=lambda z: random.random())[:10]
+            # 16-06-2020 не будем показывать сэмплы с длиной левой части больше 71, чтобы не разваливались
+            # ascii-таблицы.
+            samples2 = sorted(filter(lambda s: len(s.left_str) < 72, test_samples), key=lambda z: random.random())[:10]
             Xs, y = vectorize_samples(samples2, self.model_params, self.computed_params)
             y_pred = model.predict(Xs, verbose=0)
             y_pred = np.argmax(y_pred, axis=-1)
@@ -331,7 +335,21 @@ class VizualizeCallback(keras.callbacks.Callback):
                 # Декодируем список индексов предсказанных токенов
                 tokens = [self.index2token[itok] for itok in y_pred_sample]
                 pred_right = ''.join(tokens).replace('▁', ' ').strip()
-                table.append((sample.left_str, sample.right_str, pred_right))
+
+                true2 = undress_output_line(sample.right_str)
+                pred2 = undress_output_line(pred_right)
+
+                if pred2 == true2:
+                    # выдача сетки полностью верная
+                    output2 = Color('{autogreen}' + pred_right + '{/autogreen}')
+                elif jaccard(pred2.split(), true2.split()) > 0.5:
+                    # выдача сетки частично совпала с требуемой строкой
+                    output2 = Color('{autoyellow}' + pred_right + '{/autoyellow}')
+                else:
+                    # неправильная выдача сетки
+                    output2 = Color('{autored}' + pred_right + '{/autored}')
+
+                table.append((sample.left_str, sample.right_str, output2))
 
             table = terminaltables.AsciiTable(table)
             print(table.table)
@@ -344,11 +362,14 @@ class VizualizeCallback(keras.callbacks.Callback):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Model trainer for answer generator')
-    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='report')
+    parser = argparse.ArgumentParser(description='Model trainer for PQA answer generator')
+    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default=None)
     parser.add_argument('--tmp_dir', default='../../tmp')
     parser.add_argument('--data_dir', default='../../data')
     args = parser.parse_args()
+
+    while not args.run_mode:
+        args.run_mode = input('Choose scenario: gridsearch | train | query :> ').strip()
 
     tmp_dir = args.tmp_dir
     data_dir = args.data_dir
@@ -362,7 +383,7 @@ if __name__ == '__main__':
     else:
         weights_path = os.path.join(tmp_dir, 'nn_seq2seq_interpreter.weights')
 
-    batch_size = 50
+    batch_size = 32
 
     if run_mode == 'gridsearch':
         best_score = 0
@@ -440,7 +461,7 @@ if __name__ == '__main__':
     if run_mode == 'train':
         params = dict()
 
-        params['spm_items'] = 10000
+        params['spm_items'] = 16000
         params['token_dim'] = 50
         params['hidden_dim'] = 200
         params['is_monotonic'] = False
@@ -529,21 +550,19 @@ if __name__ == '__main__':
                     tokens = [index2token[itok] for itok in sample_y_pred]
                     pred_right = ''.join(tokens).replace('▁', ' ').strip()
 
+                    wrt.write('\n\nContext:          {}\n'.format(sample.left_str))
+                    wrt.write('True answer:      {}\n'.format(sample.right_str))
+                    wrt.write('Predicted answer: {}\n'.format(pred_right))
+
                     # Точность per instance
                     nb_total += 1
                     if pred_right == sample.right_str:  #np.array_equal(sample_y_pred, y_true):
                         nb_good += 1
                     else:
                         # Выведем в текстовый ответ описание ошибки
-                        wrt.write('\n\nContext:          {}\n'.format(sample.left_str))
-                        wrt.write('True answer:      {}\n'.format(sample.right_str))
-                        wrt.write('Predicted answer: {}\n'.format(pred_right))
-
                         context = '\n'.join([s.strip() for s in sample.left_str.split('|')])
                         context = context.replace(' ?', '?').replace(' .', '.').replace(' ,', ',')
                         wrt_err.write('{} | {}\n\n\n'.format(context, sample.right_str.replace(' .', '.')))
-
-
 
         print('Accuracy per instance={}'.format(nb_good/float(nb_total)))
 
@@ -553,8 +572,8 @@ if __name__ == '__main__':
         # Загружаем конфиг натренированной модели
         with open(config_path, 'r') as f:
             computed_params = json.load(f)
-            arch_file = computed_params['arch_path']
-            weights_file = computed_params['weights_path']
+            arch_file = os.path.join(tmp_dir, os.path.basename(computed_params['arch_path']))
+            weights_file = os.path.join(tmp_dir, os.path.basename(computed_params['weights_path']))
             bpe_model_name = computed_params['bpe_model_name']
 
         with open(arch_file, 'r') as f:
@@ -568,7 +587,7 @@ if __name__ == '__main__':
 
         while True:
             context = []
-            print('Enter context phrases, empty to run model:')
+            print('Enter context phrases, empty line to run the model:')
             while True:
                 s = input('{}:> '.format(len(context)+1)).strip()
                 if s:

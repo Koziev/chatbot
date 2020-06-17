@@ -16,6 +16,7 @@ import sklearn.model_selection
 from sklearn.model_selection import KFold
 
 import sentencepiece as spm
+from colorclass import Color, Windows
 import terminaltables
 
 import keras
@@ -39,6 +40,13 @@ def dress_context_line(s):
         return s
     else:
         return s + ' .'
+
+
+def dress_question_line(s):
+    if s[-1] == '?':
+        s = s[:-1].strip()
+
+    return s + ' ?'
 
 
 def train_bpe_model(params):
@@ -118,6 +126,12 @@ def load_samples(bpe_model, computed_params, max_samples):
                     sample.right_str = lines[-1]
                     sample.right_tokens = bpe_model.EncodeAsPieces(sample.right_str)
 
+                    # НАЧАЛО ОТЛАДКИ
+                    #if 'смертен' not in sample.left_str:
+                    #    lines = []
+                    #    continue
+                    # КОНЕЦ ОТЛАДКИ
+
                     if sample.right_str == 'да':
                         samples_yes.append(sample)
                     else:
@@ -159,6 +173,19 @@ def load_samples(bpe_model, computed_params, max_samples):
     return samples
 
 
+def create_sample_for_prediction(bpe_model, lines):
+    sample = Sample()
+
+    left_data = [dress_context_line(s) for s in lines[:-1]] + [dress_question_line(lines[-1])]
+
+    sample.left_str = ' '.join(left_data)
+    sample.left_tokens = bpe_model.EncodeAsPieces(sample.left_str)
+    sample.right_str = ''
+    sample.right_tokens = []
+
+    return sample
+
+
 def vectorize_samples(samples, computed_params):
     nb_samples = len(samples)
 
@@ -196,31 +223,85 @@ def create_model(params, computed_params):
     return model
 
 
+def jaccard(words1, words2):
+    s1 = set(words1)
+    s2 = set(words2)
+    return float(len(s1&s2))/float(1e-8+len(s1|s2))
+
+
+def score_model(model, samples, X, y, computed_params, metric):
+    batch_size = 100
+
+    if metric == 'jaccard':
+        index2token = dict((i, t) for t, i in computed_params['token2index'].items())
+        sum_jac = 0.0
+        denom = 0
+        i = 0
+        while i < len(samples):
+            s = min(batch_size, len(samples)-i)
+            X_batch = X[i: i+s]
+            samples_batch = samples[i: i+s]
+            y_batch = y[i: i+s]
+            y_pred = model.predict(X_batch, verbose=0)
+            y_pred = np.argmax(y_pred, axis=-1)
+            for sample, y_pred_sample in zip(samples_batch, y_pred):
+                # Декодируем список индексов предсказанных токенов
+                tokens = [index2token.get(itok, '[???]') for itok in y_pred_sample]
+                pred_right = ''.join(tokens).replace('▁', ' ').strip()
+                pred_words = pred_right.split(' ')
+                true_words = sample.right_str.split(' ')
+                jac = jaccard(pred_words, true_words)
+                sum_jac += jac
+                denom += 1
+            i += s
+
+        score = sum_jac / denom
+        return score
+    else:
+        raise NotImplementedError()
+
+
+
 class VizualizeCallback(keras.callbacks.Callback):
     """
     После каждой эпохи обучения делаем сэмплинг образцов из текущей модели,
     чтобы видеть общее качество.
     """
 
-    def __init__(self, model, viz_samples, computed_params):
+    def __init__(self, model, test_samples, params, computed_params):
         self.model = model
+        self.model_params = params
         self.computed_params = computed_params
-        self.viz_samples = viz_samples
+        self.test_samples = test_samples
+        self.X_test, self.y = vectorize_samples(test_samples, self.computed_params)
+        self.index2token = dict((i, t) for t, i in computed_params['token2index'].items())
+        self.epoch = 0
 
     def on_epoch_end(self, batch, logs={}):
-        samples2 = sorted(self.viz_samples, key=lambda _: random.random())[:5]
-        X, y = vectorize_samples(samples2, self.computed_params)
-        y_pred = model.predict(X, verbose=0)
-        y_pred = np.argmax(y_pred, axis=-1)
+        self.epoch += 1
 
-        index2token = dict((i, t) for t, i in computed_params['token2index'].items())
+        # отберем немного сэмлов для визуализации текущего состояния модели
+        samples2 = sorted(filter(lambda s: len(s.left_str) < 72, test_samples), key=lambda z: random.random())[:10]
+        X, y = vectorize_samples(samples2, self.computed_params)
+        y_pred = model.predict(x=X, verbose=0)
+        y_pred = np.argmax(y_pred, axis=-1)
 
         table = ['context true_output predicted_output'.split()]
         for sample, y_pred_sample in zip(samples2, y_pred):
             # Декодируем список индексов предсказанных токенов
-            tokens = [index2token[itok] for itok in y_pred_sample]
+            tokens = [self.index2token[itok] for itok in y_pred_sample]
             pred_right = ''.join(tokens).replace('▁', ' ').strip()
-            table.append((sample.left_str, sample.right_str, pred_right))
+            if sample.right_str == pred_right:
+                # выдача сетки полностью верная
+                output2 = Color('{autogreen}' + pred_right + '{/autogreen}')
+            elif jaccard(sample.right_str.split(), pred_right.split()) > 0.5:
+                # выдача сетки частично совпала с требуемой строкой
+                output2 = Color('{autoyellow}' + pred_right + '{/autoyellow}')
+            else:
+                # неправильная выдача сетки
+                output2 = Color('{autored}' + pred_right + '{/autored}')
+
+            table.append((sample.left_str, sample.right_str, output2))
 
         table = terminaltables.AsciiTable(table)
         print(table.table)
@@ -228,10 +309,13 @@ class VizualizeCallback(keras.callbacks.Callback):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Answer generation model trainer')
-    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='report')
+    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default=None)
     parser.add_argument('--tmp_dir', default='../../tmp')
     parser.add_argument('--data_dir', default='../../data')
     args = parser.parse_args()
+
+    while not args.run_mode:
+        args.run_mode = input('Choose scenario: gridsearch | train | report | query :> ').strip()
 
     tmp_dir = args.tmp_dir
     data_dir = args.data_dir
@@ -337,21 +421,21 @@ if __name__ == '__main__':
 
         bpe_model = load_bpe_model(bpe_model_name)
 
-        samples = load_samples(bpe_model, computed_params, max_samples=1000000)
+        samples = load_samples(bpe_model, computed_params, max_samples=20000)
+        train_samples, test_samples = sklearn.model_selection.train_test_split(samples, test_size=0.1)
 
         with open(config_path, 'w') as f:
             json.dump(computed_params, f, indent=4)
 
-        # Для визуализации отберем сэмплы, в которых ответ не "да"
-        viz_samples1 = filter(lambda z: z.right_str != 'да', samples)
-        viz_samples2 = filter(lambda z: z.right_str == 'да', samples)
-        viz_samples = list(viz_samples1)[:80] + list(viz_samples2)[:5]
-
         print('Vectorization of {} samples'.format(len(samples)))
-        X, y = vectorize_samples(samples, computed_params)
-        y = np.expand_dims(y, -1)
-        print('X.shape={}'.format(X.shape))
-        print('y.shape={}'.format(y.shape))
+        X_train, y_train = vectorize_samples(train_samples, computed_params)
+        y_train = np.expand_dims(y_train, -1)
+
+        X_test, y_test = vectorize_samples(train_samples, computed_params)
+        y_test = np.expand_dims(y_test, -1)
+
+        print('X.shape={}'.format(X_train.shape))
+        print('y.shape={}'.format(y_train.shape))
 
         model = create_model(params, computed_params)
 
@@ -362,13 +446,60 @@ if __name__ == '__main__':
         model_checkpoint = ModelCheckpoint(weights_path, monitor='val_loss', verbose=1, save_best_only=True, mode='auto')
         callbacks.append(model_checkpoint)
 
-        early_stopping = EarlyStopping(monitor='val_loss', patience=5, verbose=1, mode='auto')
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10, verbose=1, mode='auto')
         callbacks.append(early_stopping)
 
-        viz = VizualizeCallback(model, viz_samples, computed_params)
+        viz = VizualizeCallback(model, test_samples, params, computed_params)
         callbacks.append(viz)
 
-        model.fit(X, y, validation_split=0.1, epochs=100, verbose=2, batch_size=batch_size, callbacks=callbacks)
+        print('Start training on {} samples...'.format(len(train_samples)))
+        model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=1000, shuffle=True, verbose=2,
+                  batch_size=batch_size, callbacks=callbacks)
+
+        model.load_weights(weights_path)
+        X_test, y_test = vectorize_samples(test_samples, computed_params)
+        best_score = score_model(model, test_samples, X_test, y_test, computed_params, 'jaccard')
+        print('Jaccard score for stored model={}'.format(best_score))
+
+    if run_mode == 'query':
+        # Интерактивная проверка модели
+
+        # Загружаем конфиг натренированной модели
+        with open(config_path, 'r') as f:
+            computed_params = json.load(f)
+            arch_file = os.path.join(tmp_dir, os.path.basename(computed_params['arch_path']))
+            weights_file = os.path.join(tmp_dir, os.path.basename(computed_params['weights_path']))
+            bpe_model_name = computed_params['bpe_model_name']
+
+        with open(arch_file, 'r') as f:
+            model = model_from_json(f.read(), {'AttentionDecoder': AttentionDecoder})
+
+        model.load_weights(weights_file)
+
+        bpe_model = load_bpe_model(bpe_model_name)
+
+        index2token = dict((i, t) for t, i in computed_params['token2index'].items())
+
+        while True:
+            lines = []
+            print('Enter context phrases, empty to run the model:')
+            while True:
+                s = input('{}:> '.format(len(lines)+1)).strip()
+                if s:
+                    lines.append(s)
+                else:
+                    break
+
+            sample = create_sample_for_prediction(bpe_model, lines)
+            samples = [sample]
+
+            X_batch, y_batch = vectorize_samples(samples, computed_params)
+            y_pred = model.predict(X_batch, batch_size=batch_size, verbose=0)
+            for sample, sample_y_pred, y_true in zip(samples, y_pred, y_batch):
+                sample_y_pred = np.argmax(sample_y_pred, axis=-1)
+                tokens = [index2token[itok] for itok in sample_y_pred]
+                pred_right = ''.join(tokens).replace('▁', ' ').strip()
+                print('Output: {}\n'.format(pred_right))
 
     if run_mode == 'report':
         # Финальная оценка "на глазок" по всем сэмплам (будет слишком оптимистичная оценка, конечно).
