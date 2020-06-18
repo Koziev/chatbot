@@ -31,56 +31,68 @@ def levenshtein_distance(a, b):
     return previous_row[-1]
 
 
-# TODO: сделать базовый класс
 class IntentDetector(object):
+    """Классификаторы реплики: интент, сентимент и т.д."""
     def __init__(self):
-        self.model = None
-        self.nlp_transform = None
+        self.models = []
 
     def load(self, model_dir):
-        model_path = os.path.join(model_dir, 'intent_classifier.model')
-        with open(model_path, 'rb') as f:
-            self.model = pickle.load(f)
-        self.nlp_transform = self.model['nlp_transform']
+        for p in ['intent', 'abusive', 'sentiment', 'direction']:
+            model_path = os.path.join(model_dir, '{}_classifier.model'.format(p))
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+            nlp_transform = model['nlp_transform']
+            self.models.append((model, nlp_transform))
 
     def detect_intent(self, phrase_str, text_utils):
+        """Для фразы phrase_str вернет набор меток из классификаторов"""
         nphrase = phrase_str.lower()
         word_embeddings = text_utils.word_embeddings
 
-        if nphrase in self.model['phrase2label']:
-            # Фраза находится в lookup-таблице, обойдемся без классификации.
-            return self.model['phrase2label'][nphrase]
+        intents = []
 
-        nphrase = text_utils.wordize_text(phrase_str)
-        if nphrase in self.model['phrase2label']:
-            return self.model['phrase2label'][nphrase]
+        for model, nlp_transform in self.models:
+            if nphrase in model['phrase2label']:
+                # Фраза находится в lookup-таблице, обойдемся без классификации.
+                intents.append(model['phrase2label'][nphrase])
+                continue
 
-        # Попробуем нечеткое сопоставление (коэф-т Жаккара), чтобы
-        # учесть небольшие варианты написания ключевых фраз типа "неет"
-        shingle2keyphrases = self.model['shingle2phrases']
-        keyphrase2count = collections.Counter()
-        shingles1 = get_shingles(u'['+nphrase+u']')
-        for shingle in shingles1:
-            if shingle in shingle2keyphrases:
-                keyphrase2count.update(shingle2keyphrases[shingle])
-        if len(keyphrase2count) > 0:
-            for top_keyphrase, _ in keyphrase2count.most_common(5):
-                #shingles2 = get_shingles(top_keyphrase)
-                #jaccard = float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2))
-                #if jaccard > 0.95:
-                #    self.model['phrase2label'][nphrase]
-                ldist = levenshtein_distance(top_keyphrase, nphrase)
-                if ldist < 2:
-                    return self.model['phrase2label'][top_keyphrase]
+            nphrase = text_utils.wordize_text(phrase_str)
+            if nphrase in model['phrase2label']:
+                intents.append(model['phrase2label'][nphrase])
+                continue
 
-        if self.nlp_transform == 'lower':
-            X_query = self.model['vectorizer'].transform([phrase_str.lower()])
-        else:
-            X_query = self.model['vectorizer'].transform([phrase_str])
+            intent_detected = False
 
-        y_query = self.model['estimator'].predict(X_query)
-        intent_index = y_query[0]
-        intent_name = self.model['index2label'][intent_index]
-        return intent_name
+            # Попробуем нечеткое сопоставление (коэф-т Жаккара), чтобы
+            # учесть небольшие варианты написания ключевых фраз типа "неет"
+            shingle2keyphrases = model['shingle2phrases']
+            keyphrase2count = collections.Counter()
+            shingles1 = get_shingles(u'['+nphrase+u']')
+            for shingle in shingles1:
+                if shingle in shingle2keyphrases:
+                    keyphrase2count.update(shingle2keyphrases[shingle])
+            if len(keyphrase2count) > 0:
+                for top_keyphrase, _ in keyphrase2count.most_common(5):
+                    #shingles2 = get_shingles(top_keyphrase)
+                    #jaccard = float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2))
+                    #if jaccard > 0.95:
+                    #    self.model['phrase2label'][nphrase]
+                    ldist = levenshtein_distance(top_keyphrase, nphrase)
+                    if ldist < 2:
+                        intents.append(model['phrase2label'][top_keyphrase])
+                        intent_detected = True
+                        break
 
+            if not intent_detected:
+                if nlp_transform == 'lower':
+                    X_query = model['vectorizer'].transform([phrase_str.lower()])
+                else:
+                    X_query = model['vectorizer'].transform([phrase_str])
 
+                y_query = model['estimator'].predict(X_query)
+                intent_index = y_query[0]
+                intent_name = model['index2label'][intent_index]
+                intents.append(intent_name)
+
+        return intents

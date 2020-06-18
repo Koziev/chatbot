@@ -116,7 +116,7 @@ class RuleCondition_Intent(BaseRuleCondition):
         return 'intent={}'.format(self.intent)
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
-        return RuleConditionMatching.create(self.intent == interpreted_phrase.intent)
+        return RuleConditionMatching.create(self.intent in interpreted_phrase.intents)
 
 
 class RuleCondition_State(BaseRuleCondition):

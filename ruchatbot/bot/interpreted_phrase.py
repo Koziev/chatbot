@@ -11,7 +11,7 @@ class InterpretedPhrase:
         self.raw_tokens = None
         self.is_question = None
         self.is_imperative = None
-        self.intent = None
+        self.intents = None
         self.person = None
         self.tags = None
 
@@ -32,4 +32,4 @@ class InterpretedPhrase:
         return not self.is_question and not self.is_imperative
 
     def __repr__(self):
-        return u'{} (raw="{}" intent="{}")'.format(self.interpretation, self.raw_phrase, self.intent)
+        return u'{} (raw="{}" intents="{}")'.format(self.interpretation, self.raw_phrase, ','.join(self.intents))

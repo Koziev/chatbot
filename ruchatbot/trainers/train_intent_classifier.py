@@ -10,6 +10,7 @@
 может сильно влиять на качество линейных моделей.
 22.08.2019 - добавлена выдача отчета по confusion matrix
 25.08.2019 - добавлена визуализация t-SNE
+18.06.2020 - ряд классификаций выделен в отдельные модели (abusiveness, sentiment, direction)
 """
 
 from __future__ import print_function
@@ -53,7 +54,7 @@ def get_params_str(model_params):
 
 
 def data_vectorization(samples, model_params):
-    labels = samples['intent'].values
+    labels = samples['label'].values
     label2index = dict((label, i) for (i, label) in enumerate(set(labels)))
 
     y_data = np.asarray([label2index[label] for label in labels], dtype=np.int)
@@ -318,13 +319,13 @@ def plot_confusion_matrix(y_true, y_pred, classes,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Classifier trainer for intent detection')
-    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='gridsearch')
-    parser.add_argument('--tmp_dir', default='../../tmp')
-    parser.add_argument('--dataset', default='../../data/intents_dataset.csv')
+    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='train')
+    parser.add_argument('--tmp_dir', default='../tmp')
+    parser.add_argument('--data', default='../data')
     args = parser.parse_args()
 
     tmp_dir = args.tmp_dir
-    dataset_path = args.dataset
+    dataset_path = os.path.join(args.data, 'intents_dataset.csv')
     run_mode = args.run_mode
 
     init_trainer_logging(os.path.join(tmp_dir, 'train_intent_classifier.log'), logging.DEBUG)
@@ -338,15 +339,14 @@ if __name__ == '__main__':
     # файл с обученной моделью, создается в train, используется в query
     model_path = os.path.join(tmp_dir, 'intent_classifier.model')
 
-    if run_mode in 'gridsearch train'.split():
+    if run_mode == 'gridsearch':
+        logging.info('=== GRIDSEARCH ===')
+
         df = pd.read_csv(dataset_path,
                          encoding='utf-8',
                          delimiter='\t',
                          index_col=None,
                          keep_default_na=False)
-
-    if run_mode == 'gridsearch':
-        logging.info('=== GRIDSEARCH ===')
 
         best_model_params = None
         best_acc = 0.0
@@ -400,105 +400,123 @@ if __name__ == '__main__':
         with open(best_params_path, 'r') as f:
             best_model_params = json.load(f)
 
-        best_vectorizer, X_data, y_data, label2index, phrase2label, shingle2phrases = data_vectorization(df, best_model_params)
-        computed_params = {'nb_labels': len(label2index)}
+        # 18.06.2020 дополнительные классификаторы тренируем как самостоятельные модели
+        for p, model_name in [('intents_dataset.csv', 'intent'),
+                              ('abusive_dataset.csv', 'abusive'),
+                              ('sentiment_dataset.csv', 'sentiment'),
+                              ('dir_dataset.csv', 'direction')]:
+            dataset_path = os.path.join(args.data, p)
+            model_path = os.path.join(tmp_dir, '{}_classifier.model'.format(model_name))
+            logging.info('Model "%s", dataset="%s", model_path="%s"', model_name, dataset_path, model_path)
 
-        # финальное обучение классификатора на всех данных
-        logging.info('Training the final classifier model_params: %s', get_params_str(best_model_params))
-        estimator = create_estimator(best_model_params, computed_params)
-        estimator.fit(X_data, y_data)
-
-        # сохраним натренированный классификатор и дополнительные параметры, необходимые для
-        # использования модели в чатботе.
-        index2label = dict((index, label) for (label, index) in label2index.items())
-        model = {'index2label': index2label,
-                 'vectorizer': best_vectorizer,
-                 'estimator': estimator,
-                 'nlp_transform': best_model_params['nlp_transform'],
-                 'phrase2label': phrase2label,
-                 'shingle2phrases': shingle2phrases}
-        logging.info(u'Storing model to "%s"', model_path)
-        with open(model_path, 'wb') as f:
-            pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # -------------- Визуализация с помощью SVD + tSNE -----------------------
-
-        # Оставим 10 самых крупных классов.
-        label2freq = collections.Counter()
-        label2freq.update(y_data)
-        top_labels = [index2label[y] for y, _ in label2freq.most_common(10)]
-        df2 = df[df.intent.isin(top_labels)]
-        vectorizer, X_data2, y_data2, _, _, _ = data_vectorization(df2, best_model_params)
-
-        svd_model = TruncatedSVD(n_components=50, algorithm='randomized', n_iter=20, random_state=31415926)
-        x2 = svd_model.fit_transform(X_data2)
-        tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
-        tsne_results = tsne.fit_transform(x2)
-
-        df3 = pd.DataFrame(columns='label tsne1 tsne2'.split())
-        df3['label'] = df2.intent
-        df3['tsne1'] = tsne_results[:, 0]
-        df3['tsne2'] = tsne_results[:, 1]
-        fig = plt.figure(figsize=(10, 10))
-        sns.scatterplot(
-            x="tsne1", y="tsne2",
-            hue="label",
-            palette=sns.color_palette("hls", len(set(y_data2))),
-            data=df3,
-            #legend="full",
-            alpha=0.3
-        )
-        #fig.set_figheight(100)
-        #fig.set_figwidth(100)
-        fig.savefig(fname=os.path.join(tmp_dir, 'train_intent_classifier.tsne.png'))
-
-        # --------------------- конец tsne ----------------------------
+            df = pd.read_csv(dataset_path,
+                             encoding='utf-8',
+                             delimiter='\t',
+                             index_col=None,
+                             keep_default_na=False)
 
 
+            best_vectorizer, X_data, y_data, label2index, phrase2label, shingle2phrases = data_vectorization(df, best_model_params)
+            computed_params = {'nb_labels': len(label2index)}
 
-        # Попробуем оценить confusion matrix
-        # Для это обучим классификатор еще раз на урезанном датасете, и рассчитаем
-        # ошибки по тестовому набору
-        X_train, X_test, y_train, y_test = train_test_split(X_data, y_data, test_size=0.3, shuffle=True)
-        estimator = create_estimator(best_model_params, computed_params)
-        estimator.fit(X_train, y_train)
-        y_pred = estimator.predict(X_test)
-        test_acc = sklearn.metrics.accuracy_score(y_true=y_test, y_pred=y_pred)
+            # финальное обучение классификатора на всех данных
+            logging.info('Training the final classifier model_params: %s', get_params_str(best_model_params))
+            estimator = create_estimator(best_model_params, computed_params)
+            estimator.fit(X_data, y_data)
 
-        class_names = [l for (l, i) in sorted(label2index.items(), key=lambda z: z[1])]
+            # сохраним натренированный классификатор и дополнительные параметры, необходимые для
+            # использования модели в чатботе.
+            index2label = dict((index, label) for (label, index) in label2index.items())
+            model = {'index2label': index2label,
+                     'vectorizer': best_vectorizer,
+                     'estimator': estimator,
+                     'nlp_transform': best_model_params['nlp_transform'],
+                     'phrase2label': phrase2label,
+                     'shingle2phrases': shingle2phrases}
 
-        confmat = sklearn.metrics.confusion_matrix(y_true=[index2label[y] for y in y_test],
-                                                   y_pred=[index2label[y] for y in y_pred],
-                                                   labels=class_names)
+            logging.info(u'Storing model "%s" to "%s"', model_name, model_path)
+            with open(model_path, 'wb') as f:
+                pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-        with io.open(os.path.join(tmp_dir, 'train_intent_classifier.report.txt'), 'w', encoding='utf-8') as wrt:
-            rep = sklearn.metrics.classification_report(y_true=[index2label[y] for y in y_test],
-                                                        y_pred=[index2label[y] for y in y_pred],
-                                                        output_dict=True)
+            if model_name == 'intents':
+                # -------------- Визуализация с помощью SVD + tSNE -----------------------
 
-            intent_ranking = []
-            for label, info in rep.items():
-                if label in class_names:
-                    f1 = info['f1-score']
-                    intent_ranking.append((label, f1))
-            intent_ranking = sorted(intent_ranking, key=lambda z: z[1])
-            for class_name, class_f1 in intent_ranking:
-                wrt.write(u"{:<30s} f1={:.2f}\n".format(class_name, class_f1))
+                # Оставим 10 самых крупных классов.
+                label2freq = collections.Counter()
+                label2freq.update(y_data)
+                top_labels = [index2label[y] for y, _ in label2freq.most_common(10)]
+                df2 = df[df.intent.isin(top_labels)]
+                vectorizer, X_data2, y_data2, _, _, _ = data_vectorization(df2, best_model_params)
 
-            wrt.write(u'\n\n')
-            wrt.write(sklearn.metrics.classification_report(y_true=[index2label[y] for y in y_test],
-                                                            y_pred=[index2label[y] for y in y_pred]))
+                svd_model = TruncatedSVD(n_components=50, algorithm='randomized', n_iter=20, random_state=31415926)
+                x2 = svd_model.fit_transform(X_data2)
+                tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+                tsne_results = tsne.fit_transform(x2)
 
-        fig = plot_confusion_matrix(y_test, y_pred, classes=class_names,
-                                    title='Confusion matrix of intent classification',
-                                    normalize=True)
-        fig = fig.get_figure()
-        fig.set_figheight(100)
-        fig.set_figwidth(100)
-        fig.savefig(fname=os.path.join(tmp_dir, 'train_intent_classifier.confusion_matrix.png'))
+                df3 = pd.DataFrame(columns='label tsne1 tsne2'.split())
+                df3['label'] = df2.intent
+                df3['tsne1'] = tsne_results[:, 0]
+                df3['tsne2'] = tsne_results[:, 1]
+                fig = plt.figure(figsize=(10, 10))
+                sns.scatterplot(
+                    x="tsne1", y="tsne2",
+                    hue="label",
+                    palette=sns.color_palette("hls", len(set(y_data2))),
+                    data=df3,
+                    #legend="full",
+                    alpha=0.3
+                )
+                #fig.set_figheight(100)
+                #fig.set_figwidth(100)
+                fig.savefig(fname=os.path.join(tmp_dir, 'train_intent_classifier.tsne.png'))
 
-        logging.info('test_acc=%f', test_acc)
-        logging.info('All done.')
+                # --------------------- конец tsne ----------------------------
+
+
+
+                # Попробуем оценить confusion matrix
+                # Для это обучим классификатор еще раз на урезанном датасете, и рассчитаем
+                # ошибки по тестовому набору
+                X_train, X_test, y_train, y_test = train_test_split(X_data, y_data, test_size=0.3, shuffle=True)
+                estimator = create_estimator(best_model_params, computed_params)
+                estimator.fit(X_train, y_train)
+                y_pred = estimator.predict(X_test)
+                test_acc = sklearn.metrics.accuracy_score(y_true=y_test, y_pred=y_pred)
+
+                class_names = [l for (l, i) in sorted(label2index.items(), key=lambda z: z[1])]
+
+                confmat = sklearn.metrics.confusion_matrix(y_true=[index2label[y] for y in y_test],
+                                                           y_pred=[index2label[y] for y in y_pred],
+                                                           labels=class_names)
+
+                with io.open(os.path.join(tmp_dir, 'train_intent_classifier.report.txt'), 'w', encoding='utf-8') as wrt:
+                    rep = sklearn.metrics.classification_report(y_true=[index2label[y] for y in y_test],
+                                                                y_pred=[index2label[y] for y in y_pred],
+                                                                output_dict=True)
+
+                    intent_ranking = []
+                    for label, info in rep.items():
+                        if label in class_names:
+                            f1 = info['f1-score']
+                            intent_ranking.append((label, f1))
+                    intent_ranking = sorted(intent_ranking, key=lambda z: z[1])
+                    for class_name, class_f1 in intent_ranking:
+                        wrt.write(u"{:<30s} f1={:.2f}\n".format(class_name, class_f1))
+
+                    wrt.write(u'\n\n')
+                    wrt.write(sklearn.metrics.classification_report(y_true=[index2label[y] for y in y_test],
+                                                                    y_pred=[index2label[y] for y in y_pred]))
+
+                fig = plot_confusion_matrix(y_test, y_pred, classes=class_names,
+                                            title='Confusion matrix of intent classification',
+                                            normalize=True)
+                fig = fig.get_figure()
+                fig.set_figheight(100)
+                fig.set_figwidth(100)
+                fig.savefig(fname=os.path.join(tmp_dir, 'train_intent_classifier.confusion_matrix.png'))
+
+                logging.info('test_acc=%f', test_acc)
+                logging.info('All done.')
 
     if run_mode == 'query':
         logging.info('Restoring model from "%s"', model_path)

@@ -33,6 +33,7 @@ from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGra
 from ruchatbot.bot.entity_extractor import EntityExtractor
 from ruchatbot.bot.running_form_status import RunningFormStatus
 from ruchatbot.bot.running_scenario import RunningScenario
+from ruchatbot.bot.p2q_relevancy_lgb import P2Q_Relevancy_LGB
 
 
 class InsteadofRuleResult(object):
@@ -133,6 +134,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         #self.req_interpretation = NN_ReqInterpretation()
         self.req_interpretation = LGB_ReqInterpretation()
         self.req_interpretation.load(models_folder)
+
+        self.p2q_relevancy = P2Q_Relevancy_LGB()
+        self.p2q_relevancy.load(models_folder)
 
         # Определение достаточности набора предпосылок для ответа на вопрос
         self.enough_premises = NN_EnoughPremisesModel()
@@ -289,8 +293,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
 
                         if self.intent_detector is not None:
-                            interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
-                            self.logger.debug(u'intent="%s"', interpreted.intent)
+                            interpreted.intents = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
+                            self.logger.debug(u'intents="%s"', ','.join(interpreted.intents))
 
                         was_interpreted = True
 
@@ -312,15 +316,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
                     if phrase:
                         if self.intent_detector is not None:
-                            interpreted.intent = self.intent_detector.detect_intent(phrase, self.text_utils)
-                            self.logger.debug(u'intent="%s"', interpreted.intent)
+                            interpreted.intents = self.intent_detector.detect_intent(phrase, self.text_utils)
+                            self.logger.debug(u'intents="%s"', ','.join(interpreted.intents))
 
                         was_interpreted = True
 
-        if not interpreted.intent:
+        if not interpreted.intents:
             if self.intent_detector is not None:
-                interpreted.intent = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
-                self.logger.debug(u'intent="%s"', interpreted.intent)
+                interpreted.intents = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
+                self.logger.debug(u'intents="%s"', ','.join(interpreted.intents))
 
         if was_interpreted:
             phrase = self.interpreter.normalize_person(phrase, self.text_utils)
@@ -1170,6 +1174,25 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
                                                                                          interpreted_phrase.interpretation,
                                                                                          self.text_utils)
+
+                if len(answers) == 0:
+                    # Попробуем использовать 2 последних утверждения собеседника как предпосылки.
+                    last_h_entries = session.get_interlocutor_phrases(questions=False, assertions=True, last_nb=2)
+                    if len(last_h_entries) == 2:
+                        last_h_phrases = [z[0] for z in last_h_entries]
+                        premise1 = last_h_phrases[0].interpretation
+                        premise2 = last_h_phrases[1].interpretation
+                        question = interpreted_phrase.interpretation
+                        self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s"', premise1, premise2, question)
+                        rel = self.p2q_relevancy.calc_relevancy(premise1, premise2, question, self.text_utils)
+                        if rel > self.min_premise_relevancy:
+                            best_rels = [rel]
+                            premises2 = [[premise1, premise2]]
+                            premise_rels2 = [rel]
+                            answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                         interpreted_phrase.interpretation,
+                                                                                         self.text_utils)
+
 
         if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если
