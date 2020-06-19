@@ -41,6 +41,7 @@ from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import terminaltables
 
 from ruchatbot.utils.console_helpers import input_kbd
 from ruchatbot.utils.logging_helpers import init_trainer_logging
@@ -321,11 +322,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Classifier trainer for intent detection')
     parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='train')
     parser.add_argument('--tmp_dir', default='../tmp')
-    parser.add_argument('--data', default='../data')
+    parser.add_argument('--datasets', default='../tmp')
     args = parser.parse_args()
 
     tmp_dir = args.tmp_dir
-    dataset_path = os.path.join(args.data, 'intents_dataset.csv')
+    dataset_path = os.path.join(args.datasets, 'intents_dataset.csv')
     run_mode = args.run_mode
 
     init_trainer_logging(os.path.join(tmp_dir, 'train_intent_classifier.log'), logging.DEBUG)
@@ -336,8 +337,7 @@ if __name__ == '__main__':
     # создается в ходе gridsearch, используется для train
     best_params_path = os.path.join(tmp_dir, 'train_intent_classifier.best_params.json')
 
-    # файл с обученной моделью, создается в train, используется в query
-    model_path = os.path.join(tmp_dir, 'intent_classifier.model')
+    model_names = ['intent', 'abusive', 'sentiment', 'direction']
 
     if run_mode == 'gridsearch':
         logging.info('=== GRIDSEARCH ===')
@@ -401,11 +401,8 @@ if __name__ == '__main__':
             best_model_params = json.load(f)
 
         # 18.06.2020 дополнительные классификаторы тренируем как самостоятельные модели
-        for p, model_name in [('intents_dataset.csv', 'intent'),
-                              ('abusive_dataset.csv', 'abusive'),
-                              ('sentiment_dataset.csv', 'sentiment'),
-                              ('dir_dataset.csv', 'direction')]:
-            dataset_path = os.path.join(args.data, p)
+        for model_name in model_names:
+            dataset_path = os.path.join(args.datasets, '{}_dataset.csv'.format(model_name))
             model_path = os.path.join(tmp_dir, '{}_classifier.model'.format(model_name))
             logging.info('Model "%s", dataset="%s", model_path="%s"', model_name, dataset_path, model_path)
 
@@ -414,7 +411,6 @@ if __name__ == '__main__':
                              delimiter='\t',
                              index_col=None,
                              keep_default_na=False)
-
 
             best_vectorizer, X_data, y_data, label2index, phrase2label, shingle2phrases = data_vectorization(df, best_model_params)
             computed_params = {'nb_labels': len(label2index)}
@@ -438,14 +434,14 @@ if __name__ == '__main__':
             with open(model_path, 'wb') as f:
                 pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-            if model_name == 'intents':
+            if model_name == 'intent':
                 # -------------- Визуализация с помощью SVD + tSNE -----------------------
 
                 # Оставим 10 самых крупных классов.
                 label2freq = collections.Counter()
                 label2freq.update(y_data)
                 top_labels = [index2label[y] for y, _ in label2freq.most_common(10)]
-                df2 = df[df.intent.isin(top_labels)]
+                df2 = df[df.label.isin(top_labels)]
                 vectorizer, X_data2, y_data2, _, _, _ = data_vectorization(df2, best_model_params)
 
                 svd_model = TruncatedSVD(n_components=50, algorithm='randomized', n_iter=20, random_state=31415926)
@@ -454,7 +450,7 @@ if __name__ == '__main__':
                 tsne_results = tsne.fit_transform(x2)
 
                 df3 = pd.DataFrame(columns='label tsne1 tsne2'.split())
-                df3['label'] = df2.intent
+                df3['label'] = df2.label
                 df3['tsne1'] = tsne_results[:, 0]
                 df3['tsne2'] = tsne_results[:, 1]
                 fig = plt.figure(figsize=(10, 10))
@@ -471,7 +467,6 @@ if __name__ == '__main__':
                 fig.savefig(fname=os.path.join(tmp_dir, 'train_intent_classifier.tsne.png'))
 
                 # --------------------- конец tsne ----------------------------
-
 
 
                 # Попробуем оценить confusion matrix
@@ -519,18 +514,31 @@ if __name__ == '__main__':
                 logging.info('All done.')
 
     if run_mode == 'query':
-        logging.info('Restoring model from "%s"', model_path)
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
+        models = []
+
+        for model_name in model_names:
+            model_path = os.path.join(tmp_dir, '{}_classifier.model'.format(model_name))
+            logging.info('Restoring model from "%s"', model_path)
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+                models.append((model_name, model))
 
         while True:
             phrase = input_kbd(':> ').strip()
 
-            if model['nlp_transform'] == 'lower':
-                phrase = phrase.lower()
+            table = ['model class'.split()]
 
-            X_query = model['vectorizer'].transform([phrase])
-            y_query = model['estimator'].predict(X_query)
-            intent_index = y_query[0]
-            intent_name = model['index2label'][intent_index]
-            print(u'{}'.format(intent_name))
+            for model_name, model in models:
+                if model['nlp_transform'] == 'lower':
+                    phrase = phrase.lower()
+
+                X_query = model['vectorizer'].transform([phrase])
+                y_query = model['estimator'].predict(X_query)
+                intent_index = y_query[0]
+                intent_name = model['index2label'][intent_index]
+                table.append((model_name, intent_name))
+
+            table = terminaltables.AsciiTable(table)
+            print(table.table)
+
+
