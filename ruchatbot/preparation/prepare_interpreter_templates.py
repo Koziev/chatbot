@@ -260,13 +260,14 @@ def create_context_template(context_line_index, source_str, expanded_tokens):
 
     if len(items) == 0:
         print('ERROR@225: empty template generated for "{}"'.format(' '.join(t[0] for t in tokens)))
-        exit(0)
+        return None
 
     return ContextTemplateLine(source_str, items)
 
 
 def create_expanded_template(context_templates, expanded_tokens):
     items = []
+
     for token in expanded_tokens:
         lemma = token[2]
         tags = token[1]
@@ -274,7 +275,7 @@ def create_expanded_template(context_templates, expanded_tokens):
         # Ищем, откуда из контекста можно скопировать эту лемму
         for template in context_templates:
             for item_index, item in enumerate(template.items):
-                if item.lemma and item.lemma == lemma:
+                if item.location is not None and item.lemma and item.lemma == lemma:
                     out_tags = [tags.split('|')[0]]
                     for tag in tags.split('|')[1:]:
                         tname, tval = tag.split('=')
@@ -560,13 +561,16 @@ if __name__ == '__main__':
     packed2samples = collections.defaultdict(list)
     for sample in samples2:
         # НАЧАЛО ОТЛАДКИ
-        if 'зовут' not in sample.left or sample.short_phrase.lower() != 'илья':
-            continue
+        #if 'зовут' not in sample.left or sample.short_phrase.lower() != 'илья':
+        #    continue
         # КОНЕЦ ОТЛАДКИ
 
         context = [s.strip() for s in sample.left.split('|')] + [sample.short_phrase]
         expanded_tokens = lemmatizer.lemmatize(tagger.tag(tokenizer.tokenize(sample.expanded_phrase)))
         context_templates = [create_context_template(iline, line_str, expanded_tokens) for iline, line_str in enumerate(context)]
+        if any((z is None) for z in context_templates):
+            continue
+
         expanded_template = create_expanded_template(context_templates, expanded_tokens)
 
         # выкидываем из контекста леммы, так они были нужны только для
