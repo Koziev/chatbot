@@ -290,7 +290,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                         context_phrases.append(last_phrase.raw_phrase)
                         context_phrases.append(raw_phrase)  # это интерпретируемая реплика
-                        phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
+                        phrase = self.interpreter.interpret(context_phrases, self.text_utils)
 
                         if self.intent_detector is not None:
                             interpreted.intents = self.intent_detector.detect_intent(raw_phrase, self.text_utils)
@@ -313,7 +313,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     context_phrases = list()
                     context_phrases.append(last_phrase.interpretation)
                     context_phrases.append(raw_phrase)
-                    phrase = self.interpreter.interpret(context_phrases, self.text_utils, self.replica_grammar)
+                    phrase = self.interpreter.interpret(context_phrases, self.text_utils)
                     if phrase:
                         if self.intent_detector is not None:
                             interpreted.intents = self.intent_detector.detect_intent(phrase, self.text_utils)
