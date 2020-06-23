@@ -5,6 +5,7 @@
 Для вопросно-ответной системы https://github.com/Koziev/chatbot.
 
 07-06-2020 Полная переделка на новую модель интерпретации (seq2seq with attention)
+20-06-2020 Добавка шаблонной модели knn-1
 """
 
 import os
@@ -16,11 +17,6 @@ import pickle
 import itertools
 
 from keras.models import model_from_json
-
-#import keras_contrib
-#from keras_contrib.layers import CRF
-#from keras_contrib.losses import crf_loss
-#from keras_contrib.metrics import crf_viterbi_accuracy
 
 import sentencepiece as spm
 
@@ -46,9 +42,14 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         self.index2token = None
         self.token2index = None
         self.seq_len = None
+        self.templates = None
 
     def load(self, models_folder):
         self.logger.info('Loading NN_InterpreterNew2 model files')
+
+        # Эталонные экземпляры для knn-1 модели
+        with open(os.path.join(models_folder, 'interpreter_templates2.bin'), 'rb') as f:
+            self.templates = pickle.load(f)
 
         # Файлы нейросетевой модели интерпретации
         with open(os.path.join(models_folder, 'nn_seq2seq_interpreter.config'), 'r') as f:
@@ -92,7 +93,85 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
 
         return [X1]
 
-    def interpret(self, phrases, text_utils, generative_grammar):
+    def is_important_token2(self, t):
+        pos = t[1].split('|')[0]
+        if pos in ('NOUN', 'VERB', 'ADJ', 'ADV', 'PRON', 'NUM'):
+            return True
+
+        lemma = t[2]
+        if lemma in ('да', 'нет', 'не', 'ни', 'ага'):
+            return True
+
+        return False
+
+    def match_template1(self, template1, context1):
+        if len(template1) == len(context1):
+            match1 = dict()
+            for template_item, token in zip(template1, context1):
+                if template_item[1] is None:
+                    # проверка формы слова, этот токен не используется для подстановки в развернутую фразу
+                    if template_item[0] != token[0]:
+                        return None
+                else:
+                    # проверяем грамматические теги, запоминаем лемму для последующей вставки в развернутую форму
+                    if all((tag in token[1]) for tag in template_item[1]):
+                        match1[template_item[2]] = token[2]
+                    else:
+                        return None
+
+            return match1
+
+        return None
+
+    def match_template(self, template, context):
+        match = dict()
+        all_matched = True
+        if len(template) == len(context):  # совпадает кол-во проверяемых фраз контекста
+            for template1, context1 in zip(template, context):
+                match1 = self.match_template1(template1, context1)
+                if match1:
+                    match.update(match1)
+                else:
+                    all_matched = False
+                    break
+
+        return match if all_matched else None
+
+    def prepare_context_line(self, line, text_utils):
+        tokens = text_utils.lemmatize2(line)
+        tokens = [(t[0], t[1].split('|'), t[2]) for t in tokens if self.is_important_token2(t)]
+        return tokens
+
+    def generate_output_by_template(self, output_template, matching, text_utils):
+        res_words = []
+        for word, location, tags in output_template:
+            if word is not None:
+                res_words.append(word)
+            else:
+                lemma = matching[location]
+                all_tags = dict(tags[1:])
+                required_tags = ''
+                if tags[0] == 'NOUN':
+                    required_tags = 'ПАДЕЖ ЧИСЛО'.split()
+                elif tags[0] == 'ADJ':
+                    required_tags = 'РОД ПАДЕЖ ЧИСЛО ОДУШ СТЕПЕНЬ'.split()
+                elif tags[0] == 'VERB':
+                    required_tags = 'ВРЕМЯ ЛИЦО ЧИСЛО РОД НАКЛОНЕНИЕ'.split()
+                elif tags[0] == 'ADV':
+                    required_tags = 'СТЕПЕНЬ'
+
+                required_tags = [(t, all_tags[t]) for t in required_tags if t in all_tags]
+                forms = list(text_utils.flexer.find_forms_by_tags(lemma, required_tags))
+                if forms:
+                    form = forms[0]
+                else:
+                    form = lemma
+
+                res_words.append(form)
+
+        return ' '.join(res_words)
+
+    def interpret(self, phrases, text_utils):
         if len(phrases) < 2:
             logging.warning('%d input phrase(s) in NN_InterpreterNew2::interpret, at least 2 expected', len(phrases))
             return phrases[-1]
@@ -100,13 +179,25 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         context_phrases = phrases[:-1]
         short_phrase = phrases[-1]
 
-        samples = [Sample(context_phrases, short_phrase)]
-        X_data = self.vectorize_samples(samples, text_utils)
+        expanded_phrase = None
 
-        y_pred = self.model.predict(x=X_data, verbose=0)
-        y_pred = np.argmax(y_pred[0], axis=-1)
-        tokens = [self.index2token[itok] for itok in y_pred]
-        expanded_phrase = ''.join(tokens).replace('▁', ' ').strip()
+        # Сначала пробуем knn-1 модель, ищем подходящий шаблон
+        context2 = [self.prepare_context_line(s, text_utils) for s in phrases]
+        for it, template in enumerate(self.templates):
+            matching = self.match_template(template[0], context2)
+            if matching:
+                # теперь собираем выходную строку, используя сопоставленные ключевые слова и шаблон
+                expanded_phrase = self.generate_output_by_template(template[1], matching, text_utils)
+                self.logger.debug('NN_InterpreterNew2 knn-1 generated "%s"', expanded_phrase)
+                break
 
-        self.logger.debug('NN_InterpreterNew2 expanded_phrase="%s"', expanded_phrase)
+        if not expanded_phrase:
+            samples = [Sample(context_phrases, short_phrase)]
+            X_data = self.vectorize_samples(samples, text_utils)
+
+            y_pred = self.model.predict(x=X_data, verbose=0)
+            y_pred = np.argmax(y_pred[0], axis=-1)
+            tokens = [self.index2token[itok] for itok in y_pred]
+            expanded_phrase = ''.join(tokens).replace('▁', ' ').strip()
+            self.logger.debug('NN_InterpreterNew2 seq2seq generated "%s"', expanded_phrase)
         return expanded_phrase
