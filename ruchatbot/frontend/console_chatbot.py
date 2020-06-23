@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 Консольный фронтэнд для диалогового движка (https://github.com/Koziev/chatbot).
+23.06.2020 добавлен пакетный режим как временный эрзац пакетного теста
 """
 
 import os
 import argparse
 import logging
-import sys
+import io
 
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
@@ -71,6 +72,8 @@ def main():
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
     parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
     parser.add_argument('--debugging', action='store_true')
+    parser.add_argument('--input', type=str, help='Input file with phrases')
+    parser.add_argument('--output', type=str, help='Output file with bot replicas')
 
     args = parser.parse_args()
     profile_path = os.path.expanduser(args.profile)
@@ -139,26 +142,49 @@ def main():
     flush_logging()
     print_tech_banner()
 
-    while True:
-        print('\n')
+    if args.input:
+        # Пакетный режим - читаем фразы собеседника из указанного текстового файла, прогоняем
+        # через бота, сохраняем ответные фразы бота в выходной файл.
+        with io.open(args.input, 'r', encoding='utf-8') as rdr,\
+            io.open(args.output, 'w', encoding='utf-8') as wrt:
+            for line in rdr:
+                inline = line.strip()
+                if inline.startswith('#'):
+                    # комментарии просто сохраняем в выходном файле для
+                    # удобства визуальной организации
+                    wrt.write('\n{}\n'.format(inline))
 
-        # В самом начале диалога, когда еще не было ни одной реплики,
-        # бот может сгенерировать некое приветствие или вопрос для
-        # завязывания беседы. Поэтому сразу извлечем сгенерированные фразы из
-        # буфера и покажем их.
+                if inline:
+                    wrt.write('\nH: {}\n'.format(inline))
+                    bot.push_phrase(user_id, line.strip())
+
+                    while True:
+                        answer = bot.pop_phrase(user_id)
+                        if len(answer) == 0:
+                            break
+                        wrt.write('B: {}\n'.format(answer))
+    else:
+        # Консольный интерактивный режим
         while True:
-            answer = bot.pop_phrase(user_id)
-            if len(answer) == 0:
-                break
+            print('\n')
 
-            print_answer(u'B:>', answer)
+            # В самом начале диалога, когда еще не было ни одной реплики,
+            # бот может сгенерировать некое приветствие или вопрос для
+            # завязывания беседы. Поэтому сразу извлечем сгенерированные фразы из
+            # буфера и покажем их.
+            while True:
+                answer = bot.pop_phrase(user_id)
+                if len(answer) == 0:
+                    break
 
-        question = input_kbd('H:>')
-        if len(question) > 0:
-            if question.lower() in ('r\exit', r'\q', r'\quit', '/stop'):
-                break
+                print_answer(u'B:>', answer)
 
-            bot.push_phrase(user_id, question)
+            question = input_kbd('H:>')
+            if len(question) > 0:
+                if question.lower() in ('r\exit', r'\q', r'\quit', '/stop'):
+                    break
+
+                bot.push_phrase(user_id, question)
 
 
 if __name__ == '__main__':
