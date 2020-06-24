@@ -361,12 +361,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def say(self, session, answer):
         self.logger.info(u'say "%s"', answer)
-        answer_interpretation = InterpretedPhrase(answer)
-        answer_interpretation.is_bot_phrase = True
-        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
-        answer_interpretation.set_modality(phrase_modality, phrase_person)
-        session.add_to_buffer(answer)
-        session.add_phrase_to_history(answer_interpretation)
+        if answer:
+            answer_interpretation = InterpretedPhrase(answer)
+            answer_interpretation.is_bot_phrase = True
+            phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
+            answer_interpretation.set_modality(phrase_modality, phrase_person)
+            session.add_to_buffer(answer)
+            session.add_phrase_to_history(answer_interpretation)
+        else:
+            self.logger.error('Empty phrase in say()')
 
     def run_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
         """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
