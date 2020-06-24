@@ -44,6 +44,10 @@ class IntentDetector(object):
             nlp_transform = model['nlp_transform']
             self.models.append((model, nlp_transform))
 
+    def append_intent(self, intents, intent):
+        if not intent.startswith('0'):
+            intents.append(intent)
+
     def detect_intent(self, phrase_str, text_utils):
         """Для фразы phrase_str вернет набор меток из классификаторов"""
         nphrase = phrase_str.lower()
@@ -54,12 +58,12 @@ class IntentDetector(object):
         for model, nlp_transform in self.models:
             if nphrase in model['phrase2label']:
                 # Фраза находится в lookup-таблице, обойдемся без классификации.
-                intents.append(model['phrase2label'][nphrase])
+                self.append_intent(intents, model['phrase2label'][nphrase])
                 continue
 
             nphrase = text_utils.wordize_text(phrase_str)
             if nphrase in model['phrase2label']:
-                intents.append(model['phrase2label'][nphrase])
+                self.append_intent(intents, model['phrase2label'][nphrase])
                 continue
 
             intent_detected = False
@@ -80,7 +84,7 @@ class IntentDetector(object):
                     #    self.model['phrase2label'][nphrase]
                     ldist = levenshtein_distance(top_keyphrase, nphrase)
                     if ldist < 2:
-                        intents.append(model['phrase2label'][top_keyphrase])
+                        self.append_intent(intents, model['phrase2label'][top_keyphrase])
                         intent_detected = True
                         break
 
@@ -93,6 +97,6 @@ class IntentDetector(object):
                 y_query = model['estimator'].predict(X_query)
                 intent_index = y_query[0]
                 intent_name = model['index2label'][intent_index]
-                intents.append(intent_name)
+                self.append_intent(intents, intent_name)
 
         return intents
