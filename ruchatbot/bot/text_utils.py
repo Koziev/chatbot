@@ -170,6 +170,10 @@ class TextUtils(object):
         tokens = self.lemmatizer.lemmatize(self.postagger.tag(words))
         return [self.extract_lemma(t) for t in tokens]
 
+    def lemmatize2(self, s):
+        words = self.tokenizer.tokenize(s)
+        return self.lemmatizer.lemmatize(self.postagger.tag(words))
+
     def lpad_wordseq(self, words, n):
         """ Слева добавляем пустые слова """
         return list(itertools.chain(itertools.repeat(PAD_WORD, n - len(words)), words))
