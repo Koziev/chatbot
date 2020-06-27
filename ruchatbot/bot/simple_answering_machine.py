@@ -34,6 +34,7 @@ from ruchatbot.bot.entity_extractor import EntityExtractor
 from ruchatbot.bot.running_form_status import RunningFormStatus
 from ruchatbot.bot.running_scenario import RunningScenario
 from ruchatbot.bot.p2q_relevancy_lgb import P2Q_Relevancy_LGB
+from ruchatbot.bot.paraphraser import Paraphraser
 
 
 class InsteadofRuleResult(object):
@@ -171,6 +172,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.entity_extractor.load(models_folder)
 
         self.jsyndet = Jaccard_SynonymyDetector()
+
+        self.paraphraser = Paraphraser()
+        self.paraphraser.load(models_folder)
 
         self.logger.debug('All models loaded')
 
@@ -360,8 +364,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return interpreted
 
     def say(self, session, answer):
-        self.logger.info(u'say "%s"', answer)
+        self.logger.info('say "%s"', answer)
         if answer:
+            answer = self.paraphraser.paraphrase(answer, self.text_utils)
             answer_interpretation = InterpretedPhrase(answer)
             answer_interpretation.is_bot_phrase = True
             phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
