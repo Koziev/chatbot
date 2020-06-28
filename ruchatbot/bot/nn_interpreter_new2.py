@@ -95,7 +95,7 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
 
     def is_important_token2(self, t):
         pos = t[1].split('|')[0]
-        if pos in ('NOUN', 'VERB', 'ADJ', 'ADV', 'PRON', 'NUM'):
+        if pos in ('NOUN', 'VERB', 'ADJ', 'ADV', 'PRON', 'NUM', 'ADP', 'PREP'):
             return True
 
         lemma = t[2]
@@ -161,10 +161,14 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
                     required_tags = 'СТЕПЕНЬ'
 
                 required_tags = [(t, all_tags[t]) for t in required_tags if t in all_tags]
-                forms = list(text_utils.flexer.find_forms_by_tags(lemma, required_tags))
-                if forms:
-                    form = forms[0]
+                if required_tags:
+                    forms = list(text_utils.flexer.find_forms_by_tags(lemma, required_tags))
+                    if forms:
+                        form = forms[0]
+                    else:
+                        form = lemma
                 else:
+                    # сюда попадает случай инфинитива
                     form = lemma
 
                 res_words.append(form)
