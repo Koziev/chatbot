@@ -6,25 +6,18 @@
 
 from __future__ import print_function
 
-import sys
-
 from flask import request
 from flask import render_template
-from flask import flash
 from flask import redirect
-from flask import jsonify
-from sqlalchemy import func
-import json
 
-from bot_service import flask_app
-#from bot_service import db
-from bot_service import rest_service_core
-from bot_service.dialog_form import DialogForm
-from dialog_phrase import DialogPhrase
+#from bot_service import flask_app
+from .dialog_form import DialogForm
+from .dialog_phrase import DialogPhrase
+from .rest_service_core import flask_app
 
-#from db_mappings.mappings import ML_Solver, ML_Attr, ML_Sample
 
 user_id = 'test_user'
+
 
 @flask_app.route('/start', methods=["GET"])
 def start():
@@ -53,7 +46,7 @@ def index():
 
     if form.validate_on_submit():
         # Пользователь ввел свою реплику, обрабатываем ее.
-        #flash('full_name={}'.format(form.full_name.data))
+        # flash('full_name={}'.format(form.full_name.data))
         utterance = form.utterance.data
         if len(utterance) > 0:
             phrases.append(DialogPhrase(utterance, user_id, False))
