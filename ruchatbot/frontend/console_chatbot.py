@@ -146,13 +146,14 @@ def main():
         # Пакетный режим - читаем фразы собеседника из указанного текстового файла, прогоняем
         # через бота, сохраняем ответные фразы бота в выходной файл.
         with io.open(args.input, 'r', encoding='utf-8') as rdr,\
-            io.open(args.output, 'w', encoding='utf-8') as wrt:
+             io.open(args.output, 'w', encoding='utf-8') as wrt:
             for line in rdr:
                 inline = line.strip()
                 if inline.startswith('#'):
                     # комментарии просто сохраняем в выходном файле для
                     # удобства визуальной организации
                     wrt.write('\n{}\n'.format(inline))
+                    continue
 
                 if inline:
                     wrt.write('\nH: {}\n'.format(inline))
