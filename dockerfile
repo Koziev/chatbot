@@ -29,6 +29,9 @@ RUN pip install tensorflow==1.14
 RUN pip install colorama
 RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
+RUN pip install flask
+RUN pip install flask_sqlalchemy
+RUN pip install flask_wtf
 
 WORKDIR /home
 ADD ruword2tags.tar.gz /home
@@ -51,6 +54,13 @@ COPY ./ruchatbot/frontend/*.py ./
 
 WORKDIR /chatbot/ruchatbot/bot_service
 COPY ./ruchatbot/bot_service/*.py ./
+
+WORKDIR /chatbot/ruchatbot/bot_service/static/img
+COPY ./ruchatbot/bot_service/static/img/*.* ./
+
+WORKDIR /chatbot/ruchatbot/bot_service/templates
+COPY ./ruchatbot/bot_service/templates/*.* ./
+
 
 WORKDIR /chatbot/ruchatbot/utils
 COPY ./ruchatbot/utils/*.py ./
@@ -77,7 +87,9 @@ COPY ./tmp/*.* ./
 WORKDIR /chatbot/scripts
 COPY ./scripts/console_bot.sh ./
 COPY ./scripts/test_console.sh ./
+COPY ./scripts/flask_bot.sh ./
 
+EXPOSE 9001
 WORKDIR /chatbot/scripts
 CMD "./console_bot.sh"
 #CMD "./test_console.sh"
