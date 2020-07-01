@@ -1,8 +1,8 @@
 # coding: utf-8
 """
 Тренер классификатора интентов для чатбота.
-Реализован подбор параметров в gridsearch, тренировка модели для использовании
-в чатботе с сохранением на диск и интерактивная проверка обученной модели.
+Реализован подбор параметров в gridsearch, тренировка моделей для использовании
+в чатботе и интерактивная/пакетная проверка обученной модели.
 
 29.07.2019 - добавлен вывод confusion matrix
 29.07.2019 - добавлен перебор параметра norm в TfIdfVectorizer, так
@@ -11,9 +11,12 @@
 22.08.2019 - добавлена выдача отчета по confusion matrix
 25.08.2019 - добавлена визуализация t-SNE
 18.06.2020 - ряд классификаций выделен в отдельные модели (abusiveness, sentiment, direction)
+01.06.2020 - добавлен сценарий batch_query: предложения из текстового файла прогоняем через обученные модели, сохраняем
+             результаты классификации в текстовый файл.
 """
 
 from __future__ import print_function
+
 import pickle
 import pandas as pd
 import json
@@ -35,10 +38,9 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import SGDClassifier
 from sklearn.svm import LinearSVC
 from sklearn.ensemble import GradientBoostingClassifier
-import lightgbm
 from sklearn.metrics import confusion_matrix
 from sklearn.manifold import TSNE
-
+import lightgbm
 import matplotlib.pyplot as plt
 import seaborn as sns
 import terminaltables
@@ -320,14 +322,18 @@ def plot_confusion_matrix(y_true, y_pred, classes,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Classifier trainer for intent detection')
-    parser.add_argument('--run_mode', choices='gridsearch train query'.split(), default='train')
+    parser.add_argument('--run_mode', choices='gridsearch train query batch_query'.split(), default='')
     parser.add_argument('--tmp_dir', default='../tmp')
     parser.add_argument('--datasets', default='../tmp')
+    parser.add_argument('--input', default='../data/intents_batch_query.txt')
+    parser.add_argument('--output', default='../tmp/intents_batch_query.output.txt')
     args = parser.parse_args()
 
     tmp_dir = args.tmp_dir
     dataset_path = os.path.join(args.datasets, 'intents_dataset.csv')
     run_mode = args.run_mode
+    while not run_mode:
+        run_mode = input('Choose run_mode [gridsearch train query batch_query]:> ').strip()
 
     init_trainer_logging(os.path.join(tmp_dir, 'train_intent_classifier.log'), logging.DEBUG)
 
@@ -515,7 +521,6 @@ if __name__ == '__main__':
 
     if run_mode == 'query':
         models = []
-
         for model_name in model_names:
             model_path = os.path.join(tmp_dir, '{}_classifier.model'.format(model_name))
             logging.info('Restoring model from "%s"', model_path)
@@ -541,4 +546,32 @@ if __name__ == '__main__':
             table = terminaltables.AsciiTable(table)
             print(table.table)
 
+    if run_mode == 'batch_query':
+        models = []
+        for model_name in model_names:
+            model_path = os.path.join(tmp_dir, '{}_classifier.model'.format(model_name))
+            logging.info('Restoring model from "%s"', model_path)
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+                models.append((model_name, model))
 
+        logging.info('Reading phrases from "%s", writing classification results to "%s"', args.input, args.output)
+        with io.open(args.input, 'r', encoding='utf-8') as rdr,\
+            io.open(args.output, 'w', encoding='utf-8') as wrt:
+            for line in rdr:
+                phrase = line.strip()
+                labels = []
+                for model_name, model in models:
+                    if model['nlp_transform'] == 'lower':
+                        phrase = phrase.lower()
+
+                    X_query = model['vectorizer'].transform([phrase])
+                    y_query = model['estimator'].predict(X_query)
+                    intent_index = y_query[0]
+                    intent_name = model['index2label'][intent_index]
+                    labels.append((model_name, intent_name))
+
+                wrt.write('{}\n\n'.format(phrase))
+                for model_name, intent_name in labels:
+                    wrt.write('{} = {}\n'.format(model_name, intent_name))
+                wrt.write('\n\n\n')
