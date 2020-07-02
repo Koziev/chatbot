@@ -63,7 +63,7 @@ class SayingPhrase:
     def __init__(self, phrase_str):
         self.raw_text = phrase_str
         self.name2entry = dict()
-        for slot_prefix in ['NP', 'VI', 'AP']:
+        for slot_prefix in ['NP', 'VI', 'AP', 'VP']:
             if '$'+slot_prefix in phrase_str:
                 for m in re.finditer(r'\$(' + slot_prefix + r'\d+)', phrase_str):
                     entry_text = m.group(0)

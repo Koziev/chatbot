@@ -244,7 +244,7 @@ class MaskTerm:
         self.word = None
         self.norm_word = None
         self.lemma = None
-        self.chunk_type = None  # NP | VI | AP
+        self.chunk_type = None  # NP | VI | VP | AP
         self.chunk_name = None
 
     def __repr__(self):
@@ -261,6 +261,9 @@ class MaskTerm:
 
     def is_VI(self):
         return self.chunk_type == 'VI'
+
+    def is_VP(self):
+        return self.chunk_type == 'VP'
 
     def is_AP(self):
         return self.chunk_type == 'AP'
@@ -402,6 +405,15 @@ def match_term(start_token_index, phrase_tokens, mask_term):
                     m.first_token_index = start_token_index + skip
                     m.last_token_index = start_token_index + skip
                     results.append(m)
+            elif mask_term.is_VP():
+                # TODO: сейчас матчим один глагол, но надо учитывать аналитические и модальные конструкции
+                if phrase_token.is_verb():
+                    m = TermMatch(mask_term)
+                    m.penalty = skip
+                    m.chunk_tokens.append(phrase_tokens[start_token_index + skip])
+                    m.first_token_index = start_token_index + skip
+                    m.last_token_index = start_token_index + skip
+                    results.append(m)
             elif mask_term.is_AP():
                 if phrase_token.is_adj():
                     m = TermMatch(mask_term)
@@ -463,6 +475,9 @@ class ChunkMatcherMask:
                 term.chunk_name = token
             elif token.startswith('vi'):
                 term.chunk_type = 'VI'
+                term.chunk_name = token
+            elif token.startswith('vp'):
+                term.chunk_type = 'VP'
                 term.chunk_name = token
             elif token.startswith('ap'):
                 term.chunk_type = 'AP'
