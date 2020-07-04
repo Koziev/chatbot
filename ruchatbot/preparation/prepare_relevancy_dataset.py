@@ -19,6 +19,8 @@ questions.txt - список вопросов для негативного сэ
 
 24-12-2019 Добавлена аугментация датасета с помощью замен на синонимичные фразы, взятые
            из paraphrases.txt
+
+04-07-2020 Доработка загрузки негативных сэмплов из файла nonrelevant_premise_questions.txt
 """
 
 from __future__ import division  # for python2 compatability
@@ -229,8 +231,8 @@ if __name__ == '__main__':
     random_negat_pairs_count = 0
 
     # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
-    manual_negatives_pq = dict()
-    manual_negatives_qp = dict()
+    manual_negatives_pq = collections.defaultdict(list)
+    manual_negatives_qp = collections.defaultdict(list)
     with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
         for line in rdr:
             line = line.strip()
@@ -239,28 +241,35 @@ if __name__ == '__main__':
                 if len(tx) == 2:
                     premise = normalize_qline(tx[0])
                     question = normalize_qline(tx[1])
-                    if premise not in manual_negatives_pq:
-                        manual_negatives_pq[premise] = [question]
-                    else:
-                        manual_negatives_pq[premise].append(question)
 
-                    if question not in manual_negatives_qp:
-                        manual_negatives_qp[question] = [premise]
-                    else:
-                        manual_negatives_qp[question].append(premise)
+                    manual_negatives_pq[premise].append(question)
+                    manual_negatives_qp[question].append(premise)
                 elif len(tx) == 1:
                     # Второй формат, аналогичный негативным синонимам
-                    # Первая строка задает вопрос, далее идут строки, начинающиеся на (-) с нерелевантными предпосылками.
-                    question = normalize_qline(tx[0])
-                    for line in rdr:
-                        if line.startswith('(-)'):
-                            premise = normalize_qline(line.replace('(-)', '').strip())
-                            if question not in manual_negatives_qp:
-                                manual_negatives_qp[question] = [premise]
-                            else:
+
+                    # Может быть задан один вопрос и к нему много нерелевантных предпосылок,
+                    # или одна предпосылка и к ней много нерелевантных вопросов.
+                    # Определяем по последнему символу первой строки
+                    if tx[0].endswith('?'):
+                        # вопрос и к нему много нерелевантных предпосылок
+                        question = normalize_qline(tx[0])
+                        for line in rdr:
+                            if line.startswith('(-)'):
+                                premise = normalize_qline(line.replace('(-)', '').strip())
                                 manual_negatives_qp[question].append(premise)
-                        else:
-                            break
+                                manual_negatives_pq[premise].append(question)
+                            else:
+                                break
+                    else:
+                        # предпосылка и к ней много нерелевантных вопросов
+                        premise = normalize_qline(tx[0])
+                        for line in rdr:
+                            if line.startswith('(-)'):
+                                question = normalize_qline(line.replace('(-)', '').strip())
+                                manual_negatives_qp[question].append(premise)
+                                manual_negatives_pq[premise].append(question)
+                            else:
+                                break
 
 
     for premise, questions in manual_negatives_pq.items():
