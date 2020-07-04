@@ -69,15 +69,20 @@ def load_samples(input_path):
                     phrase = phrases[-1]
                     if '|' in phrase:
                         px = phrase.lower().split('|')
-                        if px[0] != px[1]:
-                            left = remove_terminators(px[0].strip())
+                        left = remove_terminators(px[0].strip())
+                        right = remove_terminators(px[1].strip())
+                        if left != right:
                             if not left:
                                 print(u'Empty left part in line #{} in "{}"'.format(iline, input_path))
                                 exit(0)
                             else:
                                 samples1[left] += 1
+                        else:
+                            # запись такого вида:
+                            # aaa | aaa
+                            # означает, что "ааа" не нужно интерпретировать
+                            samples0.add(left)
 
-                        right = remove_terminators(px[1].strip())
                         if not right:
                             print(u'Empty right part in line #{}'.format(iline))
                             exit(0)
@@ -179,6 +184,6 @@ if __name__ == '__main__':
     df['label'] = [sample.y for sample in samples]
     df['weight'] = [sample.weight for sample in samples]
 
-    outpath = os.path.join(data_folder, 'req_interpretation_dataset.csv')
+    outpath = os.path.join(tmp_folder, 'req_interpretation_dataset.csv')
     logging.info('Writing dataset with shape={} rows to "{}"'.format(df.shape, outpath))
     df.to_csv(outpath, sep='\t', header=True, index=False, encoding='utf-8', quoting=csv.QUOTE_MINIMAL)
