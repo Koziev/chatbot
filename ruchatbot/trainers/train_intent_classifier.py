@@ -13,6 +13,7 @@
 18.06.2020 - ряд классификаций выделен в отдельные модели (abusiveness, sentiment, direction)
 01.06.2020 - добавлен сценарий batch_query: предложения из текстового файла прогоняем через обученные модели, сохраняем
              результаты классификации в текстовый файл.
+05.07.2020 - в отдельный сценарий "eval" из train выделена оценка качества классификатора с выбранными параметрами
 """
 
 from __future__ import print_function
@@ -322,7 +323,7 @@ def plot_confusion_matrix(y_true, y_pred, classes,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Classifier trainer for intent detection')
-    parser.add_argument('--run_mode', choices='gridsearch train query batch_query'.split(), default='')
+    parser.add_argument('--run_mode', choices='gridsearch train eval query batch_query'.split(), default='')
     parser.add_argument('--tmp_dir', default='../tmp')
     parser.add_argument('--datasets', default='../tmp')
     parser.add_argument('--input', default='../data/intents_batch_query.txt')
@@ -333,7 +334,7 @@ if __name__ == '__main__':
     dataset_path = os.path.join(args.datasets, 'intents_dataset.csv')
     run_mode = args.run_mode
     while not run_mode:
-        run_mode = input('Choose run_mode [gridsearch train query batch_query]:> ').strip()
+        run_mode = input('Choose run_mode [gridsearch train crossval query batch_query]:> ').strip()
 
     init_trainer_logging(os.path.join(tmp_dir, 'train_intent_classifier.log'), logging.DEBUG)
 
@@ -388,7 +389,7 @@ if __name__ == '__main__':
                                                          verbose=1)
                                 acc = np.mean(cv_res)
 
-                                logging.info(u'k-fold validation accuracy=%f', acc)
+                                logging.info(u'k-fold validation f1=%f', acc)
 
                                 if acc > best_acc:
                                     logging.info('!!! NEW BEST !!! acc=%f params=%s', acc, get_params_str(model_params))
@@ -519,6 +520,32 @@ if __name__ == '__main__':
                 logging.info('test_acc=%f', test_acc)
                 logging.info('All done.')
 
+    if run_mode == 'eval':
+        # Оценка качества моделей через кроссвалидацию.
+        with open(best_params_path, 'r') as f:
+            best_model_params = json.load(f)
+
+        for model_name in model_names:
+            dataset_path = os.path.join(args.datasets, '{}_dataset.csv'.format(model_name))
+            logging.info('Model "%s", dataset="%s"', model_name, dataset_path)
+
+            df = pd.read_csv(dataset_path,
+                             encoding='utf-8',
+                             delimiter='\t',
+                             index_col=None,
+                             keep_default_na=False)
+
+            best_vectorizer, X_data, y_data, label2index, phrase2label, shingle2phrases = data_vectorization(df, best_model_params)
+            computed_params = {'nb_labels': len(label2index)}
+
+            estimator = create_estimator(best_model_params, computed_params)
+            cv_res = cross_val_score(estimator, X_data, y_data,
+                                     scoring='f1_weighted', cv=NFOLD, n_jobs=NFOLD,
+                                     verbose=1)
+            score = np.mean(cv_res)
+            logging.info('Model "%s" crossval f1=%f', model_name, score)
+
+
     if run_mode == 'query':
         models = []
         for model_name in model_names:
@@ -560,18 +587,19 @@ if __name__ == '__main__':
             io.open(args.output, 'w', encoding='utf-8') as wrt:
             for line in rdr:
                 phrase = line.strip()
-                labels = []
-                for model_name, model in models:
-                    if model['nlp_transform'] == 'lower':
-                        phrase = phrase.lower()
+                if phrase and not phrase.startswith('#'):
+                    labels = []
+                    for model_name, model in models:
+                        if model['nlp_transform'] == 'lower':
+                            phrase = phrase.lower()
 
-                    X_query = model['vectorizer'].transform([phrase])
-                    y_query = model['estimator'].predict(X_query)
-                    intent_index = y_query[0]
-                    intent_name = model['index2label'][intent_index]
-                    labels.append((model_name, intent_name))
+                        X_query = model['vectorizer'].transform([phrase])
+                        y_query = model['estimator'].predict(X_query)
+                        intent_index = y_query[0]
+                        intent_name = model['index2label'][intent_index]
+                        labels.append((model_name, intent_name))
 
-                wrt.write('{}\n\n'.format(phrase))
-                for model_name, intent_name in labels:
-                    wrt.write('{} = {}\n'.format(model_name, intent_name))
-                wrt.write('\n\n\n')
+                    wrt.write('{}\n\n'.format(phrase))
+                    for model_name, intent_name in labels:
+                        wrt.write('{} = {}\n'.format(model_name, intent_name))
+                    wrt.write('\n\n\n')
