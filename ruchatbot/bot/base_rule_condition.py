@@ -451,6 +451,11 @@ def all_matches(start_token_index, phrase_tokens, mask_terms, prev_match):
                                       mask_terms[1:], chain_item)
             res.extend(next_chains)
         else:
+            # последний терм в шаблоне.
+            # посмотрим, сколько справа осталось несопоставленных токенов во входном предложении.
+            tail_len = len(phrase_tokens) - start_token_index
+            #chain_item.penalty += tail_len
+
             res.append(chain_item)
 
     return res
@@ -576,8 +581,9 @@ class RuleCondition_ChunkMatcher(BaseRuleCondition):
                 res = RuleConditionMatching.create(True)
                 for group_name, tokens in mx.index2group.items():
                     normal_words1 = normalize_chunk(tokens, edges, text_utils.flexer, text_utils.word2tags)
-                    normal_words2 = normalize_chunk(tokens, edges, text_utils.flexer, text_utils.word2tags, target_tags={'ЧИСЛО': 'ЕД'})
-                    normal_words = list(set(normal_words1) | set(normal_words2))
+                    #normal_words2 = normalize_chunk(tokens, edges, text_utils.flexer, text_utils.word2tags, target_tags={'ЧИСЛО': 'ЕД'})
+                    #normal_words = list(set(normal_words1) | set(normal_words2))
+                    normal_words = normal_words1
 
                     if group_name in self.constraints_w2v:
                         constraints_satisfied = True

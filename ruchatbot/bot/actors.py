@@ -104,6 +104,8 @@ def substitute_bound_variables(phrase, condition_matching_results, text_utils):
                     for tag in entry.tags:
                         if tag in ('ИМ', 'ВИН', 'РОД', 'ТВОР', 'ДАТ', 'ПРЕДЛ'):
                             target_tags['ПАДЕЖ'] = tag
+                        elif tag in ('ЕД', 'МН'):
+                            target_tags['ЧИСЛО'] = tag
                         else:
                             raise NotImplementedError()
 
