@@ -12,10 +12,12 @@ class Paraphraser:
     def __init__(self):
         self.processed_phrases = collections.Counter()
         self.paraphraser_templates = None
+        self.simple_paraphrases = None
 
     def load(self, models_folder):
         with open(os.path.join(models_folder, 'generative_paraphraser.dat'), 'rb') as f:
             self.paraphraser_templates = pickle.load(f)
+            self.simple_paraphrases = pickle.load(f)
 
     def match_support_template(self, template, tokens, w2v):
         if len(template) == len(tokens):
@@ -114,6 +116,9 @@ class Paraphraser:
                     new_phrase = random.choice(fx)
                 else:
                     new_phrase = random.choice(fx1)
+            else:
+                if phrase in self.simple_paraphrases:
+                    new_phrase = random.choice(self.simple_paraphrases[phrase])
 
         self.processed_phrases[new_phrase] += 1
 
