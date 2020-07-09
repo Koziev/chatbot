@@ -48,7 +48,7 @@ def dress_context_line(s):
 
 
 def undress_output_line(s):
-    if s[-1] in '.?!':
+    if s and s[-1] in '.?!':
         return s[:-1].strip()
     else:
         return s
@@ -73,13 +73,12 @@ def train_bpe_model(params):
 
     spm_name = 'nn_seq2seq_interpreter.sentencepiece'
 
-    if not os.path.exists(os.path.join(tmp_dir, spm_name + '.vocab')):
-        print('Start training bpe model "{}" on {} samples'.format(spm_name, nb_samples))
-        spm.SentencePieceTrainer.Train(
-            '--input={} --model_prefix={} --vocab_size={} --shuffle_input_sentence=true --character_coverage=1.0 --model_type=unigram'.format(
-                sentencepiece_corpus, spm_name, spm_items))
-        os.rename(spm_name + '.vocab', os.path.join(tmp_dir, spm_name + '.vocab'))
-        os.rename(spm_name + '.model', os.path.join(tmp_dir, spm_name + '.model'))
+    print('Start training bpe model "{}" on {} samples'.format(spm_name, nb_samples))
+    spm.SentencePieceTrainer.Train(
+        '--input={} --model_prefix={} --vocab_size={} --shuffle_input_sentence=true --character_coverage=1.0 --model_type=unigram'.format(
+            sentencepiece_corpus, spm_name, spm_items))
+    os.rename(spm_name + '.vocab', os.path.join(tmp_dir, spm_name + '.vocab'))
+    os.rename(spm_name + '.model', os.path.join(tmp_dir, spm_name + '.model'))
 
     print('bpe model "{}" ready'.format(spm_name))
     return spm_name
@@ -147,8 +146,13 @@ def load_samples(bpe_model, computed_params, max_samples):
             if token == '|':
                 isegm -= 1
 
-        sample.right_str = r.output
+        sample.right_str = r.output.strip()
         sample.right_tokens = bpe_model.EncodeAsPieces(sample.right_str)
+
+        if len(sample.right_tokens) < 1:
+            print('Error: empty output for sample:\nleft_str={}\nright_tokens={}'.format(sample.left_str, sample.right_tokens))
+            exit(0)
+
         samples.append(sample)
 
         all_tokens.update(sample.left_tokens)
@@ -325,7 +329,7 @@ class VizualizeCallback(keras.callbacks.Callback):
             # отберем немного сэмлов для визуализации текущего состояния модели
             # 16-06-2020 не будем показывать сэмплы с длиной левой части больше 71, чтобы не разваливались
             # ascii-таблицы.
-            samples2 = sorted(filter(lambda s: len(s.left_str) < 72, test_samples), key=lambda z: random.random())[:10]
+            samples2 = sorted(filter(lambda s: len(s.left_str) < 72, self.test_samples), key=lambda z: random.random())[:10]
             Xs, y = vectorize_samples(samples2, self.model_params, self.computed_params)
             y_pred = model.predict(Xs, verbose=0)
             y_pred = np.argmax(y_pred, axis=-1)

@@ -80,13 +80,12 @@ def train_bpe_model(params):
 
     spm_name = 'nn_seq2seq_pqa_generator.sentencepiece'  #.format(spm_items)
 
-    if not os.path.exists(os.path.join(tmp_dir, spm_name + '.vocab')):
-        print('Start training bpe model "{}" on {} samples'.format(spm_name, nb_samples))
-        spm.SentencePieceTrainer.Train(
-            '--input={} --model_prefix={} --vocab_size={} --shuffle_input_sentence=true --character_coverage=1.0 --model_type=unigram'.format(
-                sentencepiece_corpus, spm_name, spm_items))
-        os.rename(spm_name + '.vocab', os.path.join(tmp_dir, spm_name + '.vocab'))
-        os.rename(spm_name + '.model', os.path.join(tmp_dir, spm_name + '.model'))
+    print('Start training bpe model "{}" on {} samples'.format(spm_name, nb_samples))
+    spm.SentencePieceTrainer.Train(
+        '--input={} --model_prefix={} --vocab_size={} --shuffle_input_sentence=true --character_coverage=1.0 --model_type=unigram'.format(
+            sentencepiece_corpus, spm_name, spm_items))
+    os.rename(spm_name + '.vocab', os.path.join(tmp_dir, spm_name + '.vocab'))
+    os.rename(spm_name + '.model', os.path.join(tmp_dir, spm_name + '.model'))
 
     print('bpe model "{}" ready'.format(spm_name))
     return spm_name
@@ -407,7 +406,7 @@ if __name__ == '__main__':
     if run_mode == 'train':
         params = dict()
 
-        params['spm_items'] = 20000
+        params['spm_items'] = 24000
         params['token_dim'] = 50
         params['hidden_dim'] = 150
         params['is_monotonic'] = False
@@ -421,7 +420,7 @@ if __name__ == '__main__':
 
         bpe_model = load_bpe_model(bpe_model_name)
 
-        samples = load_samples(bpe_model, computed_params, max_samples=20000)
+        samples = load_samples(bpe_model, computed_params, max_samples=10000000)
         train_samples, test_samples = sklearn.model_selection.train_test_split(samples, test_size=0.1)
 
         with open(config_path, 'w') as f:
