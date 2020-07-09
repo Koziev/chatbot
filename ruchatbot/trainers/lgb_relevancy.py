@@ -481,7 +481,7 @@ def get_best_params(task):
             lgb_params['min_data_in_leaf'] = 2
         else:
             lgb_params['min_data_in_leaf'] = 7
-            lgb_params['learning_rate'] = 0.21228438289846577
+            lgb_params['learning_rate'] = 0.15  #0.21228438289846577
 
         lgb_params['num_leaves'] = 99
         lgb_params['min_sum_hessian_in_leaf'] = 1
@@ -922,7 +922,7 @@ if run_mode == 'hardnegative':
                         phrase2 = u' '.join(tokenizer.tokenize(phrase))
                         test_phrases.add((phrase2, phrase))
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'questions_2s.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     phrase = line.strip()
@@ -941,6 +941,23 @@ if run_mode == 'hardnegative':
                             phrase2 = u' '.join(words)
                             test_phrases.add((phrase2, phrase))
 
+        if True:
+            with io.open(os.path.join(data_folder, 'chitchat_stories.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    if '$' not in line:
+                        phrase = line.strip()
+                        if phrase.startswith('#'):
+                            continue
+
+                        if phrase.startswith('-'):
+                            phrase = phrase[1:]
+                        phrase = phrase.strip()
+                        for phrase1 in phrase.split('|'):
+                            words = tokenizer.tokenize(phrase1)
+                            if len(words) > 2:
+                                phrase2 = u' '.join(words)
+                                test_phrases.add((phrase2, phrase1))
+
         if False:
             with io.open(os.path.join(data_folder, 'stories.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
@@ -948,6 +965,9 @@ if run_mode == 'hardnegative':
                         phrase = line.replace('H:', '').replace('B:', '').strip()
                         if phrase.startswith('-'):
                             phrase = phrase[1:].strip()
+
+                        if phrase.startswith('#'):
+                            continue
 
                         words = tokenizer.tokenize(phrase)
                         if len(words) > 2:
@@ -957,6 +977,16 @@ if run_mode == 'hardnegative':
         premises = list(test_phrases)
         questions = list(test_phrases)
 
+        if True:
+            questions = set()
+            # Тестовые вопросы
+            with io.open(os.path.join(data_folder, 'test/test_phrases.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    question = line.strip()
+                    if question and not question.startswith('#'):
+                        questions.add((question, question))
+            questions = list(questions)
+
     elif task in 'relevancy'.split():
         # Модель будет выбирать группы максимально релевантных предпосылок для вопросов.
         premises = set()
@@ -965,14 +995,14 @@ if run_mode == 'hardnegative':
         tokenizer0 = ruchatbot.utils.tokenizer.Tokenizer()
         tokenizer0.load()
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'faq2.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
                     if line.startswith('Q:') and '?' in line:
                         question = line.replace('Q:', '').strip()
                         questions.add((question, question))
 
-        if True:
+        if False:
             for p in ['facts6_1s.txt', 'facts7_1s.txt']:
                 with io.open(os.path.join(data_folder, p), 'r', encoding='utf-8') as rdr:
                     for line in rdr:
@@ -980,7 +1010,7 @@ if run_mode == 'hardnegative':
                         premise = u' '.join(tokenizer0.tokenize(premise))
                         premises.add((premise, premise))
 
-        if True:
+        if False:
             with io.open(os.path.join(data_folder, 'premise_question_relevancy.csv'), 'r', encoding='utf-8') as rdr:
                 header = rdr.readline()
                 for line in rdr:
@@ -1009,7 +1039,26 @@ if run_mode == 'hardnegative':
                         premise = line.strip()
                         premises.add((premise, premise))
 
-        if True:
+        if False:
+            # Тестовые вопросы
+            with io.open(os.path.join(data_folder, 'test/test_phrases.txt'), 'r', encoding='utf-8') as rdr:
+                for line in rdr:
+                    question = line.strip()
+                    if question and not question.startswith('#'):
+                        questions.add((question, question))
+
+        if False:
+            # Берем нагенерированные вопросы с разными глаголами
+            for fn in ['questions_1s.generated.txt', 'questions_3s.generated.txt']:
+                with io.open('/home/inkoziev/tmp/'+fn, 'r', encoding='utf-8') as rdr:
+                    for line in rdr:
+                        question = line.strip()
+                        if question:
+                            questions.add((question, question))
+
+            questions = sorted(questions, key=lambda z: random.random())
+
+        if False:
             # Проверяемые вопросы возьмем из файла историй
             with io.open(os.path.join(data_folder, 'stories.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
@@ -1017,6 +1066,7 @@ if run_mode == 'hardnegative':
                         question = line.replace('H:', '').strip()
                         questions.add((question, question))
 
+        if True:
             # Добавляем тестовые вопросы
             with io.open(os.path.join(data_folder, 'hardnegative_questions.txt'), 'r', encoding='utf-8') as rdr:
                 for line in rdr:
