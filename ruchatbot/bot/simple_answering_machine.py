@@ -39,21 +39,35 @@ from ruchatbot.bot.paraphraser import Paraphraser
 
 class InsteadofRuleResult(object):
     def __init__(self):
-        self.applied = None
+        self.insteadof_applied = None
+        self.other_applied = None
         self.replica_is_generated = None
 
     @staticmethod
-    def GetTrue(replica_is_generated):
+    def GetTrueInsteadof(replica_is_generated):
         res = InsteadofRuleResult()
-        res.applied = True
+        res.insteadof_applied = True
+        res.other_applied = False
+        res.replica_is_generated = replica_is_generated
+        return res
+
+    @staticmethod
+    def GetTrueOther(replica_is_generated):
+        res = InsteadofRuleResult()
+        res.insteadof_applied = False
+        res.other_applied = True
         res.replica_is_generated = replica_is_generated
         return res
 
     @staticmethod
     def GetFalse():
         res = InsteadofRuleResult()
-        res.applied = False
+        res.insteadof_applied = False
+        res.other_applied = False
         return res
+
+    def is_any_applied(self):
+        return self.insteadof_applied or self.other_applied
 
 
 def same_stem2(word, key_stems):
@@ -602,7 +616,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if not session.is_rule_activated(rule):
                     rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
                     if rule_result.condition_success:
-                        return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+                        return InsteadofRuleResult.GetTrueInsteadof(rule_result.replica_is_generated)
 
         # Теперь выполним правила, сгенерированные из диалогов
         if story_rules:
@@ -625,7 +639,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
                 if rule_result.condition_success:
-                    return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+                    return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
 
             # Пробуем правила A -> B
             best_phrases, best_rels = self.synonymy_detector.get_most_similar(u' '.join(interpreted_phrase.raw_tokens),
@@ -642,7 +656,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
                 if rule_result.condition_success:
-                    return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+                    return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
 
         # Теперь остальные правила, с приоритетом 1 и ниже
         for rule in insteadof_rules:
@@ -650,7 +664,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if not session.is_rule_activated(rule):
                     rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
                     if rule_result.condition_success:
-                        return InsteadofRuleResult.GetTrue(rule_result.replica_is_generated)
+                        return InsteadofRuleResult.GetTrueInsteadof(rule_result.replica_is_generated)
 
         # Ни одно из правил в insteadof_rules не подошло.
         return InsteadofRuleResult.GetFalse()
@@ -871,7 +885,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                       session,
                                                                       interlocutor,
                                                                       interpreted_phrase)
-                    input_processed = insteadof_rule_result.applied
+                    input_processed = insteadof_rule_result.insteadof_applied
 
             # TODO: в принципе возможны два варианта последствий срабатывания
             # правил. 1) считаем, что правило полностью выполнило все действия для
@@ -937,7 +951,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                           session,
                                                                           interlocutor,
                                                                           interpreted_phrase)
-                        rule_applied = insteadof_rule_result.applied
+                        rule_applied = insteadof_rule_result.is_any_applied()
                         if rule_applied:
                             if session.get_output_buffer_phrase():
                                 if session.get_output_buffer_phrase()[-1] == '?':
@@ -1018,7 +1032,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                       session,
                                                                       interlocutor,
                                                                       interpreted_phrase)
-                    input_processed = insteadof_rule_result.applied
+                    input_processed = insteadof_rule_result.insteadof_applied
 
             if not input_processed:
                 # Обрабатываем вопрос собеседника (либо результат трансляции императива).
@@ -1077,7 +1091,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                         interlocutor,
                                                         interpreted_phrase)
 
-        if order_processed and order_processed.applied:
+        if order_processed and order_processed.is_any_applied():
             return True
         else:
             if bot.faq:
@@ -1094,7 +1108,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
                                                 None, #bot.get_scripting().get_story_rules(),
                                                 bot, session, interlocutor, interpreted_phrase)
-                if res.applied:
+                if res.is_any_applied():
                     return True
 
             return bot.process_order(session, interlocutor, interpreted_phrase)
@@ -1219,12 +1233,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                 None, #bot.get_scripting().get_story_rules(),
                                                 bot, session, interlocutor, interpreted_phrase)
 
-            if not res.applied:
+            if not res.is_any_applied():
                 # ???? вроде уже отработали INSTEAD-OF RULES
                 res = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
                                                 bot.get_scripting().get_story_rules(),
                                                 bot, session, interlocutor, interpreted_phrase)
-            if not res.applied:
+            if not res.is_any_applied():
                 # Правила не сработали, значит выдаем реплику "Информации нет"
                 answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
                                                                 bot,
