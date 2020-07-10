@@ -1032,7 +1032,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                       session,
                                                                       interlocutor,
                                                                       interpreted_phrase)
-                    input_processed = insteadof_rule_result.insteadof_applied
+                    input_processed = insteadof_rule_result.is_any_applied()
 
             if not input_processed:
                 # Обрабатываем вопрос собеседника (либо результат трансляции императива).
