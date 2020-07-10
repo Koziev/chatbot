@@ -1191,16 +1191,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         premise1 = last_h_phrases[0].interpretation
                         premise2 = last_h_phrases[1].interpretation
                         question = interpreted_phrase.interpretation
-                        self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s"', premise1, premise2, question)
                         rel = self.p2q_relevancy.calc_relevancy(premise1, premise2, question, self.text_utils)
                         if rel > self.min_premise_relevancy:
+                            self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s" rel=%g', premise1,
+                                              premise2, question, rel)
                             best_rels = [rel]
                             premises2 = [[premise1, premise2]]
                             premise_rels2 = [rel]
                             answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
                                                                                          interpreted_phrase.interpretation,
                                                                                          self.text_utils)
-
 
         if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если

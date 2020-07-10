@@ -103,8 +103,9 @@ class SimpleFactsStorage(BaseFactsStorage):
 
         # возвращаем список фактов (потом надо переделать на выдачу по мере чтения из файла и
         # генерации через yield).
-        for f in itertools.chain(self.new_facts, memory_phrases):
-            yield f
+        #for f in memory_phrases:
+        #    yield f
+        return memory_phrases
 
     def store_new_fact(self, interlocutor, fact):
-        pass
+        raise NotImplementedError()
