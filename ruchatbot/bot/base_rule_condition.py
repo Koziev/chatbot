@@ -359,23 +359,24 @@ def match_term(start_token_index, phrase_tokens, mask_term):
             phrase_token = phrase_tokens[start_token_index + skip]
 
             if mask_term.is_NP():
-                # Сначала надо найти токен, соответствующий началу чанка.
-                if phrase_token.is_chunk_starter:
-                    m = TermMatch(mask_term)
-                    m.penalty = skip
-                    m.chunk_tokens.append(phrase_tokens[start_token_index + skip])
+                if not phrase_token.is_pron():
+                    # Сначала надо найти токен, соответствующий началу чанка.
+                    if phrase_token.is_chunk_starter:
+                        m = TermMatch(mask_term)
+                        m.penalty = skip
+                        m.chunk_tokens.append(phrase_tokens[start_token_index + skip])
 
-                    chunk_index = phrase_tokens[start_token_index + skip].chunk_index
-                    for t in phrase_tokens[start_token_index + skip + 1:]:
-                        if t.chunk_index == chunk_index:
-                            m.chunk_tokens.append(t)
-                        else:
-                            break
+                        chunk_index = phrase_tokens[start_token_index + skip].chunk_index
+                        for t in phrase_tokens[start_token_index + skip + 1:]:
+                            if t.chunk_index == chunk_index:
+                                m.chunk_tokens.append(t)
+                            else:
+                                break
 
-                    m.first_token_index = start_token_index + skip
-                    m.last_token_index = start_token_index + skip + len(m.chunk_tokens) - 1
+                        m.first_token_index = start_token_index + skip
+                        m.last_token_index = start_token_index + skip + len(m.chunk_tokens) - 1
 
-                    results.append(m)
+                        results.append(m)
                 elif phrase_token.is_noun() or phrase_token.is_adj():
                     # Одиночное существительное может рассматриваться как часть NP-чанка-контейнера:
                     # "Восход Солнца"

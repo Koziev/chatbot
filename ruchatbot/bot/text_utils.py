@@ -99,8 +99,8 @@ class TextUtils(object):
             #self.no_info_replicas = data['no_relevant_information']
             #self.unknown_order = data['unknown_order']
 
-            self.language_resources.key2phrase[u'yes'] = data[u'answers'][u'yes']
-            self.language_resources.key2phrase[u'not'] = data[u'answers'][u'not']
+            #self.language_resources.key2phrase[u'yes'] = data[u'answers'][u'yes']
+            #self.language_resources.key2phrase[u'not'] = data[u'answers'][u'not']
 
         # Список "хороших слов" для генеративной грамматики
         with io.open(os.path.join(models_folder, 'dataset_words.txt'), 'r', encoding='utf-8') as rdr:

@@ -11,6 +11,9 @@ class PhraseToken:
     def __repr__(self):
         return self.word
 
+    def is_pron(self):
+        return self.tagset.startswith('PRON')
+
     def is_noun(self):
         return self.tagset.startswith('NOUN')
 
