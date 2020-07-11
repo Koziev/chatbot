@@ -81,7 +81,11 @@ class BotScripting(object):
                         prev_bot_text = rule['story_rule']['switch']['when']['prev_bot_text']
                         self.story_rules.add_rule3(prev_bot_text, compiled_rule)
                     elif 'if' in rule['story_rule']:
-                        human_utterance = rule['story_rule']['if']['raw_text']
+                        if 'raw_text' in rule['story_rule']['if']:
+                            human_utterance = rule['story_rule']['if']['raw_text']
+                        else:
+                            human_utterance = rule['story_rule']['if']['text']
+
                         self.story_rules.add_rule2(human_utterance, compiled_rule)
                     else:
                         raise NotImplementedError()
