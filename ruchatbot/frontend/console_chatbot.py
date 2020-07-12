@@ -147,12 +147,28 @@ def main():
         # через бота, сохраняем ответные фразы бота в выходной файл.
         with io.open(args.input, 'r', encoding='utf-8') as rdr,\
              io.open(args.output, 'w', encoding='utf-8') as wrt:
+
+            # Получим стартовые реплики бота (обычно он здоровается)
+            while True:
+                answer = bot.pop_phrase(user_id)
+                if len(answer) == 0:
+                    break
+                wrt.write('B: {}\n'.format(answer))
+
+            # Теперь читаем фразы из тестового набора и даем их боту на обработку
             for line in rdr:
                 inline = line.strip()
                 if inline.startswith('#'):
-                    # комментарии просто сохраняем в выходном файле для
-                    # удобства визуальной организации
-                    wrt.write('\n{}\n'.format(inline))
+                    # Может быть спец. команда
+                    s = inline[1:].strip()
+                    if s.startswith('!'):
+                        cmd = s[1:]
+                        if cmd == 'reset_running':
+                            bot.cancel_all_running_items(user_id)
+                    else:
+                        # комментарии просто сохраняем в выходном файле для
+                        # удобства визуальной организации
+                        wrt.write('\n{}\n'.format(inline))
                     continue
 
                 if inline:
