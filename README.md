@@ -121,7 +121,7 @@ werkzeug  -  * Running on http://0.0.0.0:9001/ (Press CTRL+C to quit)
 
 Используемые базы знаний и FAQ, а также наборы правил ведения диалога указываются
 в профиле, который загружается при старте экземпляра бота. В скрипте console_bot.sh
-можно увидеть указание на тестовый профиль [profile_1.json](data/rules.yaml](https://github.com/Koziev/chatbot/blob/master/data/profile_1.json),
+можно увидеть указание на тестовый профиль [profile_1.json](https://github.com/Koziev/chatbot/blob/master/data/profile_1.json),
 позволяющий боту отвечать на несколько простых вопросов. В этом профиле в качестве базы знаний указан файл [profile_facts_1.dat](https://github.com/Koziev/chatbot/blob/master/data/profile_facts_1.dat).
 Формат этого файла описан в шапке файла.
 
