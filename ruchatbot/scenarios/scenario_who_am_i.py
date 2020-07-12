@@ -165,7 +165,7 @@ class Scenario_WhoAmI(Scenario):
             res = bot.get_engine().apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
                                                         bot.get_scripting().get_story_rules(),
                                                         bot, session, interlocutor, interpreted_phrase)
-            if not res.applied:
+            if not res.insteadof_applied:
                 # Реплику собеседника обработать вообще не удалось
                 pass
 
