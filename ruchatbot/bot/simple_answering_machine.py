@@ -834,6 +834,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return None
 
+    def cancel_all_running_items(self, bot, interlocutor):
+        session = self.get_session(bot, interlocutor)
+        #session.get_status()
+        session.cancel_all_running_items()
+
     def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False, force_question_answering=False):
         self.logger.info(u'push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
         question = self.text_utils.canonize_text(phrase)
@@ -1023,11 +1028,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             replica = None
             input_processed = False
 
-            if not session.get_status() and bot.has_scripting():
-                rules = bot.get_scripting().get_insteadof_rules()
-                if rules:
-                    insteadof_rule_result = self.apply_insteadof_rule(bot.get_scripting().get_insteadof_rules(),
-                                                                      bot.get_scripting().get_story_rules(),
+            #if not session.get_status() and bot.has_scripting():
+            if bot.has_scripting():
+                if session.get_status():
+                    insteadof_rules = session.get_status().get_insteadof_rules()
+                    story_rules = None
+                else:
+                    insteadof_rules = bot.get_scripting().get_insteadof_rules()
+                    story_rules = bot.get_scripting().get_story_rules()
+
+                if insteadof_rules:
+                    insteadof_rule_result = self.apply_insteadof_rule(insteadof_rules,
+                                                                      story_rules,
                                                                       bot,
                                                                       session,
                                                                       interlocutor,

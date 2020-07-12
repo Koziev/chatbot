@@ -110,7 +110,7 @@ if __name__ == '__main__':
         init_chatbot()
 
     logging.info('Going to run flask_app listening %s:%d profile_path="%s" models_folder="%s" data_folder="%s" w2v_folder="%s"', listen_ip, listen_port, profile_path, models_folder, data_folder, w2v_folder)
-    flask_app.run(debug=True, host=listen_ip, port=listen_port)
+    flask_app.run(debug=False, host=listen_ip, port=listen_port)
 
 
 # https://stackoverflow.com/questions/8495367/using-additional-command-line-arguments-with-gunicorn?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa

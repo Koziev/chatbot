@@ -153,6 +153,10 @@ class BaseDialogSession(object):
     def get_status(self):
         return self.status
 
+    def cancel_all_running_items(self):
+        self.deferred_running_items = []
+        self.status = None
+
     def get_slot(self, slot_name):
         return self.slots.get(slot_name, '')
 

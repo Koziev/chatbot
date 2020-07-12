@@ -58,6 +58,9 @@ class BotPersonality:
         # todo переделка
         return self.engine.pop_phrase(self, user_id)
 
+    def cancel_all_running_items(self, user_id):
+        self.engine.cancel_all_running_items(self, user_id)
+
     def push_phrase(self, user_id, question, internal_issuer=False):
         self.engine.push_phrase(self, user_id, question, internal_issuer,
                                 force_question_answering=self.force_question_answering)
