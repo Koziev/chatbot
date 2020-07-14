@@ -35,6 +35,7 @@ from ruchatbot.bot.running_form_status import RunningFormStatus
 from ruchatbot.bot.running_scenario import RunningScenario
 from ruchatbot.bot.p2q_relevancy_lgb import P2Q_Relevancy_LGB
 from ruchatbot.bot.paraphraser import Paraphraser
+from ruchatbot.bot.actors import substitute_bound_variables, SayingPhrase
 
 
 class InsteadofRuleResult(object):
@@ -316,12 +317,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                         was_interpreted = True
 
-            # and last_phrase.is_question\
             if not was_interpreted\
                     and len(session.conversation_history) > 0\
                     and last_phrase.is_bot_phrase\
-                    and not phrase_is_question\
                     and self.interpreter is not None:
+                    #and not phrase_is_question\
 
                 if self.req_interpretation.require_interpretation(raw_phrase, self.text_utils):
                     # В отдельной ветке обрабатываем ситуацию, когда бот
@@ -669,7 +669,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Ни одно из правил в insteadof_rules не подошло.
         return InsteadofRuleResult.GetFalse()
 
-    def run_smalltalk_action(self, rule, bot, session, interlocutor, phrase, weight_factor):
+    def run_smalltalk_action(self, rule, condition_matching_results, bot, session, interlocutor, phrase, weight_factor):
         generated_replicas = []
         if rule.is_generator():
             # Используем скомпилированную грамматику для генерации фраз..
@@ -701,12 +701,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         generated_replicas.append((replica,
                                                    best.get_rank() * discourse_rel * weight_factor,
                                                    'assertion(1)'))
-
         else:
             # Текст формируемой реплики указан буквально.
-            # Следует учесть, что ответные реплики в SmalltalkReplicas могут быть ненормализованы,
-            # поэтому их следует сначала нормализовать.
             for replica in rule.answers:
+                if condition_matching_results:
+                    replica = substitute_bound_variables(SayingPhrase(replica), condition_matching_results, self.text_utils)
+
                 if not self.bot_replica_already_uttered(bot, session, replica):
                     # проверить, если f является репликой-ответом: знает
                     # ли бот ответ на этот вопрос.
@@ -740,7 +740,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 for rule in complex_rules:
                     matching = rule.check_condition(bot, session, interlocutor, phrase, self)
                     if matching.success:
-                        rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, time_decay)
+                        rx = self.run_smalltalk_action(rule, matching, bot, session, interlocutor, phrase.interpretation, time_decay)
                         generated_replicas.extend(rx)
 
                         for output_phrase in rx:
@@ -760,7 +760,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             # Используем это правило для генерации реплики.
                             # Правило может быть простым, с явно указанной фразой, либо
                             # содержать набор шаблонов генерации.
-                            rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, best_rel * time_decay)
+                            rx = self.run_smalltalk_action(rule, None, bot, session, interlocutor, phrase.interpretation, best_rel * time_decay)
                             generated_replicas.extend(rx)
 
                             for output_phrase in rx:
@@ -778,7 +778,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         matching = rule.check_condition(bot, session, interlocutor, last_interlocutor_utterance, self)
                         if matching.success:
                             intent_rule_applied = True
-                            rx = self.run_smalltalk_action(rule, bot, session, interlocutor, phrase.interpretation, time_decay)
+                            rx = self.run_smalltalk_action(rule, matching, bot, session, interlocutor, phrase.interpretation, time_decay)
                             generated_replicas.extend(rx)
                             for output_phrase in rx:
                                 self.logger.debug('generate_smalltalk_replica::3 rule="%s" input="%s" output="%s"',

@@ -87,6 +87,8 @@ class SayingPhrase:
 
 
 def substitute_bound_variables(phrase, condition_matching_results, text_utils):
+    assert(isinstance(phrase, SayingPhrase))
+
     utterance = phrase.raw_text
 
     # Если нужно сделать подстановку сматченных при проверке условия чанков.
