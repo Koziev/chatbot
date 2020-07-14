@@ -123,3 +123,6 @@ class Scenario(object):
                 bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
         else:
             raise NotImplementedError()
+
+    def get_insteadof_rules(self):
+        return self.insteadof_rules
