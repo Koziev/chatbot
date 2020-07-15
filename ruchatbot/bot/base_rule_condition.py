@@ -110,13 +110,13 @@ class BaseRuleCondition(object):
 class RuleCondition_Intent(BaseRuleCondition):
     def __init__(self, data_yaml):
         super().__init__(data_yaml)
-        self.intent = data_yaml[u'intent']
+        self.ored_intent = data_yaml[u'intent'].split('|')
 
     def get_short_repr(self):
-        return 'intent={}'.format(self.intent)
+        return 'intent={}'.format('|'.join(self.ored_intent))
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
-        return RuleConditionMatching.create(self.intent in interpreted_phrase.intents)
+        return RuleConditionMatching.create(any(x in self.intent) for x in interpreted_phrase.intents)
 
 
 class RuleCondition_State(BaseRuleCondition):
