@@ -52,6 +52,9 @@ class ProfileFactsReader(SimpleFactsStorage):
                             self.profile_facts.append((canonized_line, current_section, u''))
             logger.debug(u'%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
 
+    def reset_added_facts(self):
+        self.new_facts = []
+
     def enumerate_facts(self, interlocutor):
         # Загрузим факты из профиля, если еще не загрузили.
         self.load_profile()

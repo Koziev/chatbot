@@ -12,14 +12,7 @@ import logging
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.bot_service import flask_app
 from ruchatbot.bot_service.global_params import profile_path, models_folder, data_folder, w2v_folder
-from ruchatbot.bot.bot_profile import BotProfile
-from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
-from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
-from ruchatbot.bot.text_utils import TextUtils
-from ruchatbot.bot.simple_answering_machine import SimpleAnsweringMachine
-from ruchatbot.bot.bot_scripting import BotScripting
-from ruchatbot.bot.bot_personality import BotPersonality
-from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
+from ruchatbot.frontend.bot_creator import create_chatbot
 
 
 listen_ip = '127.0.0.1'
@@ -31,47 +24,7 @@ def init_chatbot():
     if 'bot' not in flask_app.config:
         logging.info('init_chatbot: models_folder="%s"', models_folder)
 
-        # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
-        # part-of-speech tagger, NP chunker и прочее.
-        text_utils = TextUtils()
-        text_utils.load_embeddings(w2v_dir=w2v_folder, wc2v_dir=models_folder)
-        text_utils.load_dictionaries(data_folder, models_folder)
-
-        # Настроечные параметры аватара собраны в профиле - файле в json формате.
-        profile = BotProfile()
-        profile.load(profile_path, data_folder, models_folder)
-
-        # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
-        # ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
-        machine = SimpleAnsweringMachine(text_utils=text_utils)
-        machine.load_models(data_folder, models_folder, profile.constants)
-        machine.trace_enabled = True  # включаем расширенную трассировку работы движка
-
-        # Контейнер для правил
-        scripting = BotScripting(data_folder)
-        scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
-
-        # Добавляем скрипты на питоне
-        scripting.add_scenario(Scenario_WhoAmI())
-
-        # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
-        profile_facts = ProfileFactsReader(text_utils=text_utils,
-                                           profile_path=profile.premises_path,
-                                           constants=profile.constants)
-
-        # Подключем простое файловое хранилище с FAQ-правилами бота.
-        # Движок бота сопоставляет вопрос пользователя с опорными вопросами в FAQ базе,
-        # и если нашел хорошее соответствие (синонимичность выше порога), то
-        # выдает ответную часть найденной записи.
-        faq_storage = PlainFileFaqStorage(profile.faq_path, constants=profile.constants, text_utils=text_utils)
-
-        # Инициализируем аватара
-        bot = BotPersonality(bot_id='flask_bot',
-                             engine=machine,
-                             facts=profile_facts,
-                             faq=faq_storage,
-                             scripting=scripting,
-                             profile=profile)
+        bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging=True)
 
         def on_order(order_anchor_str, bot, session):
             bot.say(session, 'Выполняю команду "{}"'.format(order_anchor_str))
@@ -110,7 +63,7 @@ if __name__ == '__main__':
         init_chatbot()
 
     logging.info('Going to run flask_app listening %s:%d profile_path="%s" models_folder="%s" data_folder="%s" w2v_folder="%s"', listen_ip, listen_port, profile_path, models_folder, data_folder, w2v_folder)
-    flask_app.run(debug=False, host=listen_ip, port=listen_port)
+    flask_app.run(debug=True, host=listen_ip, port=listen_port)
 
 
 # https://stackoverflow.com/questions/8495367/using-additional-command-line-arguments-with-gunicorn?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa

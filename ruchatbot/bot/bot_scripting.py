@@ -217,3 +217,8 @@ class BotScripting(object):
 
     def get_story_rules(self):
         return self.story_rules
+
+    def reset_usage_stat(self):
+        """сбрасываем счетчики использования и т.д., как будто сценарии и правила не срабатывали"""
+        for s in self.scenarios:
+            s.reset_usage_stat()

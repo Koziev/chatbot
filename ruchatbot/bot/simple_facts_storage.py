@@ -27,6 +27,9 @@ class SimpleFactsStorage(BaseFactsStorage):
         super(SimpleFactsStorage, self).__init__()
         self.text_utils = text_utils
 
+    def reset_added_facts(self):
+        pass
+
     def enumerate_smalltalk_replicas(self):
         return []
 

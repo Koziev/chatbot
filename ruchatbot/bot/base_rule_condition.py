@@ -110,13 +110,13 @@ class BaseRuleCondition(object):
 class RuleCondition_Intent(BaseRuleCondition):
     def __init__(self, data_yaml):
         super().__init__(data_yaml)
-        self.ored_intent = data_yaml[u'intent'].split('|')
+        self.ored_intents = [x.strip() for x in data_yaml[u'intent'].split('|')]
 
     def get_short_repr(self):
-        return 'intent={}'.format('|'.join(self.ored_intent))
+        return 'intent={}'.format('|'.join(self.ored_intents))
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
-        return RuleConditionMatching.create(any(x in self.intent) for x in interpreted_phrase.intents)
+        return RuleConditionMatching.create(any((x in self.ored_intents) for x in interpreted_phrase.intents))
 
 
 class RuleCondition_State(BaseRuleCondition):
@@ -194,9 +194,13 @@ class RuleCondition_PrevBotText(BaseRuleCondition):
         return 'prev_bot_text etalons[1/{}]="{}"'.format(len(self.etalons), self.etalons[0])
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
-        input_text = session.get_last_bot_utterance().interpretation
-        f = self.check_text(input_text, self.etalons, bot, session, interlocutor, interpreted_phrase, answering_engine)
-        return RuleConditionMatching.create(f)
+        b = session.get_last_bot_utterance()
+        if b:
+            input_text = b.interpretation
+            f = self.check_text(input_text, self.etalons, bot, session, interlocutor, interpreted_phrase, answering_engine)
+            return RuleConditionMatching.create(f)
+        else:
+            return RuleConditionMatching.create(False)
 
 
 class RuleCondition_Keyword(BaseRuleCondition):

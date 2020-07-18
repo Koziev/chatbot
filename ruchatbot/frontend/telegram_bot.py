@@ -4,9 +4,6 @@
 Для вопросно-ответной системы https://github.com/Koziev/chatbot.
 """
 
-from __future__ import print_function
-from __future__ import division  # for python2 compatability
-
 import logging
 import platform
 import sys
@@ -14,35 +11,30 @@ import argparse
 import os
 
 import telegram
-from telegram.ext import Updater
-from telegram.ext import CommandHandler
-from telegram.ext import MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
-from bot.files3_facts_storage import Files3FactsStorage
-from bot.text_utils import TextUtils
-from bot.simple_answering_machine import SimpleAnsweringMachine
-from bot.console_utils import input_kbd
-from bot.bot_personality import BotPersonality
-from bot.bot_scripting import BotScripting
+from ruchatbot.utils.logging_helpers import init_trainer_logging
+from ruchatbot.frontend.bot_creator import create_chatbot
 
 
 def start(bot, update):
-    bot.send_message(chat_id=update.message.chat_id, text='Answering machine is running on '+platform.platform())
+    bot.send_message(chat_id=update.message.chat_id, text='Chatbot is running on '+platform.platform())
 
 
 def echo(bot, update):
     # update.chat.first_name
     # update.chat.last_name
     try:
+        # В качестве идентификатора сессии собеседника берем его имя и фамилию
         user_id = update.message.chat.first_name+u' '+update.message.chat.last_name
         question = update.message.text
 
-        logging.info(u'Answering to "{}"'.format(question))
+        logging.info('Answering to "%s"', question)
 
         total_answer = u''
-        answering_machine.push_phrase(user_id, question)
+        chatbot.push_phrase(user_id, question)
         while True:
-            answer = answering_machine.pop_phrase(user_id)
+            answer = chatbot.pop_phrase(user_id)
             if len(answer) == 0:
                 break
             else:
@@ -56,62 +48,45 @@ def echo(bot, update):
         logging.error(sys.exc_info()[0])
 
 
-# -------------------------------------------------------
+if __name__ == '__main__':
+    # Разбор параметров запуска бота, указанных в командной строке
+    parser = argparse.ArgumentParser(description='Telegram chatbot')
+    parser.add_argument('--token', type=str, default='', help='Telegram token for bot')
+    parser.add_argument('--profile', type=str, default='../../data/profile_1.json', help='path to profile file')
+    parser.add_argument('--data_folder', type=str, default='../../data')
+    parser.add_argument('--w2v_folder', type=str, default='../../tmp')
+    parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
+    parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    args = parser.parse_args()
 
+    profile_path = os.path.expanduser(args.profile)
+    models_folder = os.path.expanduser(args.models_folder)
+    data_folder = os.path.expanduser(args.data_folder)
+    w2v_folder = os.path.expanduser(args.w2v_folder)
+    tmp_folder = os.path.expanduser(args.tmp_folder)
 
-# Разбор параметров запуска бота, указанных в командной строке
+    #logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    init_trainer_logging(os.path.join(tmp_folder, 'telegram_bot.log'), True)
 
-parser = argparse.ArgumentParser(description='Telegram chatbot')
-parser.add_argument('--token', type=str, default='', help='Telegram token for bot')
-parser.add_argument('--data_folder', type=str, default='../data')
-parser.add_argument('--w2v_folder', type=str, default='../data')
-parser.add_argument('--facts_folder', type=str, default='../data', help='path to folder containing knowledgebase files')
-parser.add_argument('--models_folder', type=str, default='../tmp', help='path to folder with pretrained models')
+    telegram_token = args.token
+    if len(telegram_token) == 0:
+        telegram_token = input('Enter Telegram token:> ').strip()
 
-args = parser.parse_args()
+    tg_bot = telegram.Bot(token=telegram_token)
+    logging.info('Telegram bot: %s', tg_bot.getMe())
 
-facts_folder = os.path.expanduser(args.facts_folder)
-models_folder = os.path.expanduser(args.models_folder)
-data_folder = os.path.expanduser(args.data_folder)
-w2v_folder = os.path.expanduser(args.w2v_folder)
+    logging.debug('Bot loading...')
+    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging, bot_id='telegram_bot')
 
-telegram_token = args.token
-if len(telegram_token) == 0:
-    telegram_token = input_kbd('Enter Telegram token:')
+    updater = Updater(token=telegram_token)
+    dispatcher = updater.dispatcher
 
-# -------------------------------------------------------
+    start_handler = CommandHandler('start', start)
+    dispatcher.add_handler(start_handler)
 
-tg_bot = telegram.Bot(token=telegram_token)
-print(tg_bot.getMe())
+    echo_handler = MessageHandler(Filters.text, echo)
+    dispatcher.add_handler(echo_handler)
 
-logging.info('Loading answering machine models...')
-text_utils = TextUtils()
-text_utils.load_dictionaries(data_folder)
-
-facts_storage = Files3FactsStorage(text_utils=text_utils, facts_folder=facts_folder)
-
-machine = SimpleAnsweringMachine(text_utils=text_utils)
-machine.load_models(models_folder, w2v_folder)
-
-scripting = BotScripting(data_folder)
-bot = BotPersonality(bot_id='telegram_bot', engine=machine, facts_storage=facts_storage,
-                     scripting=scripting, enable_scripting=True, enable_smalltalk=True)
-
-# ------------------------------------------------------
-
-updater = Updater(token=telegram_token)
-dispatcher = updater.dispatcher
-
-# -------------------------------------------------------
-
-start_handler = CommandHandler('start', start)
-dispatcher.add_handler(start_handler)
-
-echo_handler = MessageHandler(Filters.text, echo)
-dispatcher.add_handler(echo_handler)
-# -------------------------------------------------------
-
-logging.info('Start polling...')
-updater.start_polling()
+    logging.info('Start polling messages for bot {}...'.format(tg_bot.getMe()))
+    updater.start_polling()

@@ -22,6 +22,10 @@ class Scenario(object):
         self.smalltalk_rules = None
         self.insteadof_rules = None
 
+    def reset_usage_stat(self):
+        """сброс статистики для целей тестирования"""
+        pass
+
     def can_process_questions(self):
         # Обычно сценарии не обрабатывают вопросы.
         return False

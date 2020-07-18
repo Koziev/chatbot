@@ -61,6 +61,13 @@ class BotPersonality:
     def cancel_all_running_items(self, user_id):
         self.engine.cancel_all_running_items(self, user_id)
 
+    def reset_usage_stat(self):
+        if self.scripting:
+            self.scripting.reset_usage_stat()
+
+    def reset_added_facts(self):
+        self.facts.reset_added_facts()
+
     def push_phrase(self, user_id, question, internal_issuer=False):
         self.engine.push_phrase(self, user_id, question, internal_issuer,
                                 force_question_answering=self.force_question_answering)

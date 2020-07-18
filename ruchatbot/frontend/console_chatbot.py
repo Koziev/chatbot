@@ -2,6 +2,8 @@
 """
 Консольный фронтэнд для диалогового движка (https://github.com/Koziev/chatbot).
 23.06.2020 добавлен пакетный режим как временный эрзац пакетного теста
+16.07.2020 создание экземпляра бота с дефолтным функционалом вынесено в хелпер-функцию create_chatbot
+16.07.2020 пакетный режим перенесен в chatbot_tester.py
 """
 
 import os
@@ -9,17 +11,9 @@ import argparse
 import logging
 import io
 
-from ruchatbot.bot.bot_profile import BotProfile
-from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
-from ruchatbot.bot.text_utils import TextUtils
-from ruchatbot.bot.simple_answering_machine import SimpleAnsweringMachine
 from ruchatbot.bot.console_utils import input_kbd, print_answer, print_tech_banner, flush_logging
-from ruchatbot.bot.bot_scripting import BotScripting
-from ruchatbot.bot.bot_personality import BotPersonality
-from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
 from ruchatbot.utils.logging_helpers import init_trainer_logging
-
-from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
+from ruchatbot.frontend.bot_creator import create_chatbot
 
 
 def on_order(order_anchor_str, bot, session):
@@ -62,7 +56,7 @@ def on_buy_pizza(bot, session, user_id, interpreted_phrase, verb_form_fields):
     return u'Заказываю: что="{}", сколько="{}"'.format(meal_arg, count_arg)
 
 
-def main():
+if __name__ == '__main__':
     user_id = 'test'
 
     parser = argparse.ArgumentParser(description='Question answering machine')
@@ -72,8 +66,6 @@ def main():
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
     parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
     parser.add_argument('--debugging', action='store_true')
-    parser.add_argument('--input', type=str, help='Input file with phrases')
-    parser.add_argument('--output', type=str, help='Output file with bot replicas')
 
     args = parser.parse_args()
     profile_path = os.path.expanduser(args.profile)
@@ -85,54 +77,10 @@ def main():
     init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'), args.debugging)
 
     logging.debug('Bot loading...')
-
-    # Создаем необходимое окружение для бота.
-
-    # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
-    # part-of-speech tagger, NP chunker и прочее.
-    text_utils = TextUtils()
-    text_utils.load_embeddings(w2v_dir=w2v_folder, wc2v_dir=models_folder)
-    text_utils.load_dictionaries(data_folder, models_folder)
-
-    # Настроечные параметры аватара собраны в профиле - файле в json формате.
-    profile = BotProfile()
-    profile.load(profile_path, data_folder, models_folder)
-
-    # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
-    # ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
-    machine = SimpleAnsweringMachine(text_utils=text_utils)
-    machine.load_models(data_folder, models_folder, profile.constants)
-    machine.trace_enabled = args.debugging
-
-    # Контейнер для правил
-    scripting = BotScripting(data_folder)
-    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
-
-    # Добавляем скрипты на питоне
-    scripting.add_scenario(Scenario_WhoAmI())
-
-    # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
-    profile_facts = ProfileFactsReader(text_utils=text_utils,
-                                       profile_path=profile.premises_path,
-                                       constants=profile.constants)
-
-    # Подключем простое файловое хранилище с FAQ-правилами бота.
-    # Движок бота сопоставляет вопрос пользователя с опорными вопросами в FAQ базе,
-    # и если нашел хорошее соответствие (синонимичность выше порога), то
-    # выдает ответную часть найденной записи.
-    faq_storage = PlainFileFaqStorage(profile.faq_path, constants=profile.constants, text_utils=text_utils)
-
-    # Инициализируем аватара
-    bot = BotPersonality(bot_id='test_bot',
-                         engine=machine,
-                         facts=profile_facts,
-                         faq=faq_storage,
-                         scripting=scripting,
-                         profile=profile)
-
-    bot.on_process_order = on_order
+    bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging)
 
     # Выполняем привязку обработчиков
+    bot.on_process_order = on_order
     bot.add_event_handler(u'weather_forecast', on_weather_forecast)
     bot.add_event_handler(u'check_emails', on_check_emails)
     bot.add_event_handler(u'alarm_clock', on_alarm_clock)
@@ -142,67 +90,23 @@ def main():
     flush_logging()
     print_tech_banner()
 
-    if args.input:
-        # Пакетный режим - читаем фразы собеседника из указанного текстового файла, прогоняем
-        # через бота, сохраняем ответные фразы бота в выходной файл.
-        with io.open(args.input, 'r', encoding='utf-8') as rdr,\
-             io.open(args.output, 'w', encoding='utf-8') as wrt:
+    while True:
+        print('\n')
 
-            # Получим стартовые реплики бота (обычно он здоровается)
-            while True:
-                answer = bot.pop_phrase(user_id)
-                if len(answer) == 0:
-                    break
-                wrt.write('B: {}\n'.format(answer))
-
-            # Теперь читаем фразы из тестового набора и даем их боту на обработку
-            for line in rdr:
-                inline = line.strip()
-                if inline.startswith('#'):
-                    # Может быть спец. команда
-                    s = inline[1:].strip()
-                    if s.startswith('!'):
-                        cmd = s[1:]
-                        if cmd == 'reset_running':
-                            bot.cancel_all_running_items(user_id)
-                    else:
-                        # комментарии просто сохраняем в выходном файле для
-                        # удобства визуальной организации
-                        wrt.write('\n{}\n'.format(inline))
-                    continue
-
-                if inline:
-                    wrt.write('\nH: {}\n'.format(inline))
-                    bot.push_phrase(user_id, line.strip())
-
-                    while True:
-                        answer = bot.pop_phrase(user_id)
-                        if len(answer) == 0:
-                            break
-                        wrt.write('B: {}\n'.format(answer))
-    else:
-        # Консольный интерактивный режим
+        # В самом начале диалога, когда еще не было ни одной реплики,
+        # бот может сгенерировать некое приветствие или вопрос для
+        # завязывания беседы. Поэтому сразу извлечем сгенерированные фразы из
+        # буфера и покажем их.
         while True:
-            print('\n')
+            answer = bot.pop_phrase(user_id)
+            if len(answer) == 0:
+                break
 
-            # В самом начале диалога, когда еще не было ни одной реплики,
-            # бот может сгенерировать некое приветствие или вопрос для
-            # завязывания беседы. Поэтому сразу извлечем сгенерированные фразы из
-            # буфера и покажем их.
-            while True:
-                answer = bot.pop_phrase(user_id)
-                if len(answer) == 0:
-                    break
+            print_answer(u'B:>', answer)
 
-                print_answer(u'B:>', answer)
+        question = input_kbd('H:>')
+        if len(question) > 0:
+            if question.lower() in (r'\exit', r'\q', r'\quit', '/stop'):
+                break
 
-            question = input_kbd('H:>')
-            if len(question) > 0:
-                if question.lower() in ('r\exit', r'\q', r'\quit', '/stop'):
-                    break
-
-                bot.push_phrase(user_id, question)
-
-
-if __name__ == '__main__':
-    main()
+            bot.push_phrase(user_id, question)
