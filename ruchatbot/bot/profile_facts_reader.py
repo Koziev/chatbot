@@ -65,7 +65,18 @@ class ProfileFactsReader(SimpleFactsStorage):
         for f in itertools.chain(self.new_facts, self.profile_facts, parent_facts):
             yield f
 
-    def store_new_fact(self, interlocutor, fact):
-        # Новые факты, добавляемые собеседником в ходе диалога, сохраняем только
-        # в оперативке.
-        self.new_facts.append(fact)
+    def store_new_fact(self, interlocutor, fact, unique):
+        # Новые факты, добавляемые собеседником в ходе диалога, сохраняем только в оперативке.
+        if unique:
+            # Ищем факт с именем fact[2], если найден - заменяем, а не вносим новый.
+            found = False
+            for i, fact0 in enumerate(self.new_facts):
+                if fact0[2] == fact[2]:
+                    self.new_facts[i] = fact
+                    found = True
+                    break
+
+            if not found:
+                self.new_facts.append(fact)
+        else:
+            self.new_facts.append(fact)

@@ -19,6 +19,9 @@ class Paraphraser:
             self.paraphraser_templates = pickle.load(f)
             self.simple_paraphrases = pickle.load(f)
 
+    def reset_usage_stat(self):  # TODO - надо бы хранить статистику в разрезе user_id
+        self.processed_phrases.clear()
+
     def match_support_template(self, template, tokens, w2v):
         if len(template) == len(tokens):
             match1 = dict()

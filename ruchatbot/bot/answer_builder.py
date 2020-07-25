@@ -183,7 +183,7 @@ class AnswerBuilder(object):
                 left_str = ' '.join(left_parts)
                 left_tokens = self.bpe_model.EncodeAsPieces(left_str)
                 for itoken, token in enumerate(left_tokens):
-                    X[0, itoken] = self.token2index[token]
+                    X[0, itoken] = self.token2index.get(token, 0)
 
                 y_pred = self.model.predict(X, verbose=0)
                 y_pred = np.argmax(y_pred[0], axis=-1)

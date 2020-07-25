@@ -36,6 +36,7 @@ from ruchatbot.bot.running_scenario import RunningScenario
 from ruchatbot.bot.p2q_relevancy_lgb import P2Q_Relevancy_LGB
 from ruchatbot.bot.paraphraser import Paraphraser
 from ruchatbot.bot.actors import substitute_bound_variables, SayingPhrase
+from ruchatbot.bot.discourse import Discourse
 
 
 class InsteadofRuleResult(object):
@@ -91,6 +92,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.session_factory = SimpleDialogSessionFactory()
         self.text_utils = text_utils
         self.logger = logging.getLogger('SimpleAnsweringMachine')
+        self.discourse = Discourse()
 
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
@@ -212,7 +214,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if bot.has_scripting():
             phrase = bot.scripting.start_conversation(self, session)
             if phrase is not None:
-                self.say(session, phrase)
+                self.say(bot, session, phrase)
 
     def get_session_factory(self):
         return self.session_factory
@@ -377,8 +379,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return interpreted
 
-    def say(self, session, answer):
-        self.logger.info('say "%s"', answer)
+    def say(self, bot, session, answer):
+        self.logger.info('Say "%s"', answer)
         if answer:
             answer = self.paraphraser.paraphrase(answer, self.text_utils)
             answer_interpretation = InterpretedPhrase(answer)
@@ -387,6 +389,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             answer_interpretation.set_modality(phrase_modality, phrase_person)
             session.add_to_buffer(answer)
             session.add_phrase_to_history(answer_interpretation)
+            self.discourse.process_bot_phrase(bot, session, answer)
         else:
             self.logger.error('Empty phrase in say()')
 
@@ -454,7 +457,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             current_field = empty_fields[0]
             status = RunningFormStatus(form, interpreted_phrase, filled_fields, current_field)
             session.set_status(status)
-            bot.say(session, current_field.question)
+            bot.say(bot, session, current_field.question)
         else:
             # Все поля формы заполнены - запускаем итоговое действие формы
             status = RunningFormStatus(form, interpreted_phrase, filled_fields, current_field=None)
@@ -620,26 +623,26 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Теперь выполним правила, сгенерированные из диалогов
         if story_rules:
-            prev_bot_phrase = session.get_last_bot_utterance().interpretation
-            best_phrases, best_rels = self.synonymy_detector.get_most_similar(prev_bot_phrase,
-                                                                              story_rules.get_keyphrases3(),
-                                                                              self.text_utils,
-                                                                              nb_results=10)
-
             threshold = 0.7  # TODO - брать из конфига бота
+            prev_bot_phrase = session.get_last_bot_utterance()
+            if prev_bot_phrase:
+                best_phrases, best_rels = self.synonymy_detector.get_most_similar(prev_bot_phrase.interpretation,
+                                                                                  story_rules.get_keyphrases3(),
+                                                                                  self.text_utils,
+                                                                                  nb_results=10)
 
-            # Выбираем рандомно один из вариантов. Рандомность обеспечим
-            # подмешиванием небольшого шума к полученным оценкам близости.
-            rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
-            if len(rx) > 0:
-                rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
-                best_keyphrase = rx[0][1]
-                best_rules = story_rules.get_rules3_by_keyphrase(best_keyphrase)
-                best_rule = random.choice(best_rules)
+                # Выбираем рандомно один из вариантов. Рандомность обеспечим
+                # подмешиванием небольшого шума к полученным оценкам близости.
+                rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
+                if len(rx) > 0:
+                    rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
+                    best_keyphrase = rx[0][1]
+                    best_rules = story_rules.get_rules3_by_keyphrase(best_keyphrase)
+                    best_rule = random.choice(best_rules)
 
-                rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
-                if rule_result.condition_success:
-                    return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
+                    rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                    if rule_result.condition_success:
+                        return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
 
             # Пробуем правила A -> B
             best_phrases, best_rels = self.synonymy_detector.get_most_similar(u' '.join(interpreted_phrase.raw_tokens),
@@ -839,6 +842,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         #session.get_status()
         session.cancel_all_running_items()
 
+    def reset_session(self, bot, interlocutor):
+        session = self.get_session(bot, interlocutor)
+        session.reset_history()
+
+    def reset_usage_stat(self):
+        self.paraphraser.reset_usage_stat()
+
     def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False, force_question_answering=False):
         self.logger.info(u'push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
         question = self.text_utils.canonize_text(phrase)
@@ -909,7 +919,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 fact = interpreted_phrase.interpretation
                 if self.trace_enabled:
                     self.logger.info(u'Adding "%s" to knowledge base', fact)
-                bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'))
+                bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'), False)
 
         was_running_session = False
         if not input_processed and session.get_status():
@@ -938,7 +948,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if field.name not in running_form.fields:
                             # Зададим вопрос для заполнения поля
                             running_form.set_current_field(field)
-                            bot.say(session, field.question)
+                            bot.say(bot, session, field.question)
                             return
 
                     # Все поля заполнены
@@ -1013,7 +1023,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if question_answered:
                             return
 
-
+        self.discourse.process_interrogator_phrase(bot, session, interpreted_phrase)
         if interpreted_phrase.is_imperative:
             self.logger.debug(u'Processing as imperative: "%s"', interpreted_phrase.interpretation)
             # Обработка приказов (императивов).
@@ -1050,7 +1060,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Обрабатываем вопрос собеседника (либо результат трансляции императива).
                 answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
                 for answer in answers:
-                    self.say(session, answer)
+                    self.say(bot, session, answer)
 
                 # В некоторых случаях генерация реплики после ответа может быть нежелательна,
                 # например для FAQ-бота. Поэтому используем флаг в конфиге бота.
@@ -1065,13 +1075,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                 interpreted_phrase,
                                                                                 answers[-1])
                         if additional_speech is not None:
-                            self.say(session, additional_speech)
+                            self.say(bot, session, additional_speech)
                             replica_generated = True
 
                     if not replica_generated:
                         replica = self.generate_smalltalk_replica(bot, session, interlocutor)
                         if replica:
-                            self.say(session, replica)
+                            self.say(bot, session, replica)
                         replica = None
         elif interpreted_phrase.is_assertion:
             # Теперь генерация реплики для случая, когда реплика собеседника - не-вопрос.
@@ -1087,7 +1097,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         answer_generated = True
 
             if answer_generated:
-                self.say(session, answer)
+                self.say(bot, session, answer)
+
+        if interpreted_phrase.is_imperative:
+            self.discourse.store_order_in_database(bot, session, interpreted_phrase)
+        elif interpreted_phrase.is_question or is_question2:
+            self.discourse.store_question_in_database(bot, session, interpreted_phrase)
+        elif interpreted_phrase.is_assertion:
+            self.discourse.store_assertion_in_database(bot, session, interpreted_phrase)
+
 
     def process_order(self, bot, session, interlocutor, interpreted_phrase):
         self.logger.debug(u'Processing order "%s"', interpreted_phrase.interpretation)

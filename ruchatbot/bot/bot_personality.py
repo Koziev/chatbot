@@ -61,9 +61,13 @@ class BotPersonality:
     def cancel_all_running_items(self, user_id):
         self.engine.cancel_all_running_items(self, user_id)
 
+    def reset_session(self, user_id):
+        self.engine.reset_session(self, user_id)
+
     def reset_usage_stat(self):
         if self.scripting:
             self.scripting.reset_usage_stat()
+        self.engine.reset_usage_stat()
 
     def reset_added_facts(self):
         self.facts.reset_added_facts()
@@ -83,7 +87,7 @@ class BotPersonality:
     #    return False
 
     def say(self, session, phrase):
-        self.engine.say(session, phrase)
+        self.engine.say(self, session, phrase)
 
     def add_event_handler(self, event_name, handler):
         self.event_handlers[event_name] = handler

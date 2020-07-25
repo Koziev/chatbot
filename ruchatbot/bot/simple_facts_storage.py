@@ -110,5 +110,5 @@ class SimpleFactsStorage(BaseFactsStorage):
         #    yield f
         return memory_phrases
 
-    def store_new_fact(self, interlocutor, fact):
+    def store_new_fact(self, interlocutor, fact, unique):
         raise NotImplementedError()

@@ -162,3 +162,7 @@ class BaseDialogSession(object):
 
     def set_slot(self, slot_name, slot_value):
         self.slots[slot_name] = slot_value
+
+    def reset_history(self):
+        self.conversation_history = []
+        self.slots.clear()
