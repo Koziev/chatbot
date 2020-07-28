@@ -6,6 +6,7 @@
 
 07-06-2020 Полная переделка на новую модель интерпретации (seq2seq with attention)
 20-06-2020 Добавка шаблонной модели knn-1
+28-07-2020 Исправление ошибки с потерей tf-сессии
 """
 
 import os
@@ -16,6 +17,7 @@ import random
 import pickle
 import itertools
 
+import tensorflow as tf
 from keras.models import model_from_json
 
 import sentencepiece as spm
@@ -43,9 +45,12 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         self.token2index = None
         self.seq_len = None
         self.templates = None
+        self.graph = None
 
     def load(self, models_folder):
         self.logger.info('Loading NN_InterpreterNew2 model files')
+
+        self.graph = tf.get_default_graph()
 
         # Эталонные экземпляры для knn-1 модели
         with open(os.path.join(models_folder, 'interpreter_templates2.bin'), 'rb') as f:
@@ -199,7 +204,9 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
             samples = [Sample(context_phrases, short_phrase)]
             X_data = self.vectorize_samples(samples, text_utils)
 
-            y_pred = self.model.predict(x=X_data, verbose=0)
+            with self.graph.as_default():
+                y_pred = self.model.predict(x=X_data, verbose=0)
+
             y_pred = np.argmax(y_pred[0], axis=-1)
             tokens = [self.index2token[itok] for itok in y_pred]
             expanded_phrase = ''.join(tokens).replace('▁', ' ').strip()

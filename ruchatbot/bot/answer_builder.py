@@ -9,6 +9,7 @@
 10-08-2019 Эксперимент с новой генеративной моделью построения ответа вместо набора старых
 21-05-2020 Полная переработка генеративной модели на одну seq2seq with attention
 27-06-2020 Добавлена вторая экспериментальная модель генерации ответа - шаблонная knn-1
+28-07-2020 Исправление ошибки с потерей tf-сессии
 """
 
 import os
@@ -17,6 +18,7 @@ import json
 import pickle
 
 import numpy as np
+import tensorflow as tf
 from keras.models import model_from_json
 import sentencepiece as spm
 
@@ -30,9 +32,12 @@ class AnswerBuilder(object):
         self.trace_enabled = True
         self.model = None
         self.answer_templates = None
+        self.graph = None
 
     def load_models(self, models_folder, text_utils):
         self.models_folder = models_folder
+
+        self.graph = tf.get_default_graph()
 
         with open(os.path.join(models_folder, 'answer_templates.dat'), 'rb') as f:
             self.answer_templates = pickle.load(f)
@@ -185,7 +190,9 @@ class AnswerBuilder(object):
                 for itoken, token in enumerate(left_tokens):
                     X[0, itoken] = self.token2index.get(token, 0)
 
-                y_pred = self.model.predict(X, verbose=0)
+                with self.graph.as_default():
+                    y_pred = self.model.predict(X, verbose=0)
+
                 y_pred = np.argmax(y_pred[0], axis=-1)
                 tokens = [self.index2token[itok] for itok in y_pred]
                 answer_str = ''.join(tokens).replace('▁', ' ').strip()
