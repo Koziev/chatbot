@@ -18,7 +18,15 @@ from ruchatbot.frontend.bot_creator import create_chatbot
 
 
 def start(bot, update):
-    bot.send_message(chat_id=update.message.chat_id, text='Chatbot is running on '+platform.platform())
+    user_id = update.message.chat.first_name + u' ' + update.message.chat.last_name
+    chatbot.start_conversation(user_id)
+
+    while True:
+        answer = chatbot.pop_phrase(user_id)
+        if len(answer) == 0:
+            break
+
+        bot.send_message(chat_id=update.message.chat_id, text=answer)
 
 
 def echo(bot, update):
@@ -31,21 +39,15 @@ def echo(bot, update):
 
         logging.info('Answering to "%s"', question)
 
-        total_answer = u''
         chatbot.push_phrase(user_id, question)
         while True:
             answer = chatbot.pop_phrase(user_id)
             if len(answer) == 0:
                 break
             else:
-                if len(total_answer) > 0:
-                    total_answer += u'\n'
-                total_answer += answer
-
-        bot.send_message(chat_id=update.message.chat_id, text=total_answer)
-        #bot.send_message(chat_id=update.message.chat_id, text=update.message.text)
-    except:
-        logging.error(sys.exc_info()[0])
+                bot.send_message(chat_id=update.message.chat_id, text=answer)
+    except Exception as ex:
+        logging.error(ex)  # sys.exc_info()[0]
 
 
 if __name__ == '__main__':
@@ -77,7 +79,7 @@ if __name__ == '__main__':
     logging.info('Telegram bot: %s', tg_bot.getMe())
 
     logging.debug('Bot loading...')
-    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging, bot_id='telegram_bot')
+    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, True, bot_id='telegram_bot')
 
     updater = Updater(token=telegram_token)
     dispatcher = updater.dispatcher
