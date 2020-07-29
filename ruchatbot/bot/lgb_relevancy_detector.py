@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
+"""
+28-07-2020 Преобразование входной матрицы в scipy.sparse.csr_matrix перед вызовом predict, чтобы не вылезало
+           уродливое предупреждение UserWarning: Converting data to scipy sparse matrix.
+"""
 
 import json
 import os
 import logging
 import lightgbm
+import scipy
 
 from ruchatbot.bot.gb_relevancy_detector import GB_RelevancyDetector
 
@@ -30,5 +35,5 @@ class LGB_RelevancyDetector(GB_RelevancyDetector):
         self.lgb_relevancy = lightgbm.Booster(model_file=model_filepath)
 
     def predict_by_model(self, X_data):
-        y_pred = self.lgb_relevancy.predict(X_data)
+        y_pred = self.lgb_relevancy.predict(scipy.sparse.csr_matrix(X_data))
         return y_pred

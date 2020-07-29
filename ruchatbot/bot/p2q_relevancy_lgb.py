@@ -1,3 +1,8 @@
+"""
+28-07-2020 Преобразование входной матрицы в scipy.sparse.csr_matrix перед вызовом predict, чтобы не вылезало
+           уродливое предупреждение UserWarning: Converting data to scipy sparse matrix.
+"""
+
 import os
 import json
 import numpy as np
@@ -90,6 +95,6 @@ class P2Q_Relevancy_LGB:
 
             X = scipy.sparse.hstack((x13, x23, x12, X1, X2, X3))
 
-        y_pred = self.model.predict_proba(X)
+        y_pred = self.model.predict_proba(scipy.sparse.csr_matrix(X))
         y_pred = y_pred[0][1]
         return y_pred
