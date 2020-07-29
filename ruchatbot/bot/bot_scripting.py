@@ -14,6 +14,7 @@ from ruchatbot.bot.scripting_rule import ScriptingRule
 from ruchatbot.bot.verbal_form import VerbalForm
 from ruchatbot.bot.scenario import Scenario
 from ruchatbot.utils.constant_replacer import replace_constant
+from ruchatbot.bot.continuation_rule import ContinuationRules
 
 
 class StoryRules:
@@ -64,6 +65,7 @@ class BotScripting(object):
         self.scenarios = []  # список экземпляров Scenario
         self.smalltalk_rules = SmalltalkRules()
         self.story_rules = StoryRules()
+        self.continuation_rules = ContinuationRules()
 
     @staticmethod
     def __get_node_list(node):
@@ -141,13 +143,13 @@ class BotScripting(object):
 
             # Для smalltalk-правил нужны скомпилированные генеративные грамматики.
             smalltalk_rule2grammar = dict()
-            with open(compiled_grammars_path, 'rb') as f:
-                n_rules = pickle.load(f)
-                for _ in range(n_rules):
-                    key = pickle.load(f)
-                    grammar = GenerativeGrammarEngine.unpickle_from(f)
-                    grammar.set_dictionaries(text_utils.gg_dictionaries)
-                    smalltalk_rule2grammar[key] = grammar
+            #with open(compiled_grammars_path, 'rb') as f:
+            #    n_rules = pickle.load(f)
+            #    for _ in range(n_rules):
+            #        key = pickle.load(f)
+            #        grammar = GenerativeGrammarEngine.unpickle_from(f)
+            #        grammar.set_dictionaries(text_utils.gg_dictionaries)
+            #        smalltalk_rule2grammar[key] = grammar
 
             if 'scenarios' in data:
                 for scenario_node in data['scenarios']:
@@ -163,6 +165,10 @@ class BotScripting(object):
 
             if 'smalltalk_rules' in data:
                 self.smalltalk_rules.load_yaml(data['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
+
+            self.continuation_rules = ContinuationRules()
+            if 'continuation' in data:
+                self.continuation_rules.load_yaml(data['continuation'], constants, text_utils)
 
             self.comprehension_rules = ComprehensionTable()
             self.comprehension_rules.load_yaml_data(data, constants, text_utils)
@@ -217,6 +223,9 @@ class BotScripting(object):
 
     def get_story_rules(self):
         return self.story_rules
+
+    def get_continuation_rules(self):
+        return self.continuation_rules
 
     def reset_usage_stat(self):
         """сбрасываем счетчики использования и т.д., как будто сценарии и правила не срабатывали"""

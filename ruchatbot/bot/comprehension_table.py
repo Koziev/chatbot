@@ -31,7 +31,12 @@ class ComprehensionTable(object):
         """
         if 'comprehensions' in yaml_data:
             for rule in yaml_data['comprehensions']:
-                result_phrase = replace_constant(rule['rule']['then'], constants, text_utils)
+                r = rule['rule']['then']
+                if not isinstance(r, str):
+                    msg = 'then-branch in comprehension rule must be a string: {}'.format(r)
+                    raise RuntimeError(msg)
+
+                result_phrase = replace_constant(r, constants, text_utils)
                 conditions = ComprehensionTable.__get_node_list(rule['rule']['if'])
                 for input_phrase in conditions:
                     input_phrase = replace_constant(input_phrase, constants, text_utils)

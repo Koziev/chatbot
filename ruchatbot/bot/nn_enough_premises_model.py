@@ -50,7 +50,6 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
         #self.model.summary()
         # конец отладки
 
-
         self.w2v_filename = os.path.basename(self.w2v_path)
 
         self.Xn_probe = []
@@ -77,7 +76,7 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
                 words = text_utils.rpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)
             else:
                 words = text_utils.lpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)
-            text.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[ipremise], 0)
+            text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[ipremise], 0)
 
         if self.padding == 'right':
             words = text_utils.rpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)

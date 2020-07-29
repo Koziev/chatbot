@@ -7,43 +7,7 @@ from ruchatbot.bot.keyword_matcher import KeywordMatcher
 from ruchatbot.utils.constant_replacer import replace_constant
 from ruchatbot.bot.phrase_token import PhraseToken
 from ruchatbot.utils.chunk_tools import normalize_chunk
-
-
-class RuleConditionMatchGroup:
-    def __init__(self, name, words, phrase_tokens):
-        self.name = name
-        self.words = words
-        self.phrase_tokens = phrase_tokens
-
-    def __repr__(self):
-        s = self.name
-        s += ' = '
-        s += ' '.join(self.words)
-        return s
-
-
-class RuleConditionMatching(object):
-    def __init__(self):
-        self.success = False
-        self.proba = 0.0
-        self.groups = dict()  # str -> RuleConditionMatchGroup()
-
-    def __repr__(self):
-        return ' '.join(map(str, self.groups))
-
-    @staticmethod
-    def create(success):
-        r = RuleConditionMatching()
-        r.success = success
-        r.proba = 1.0 if success else 0.0
-        return r
-
-    def add_group(self, name, words, phrase_tokens):
-        g = RuleConditionMatchGroup(name, words, phrase_tokens)
-        self.groups[name] = g
-
-    def has_groups(self):
-        return self.groups
+from ruchatbot.bot.rule_condition_matching import RuleConditionMatching
 
 
 class BaseRuleCondition(object):
@@ -134,11 +98,30 @@ class RuleCondition_State(BaseRuleCondition):
         return RuleConditionMatching.create(f)
 
 
+def ngrams(s, n):
+    #return set(u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)]))
+    return set(u''.join(z) for z in zip(*[s[i:] for i in range(n)]))
+
+
+def jaccard(s1, s2, shingle_len):
+    shingles1 = ngrams(s1.lower(), shingle_len)
+    shingles2 = ngrams(s2.lower(), shingle_len)
+    return float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2))
+
+
 class RuleCondition_Text(BaseRuleCondition):
     def __init__(self, data_yaml, constants, text_utils):
         super().__init__(data_yaml)
-        if isinstance(data_yaml[u'text'], list):
-            etalons = data_yaml[u'text']
+        self.metric = 'synonymy'
+        self.threshold = None
+
+        y = data_yaml[u'text']
+        if isinstance(y, dict):
+            etalons = y['masks']
+            self.metric = y.get('metric', 'synonymy')
+            self.threshold = y.get('threshold')
+        elif isinstance(y, list):
+            etalons = y
         else:
             etalons = [data_yaml[u'text']]
 
@@ -147,11 +130,26 @@ class RuleCondition_Text(BaseRuleCondition):
             self.etalons.append(replace_constant(e, constants, text_utils))
 
     def get_short_repr(self):
-        return 'text etalons[1/{}]="{}"'.format(len(self.etalons), self.etalons[0])
+        return 'text etalons[1/{}]="{}" metric={}'.format(len(self.etalons), self.etalons[0], self.metric)
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
         input_text = interpreted_phrase.interpretation
-        f = self.check_text(input_text, self.etalons, bot, session, interlocutor, interpreted_phrase, answering_engine)
+        f = False
+        if self.metric.startswith('jaccard'):
+            shingle_len = 3
+            if self.metric == 'jaccard2':
+                shingle_len = 2
+
+            threshold = answering_engine.get_synonymy_detector().get_threshold()
+            for etalon in self.etalons:
+                if jaccard(etalon.lower().replace('ё', 'е'), input_text.lower().replace('ё', 'е'), shingle_len) >= threshold:
+                    f = True
+                    break
+        elif self.metric == 'synonymy':
+            f = self.check_text(input_text, self.etalons, bot, session, interlocutor, interpreted_phrase, answering_engine)
+        else:
+            raise NotImplementedError()
+
         return RuleConditionMatching.create(f)
 
 

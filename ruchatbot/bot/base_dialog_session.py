@@ -91,7 +91,7 @@ class BaseDialogSession(object):
                 elif assertions and not item.is_question:
                     # добавляем не-вопрос
                     reslist.append((item, timegap))
-        return reslist
+        return reslist[:last_nb]
 
     def count_bot_phrase(self, phrase_str):
         """Вернет, сколько раз бот уже произносил фразу phrase_str"""

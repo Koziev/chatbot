@@ -57,7 +57,7 @@ class TextUtils(object):
         self.flexer = ruword2tags.RuFlexer()
         self.syntan = None
         self.gg_dictionaries = GenerativeGrammarDictionaries()
-        self.known_words = set()
+        #self.known_words = set()
         #self.lemmatizer = Mystem()
         self.lemmatizer = rulemma.Lemmatizer()
         self.word_embeddings = None
@@ -77,7 +77,7 @@ class TextUtils(object):
         self.lemmatizer.load()
 
         # Общий словарь для генеративных грамматик
-        self.gg_dictionaries.load(os.path.join(models_folder, 'generative_grammar_dictionaries.bin'))
+        #self.gg_dictionaries.load(os.path.join(models_folder, 'generative_grammar_dictionaries.bin'))
 
         #word2lemmas_path = os.path.join(data_folder, 'ru_word2lemma.tsv.gz')
         #self.lexicon.load(word2lemmas_path)
@@ -103,10 +103,10 @@ class TextUtils(object):
             #self.language_resources.key2phrase[u'not'] = data[u'answers'][u'not']
 
         # Список "хороших слов" для генеративной грамматики
-        with io.open(os.path.join(models_folder, 'dataset_words.txt'), 'r', encoding='utf-8') as rdr:
-            for line in rdr:
-                word = line.strip()
-                self.known_words.add(word)
+        #with io.open(os.path.join(models_folder, 'dataset_words.txt'), 'r', encoding='utf-8') as rdr:
+        #    for line in rdr:
+        #        word = line.strip()
+        #        self.known_words.add(word)
 
     def apply_word_function(self, func, constants, words):
         part_of_speech = None
@@ -123,10 +123,12 @@ class TextUtils(object):
         else:
             raise NotImplementedError()
 
+        tag2 = tag[0] + '=' + tag[1]
         for word in words:
-            tagsets = self.gg_dictionaries.grdict.get_word_tagsets2(word.lower(), part_of_speech)
-            if any((tag in tagset) for tagset in tagsets):
-                return word
+            #tagsets = self.gg_dictionaries.grdict.get_word_tagsets2(word.lower(), part_of_speech)
+            for tagset in self.word2tags[word]:
+                if part_of_speech in tagset and tag2 in tagset:
+                    return word
 
         msg = u'Could not choose a word among {}'.format(u' '.join(words))
         raise RuntimeError(msg)

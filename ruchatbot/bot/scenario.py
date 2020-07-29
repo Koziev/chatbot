@@ -9,6 +9,19 @@ from ruchatbot.bot.actors import ActorBase
 from ruchatbot.bot.smalltalk_rules import SmalltalkRules
 from ruchatbot.bot.scripting_rule import ScriptingRule
 from ruchatbot.bot.running_scenario import RunningScenario
+from ruchatbot.utils.constant_replacer import replace_constant
+
+
+class ScenarioTerminationPolicy:
+    def __init__(self):
+        self.expiration = 0
+        self.can_answer_question = None
+
+    def load_yaml(self, yaml_node, constants, text_utils):
+        if 'expiration' in yaml_node:
+            self.expiration = int(yaml_node['expiration'])
+        if 'can_answer_question' in yaml_node:
+            self.can_answer_question = replace_constant(yaml_node['can_answer_question'], constants, text_utils)
 
 
 class Scenario(object):
@@ -21,6 +34,8 @@ class Scenario(object):
         self.steps_policy = None
         self.smalltalk_rules = None
         self.insteadof_rules = None
+        self.termination_policy = ScenarioTerminationPolicy()
+        self.termination_check_count = 0
 
     def reset_usage_stat(self):
         """сброс статистики для целей тестирования"""
@@ -57,6 +72,9 @@ class Scenario(object):
 
         if 'on_start' in yaml_node:
             scenario.on_start = ActorBase.from_yaml(yaml_node['on_start'], constants, text_utils)
+
+        if 'termination_policy' in yaml_node:
+            scenario.termination_policy.load_yaml(yaml_node['termination_policy'], constants, text_utils)
 
         if 'on_finish' in yaml_node:
             scenario.on_finish = ActorBase.from_yaml(yaml_node['on_finish'], constants, text_utils)
@@ -99,9 +117,12 @@ class Scenario(object):
                 new_step_index = running_scenario.current_step_index + 1
                 if new_step_index == len(running_scenario.scenario.steps):
                     # Сценарий исчерпан
-                    if running_scenario.scenario.on_finish:
-                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
-                    bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+                    if self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
+                        # Уберем инстанс сценария из списка активных
+                        self.termination_check_count = 0
+                        if running_scenario.scenario.on_finish:
+                            running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
+                        bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
                     break
                 else:
                     running_scenario.current_step_index = new_step_index
@@ -122,11 +143,27 @@ class Scenario(object):
 
             if len(running_scenario.passed_steps) == nsteps:
                 # Больше шагов нет
-                if running_scenario.scenario.on_finish:
-                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
-                bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+                if self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
+                    # Уберем инстанс сценария из списка активных
+                    self.termination_check_count = 0
+                    if running_scenario.scenario.on_finish:
+                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
+                    bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
         else:
             raise NotImplementedError()
+
+    def check_termination(self, bot, session, interlocutor, interpreted_phrase, text_utils):
+        """Вернет True, если сценарий надо выключать"""
+        self.termination_check_count += 1
+        if self.termination_check_count >= self.termination_policy.expiration:
+            return True
+
+        if self.termination_policy.can_answer_question:
+            f = bot.does_bot_know_answer(self.termination_policy.can_answer_question, session, interlocutor)
+            if f:
+                return True
+
+        return False
 
     def get_insteadof_rules(self):
         return self.insteadof_rules

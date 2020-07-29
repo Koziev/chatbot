@@ -93,6 +93,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.text_utils = text_utils
         self.logger = logging.getLogger('SimpleAnsweringMachine')
         self.discourse = Discourse()
+        self.premise_not_found = None
 
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
@@ -165,10 +166,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.answer_builder.load_models(models_folder, self.text_utils)
 
         # Генеративная грамматика для формирования реплик
-        self.replica_grammar = GenerativeGrammarEngine()
-        with open(os.path.join(models_folder, 'replica_generator_grammar.bin'), 'rb') as f:
-            self.replica_grammar = GenerativeGrammarEngine.unpickle_from(f)
-        self.replica_grammar.set_dictionaries(self.text_utils.gg_dictionaries)
+        self.replica_grammar = None
+        #self.replica_grammar = GenerativeGrammarEngine()
+        #with open(os.path.join(models_folder, 'replica_generator_grammar.bin'), 'rb') as f:
+        #    self.replica_grammar = GenerativeGrammarEngine.unpickle_from(f)
+        #self.replica_grammar.set_dictionaries(self.text_utils.gg_dictionaries)
 
         # Классификатор грамматического лица на базе XGB
         #self.person_classifier = XGB_PersonClassifierModel()
@@ -457,7 +459,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             current_field = empty_fields[0]
             status = RunningFormStatus(form, interpreted_phrase, filled_fields, current_field)
             session.set_status(status)
-            bot.say(bot, session, current_field.question)
+            bot.say(session, current_field.question)
         else:
             # Все поля формы заполнены - запускаем итоговое действие формы
             status = RunningFormStatus(form, interpreted_phrase, filled_fields, current_field=None)
@@ -865,6 +867,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         session = self.get_session(bot, interlocutor)
 
+        if not internal_issuer and (question in ('', '?')):
+            # Пустая фраза или одиночный ? имитирует ситуацию таймаута - пользователь долгое время ничего не отвечает...
+            self.continue_dialogue(bot, session, self.text_utils)
+            return
+
         # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
         # так что мы можем раскрыть анафору, подставить в явном виде опущенные составляющие и т.д.,
         # определить, является ли фраза вопросом, фактом или императивным высказыванием.
@@ -948,7 +955,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if field.name not in running_form.fields:
                             # Зададим вопрос для заполнения поля
                             running_form.set_current_field(field)
-                            bot.say(bot, session, field.question)
+                            bot.say(session, field.question)
                             return
 
                     # Все поля заполнены
@@ -1030,7 +1037,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
             if not order_processed:
                 # Сообщим, что не знаем как обработать приказ.
-                self.premise_not_found_model.order_not_understood(phrase, bot, self.text_utils)
+                self.premise_not_found.order_not_understood(phrase, bot, self.text_utils)
                 order_processed = True
         elif interpreted_phrase.is_question or is_question2:
             self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
@@ -1146,8 +1153,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def apply_rule(self, bot, session, interpreted_phrase):
         return bot.apply_rule(session, interpreted_phrase)
 
+    def continue_dialogue(self, bot, session, text_utils):
+        phrase = bot.get_scripting().get_continuation_rules().generate_phrase(bot, session, self)
+        if phrase:
+            bot.say(session, phrase)
+
     def premise_not_found(self, phrase, bot, text_utils):
-        return self.premise_not_found_model.generate_answer(phrase, bot, text_utils)
+        return self.premise_not_found.generate_answer(phrase, bot, text_utils)
 
     def build_answers0(self, session, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
