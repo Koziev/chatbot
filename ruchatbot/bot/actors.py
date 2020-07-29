@@ -139,6 +139,11 @@ class ActorSay(ActorBase):
         for utterance0 in self.phrases:
             utterance = self.prepare4saying(utterance0, condition_matching_results, text_utils)
 
+            if '$' in utterance:
+                # удалось подставить значение в один из $-слотов, значит
+                # надо исключить фразу.
+                continue
+
             if session.count_bot_phrase(utterance) == 0:
                 if self.known_answer_policy == 'skip' and utterance[-1] == '?':
                     # Проверим, что бот еще не знает ответ на этот вопрос:
@@ -171,9 +176,12 @@ class ActorSay(ActorBase):
                 else:
                     # Начиная с этого момента данное правило будет повторно выдавать
                     # одну из фраз.
-                    random_phrase = self.prepare4saying(random.choice(self.phrases), condition_matching_results, text_utils)
-                    bot.say(session, random_phrase)
-                    uttered = True
+                    for src_phrase in sorted(self.phrases, key=lambda z: random.random()):
+                        random_phrase = self.prepare4saying(src_phrase, condition_matching_results, text_utils)
+                        if '$' not in random_phrase:
+                            bot.say(session, random_phrase)
+                            uttered = True
+                            break
 
         return uttered
 
