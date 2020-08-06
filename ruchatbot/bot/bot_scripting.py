@@ -169,6 +169,11 @@ class BotScripting(object):
             self.continuation_rules = ContinuationRules()
             if 'continuation' in data:
                 self.continuation_rules.load_yaml(data['continuation'], constants, text_utils)
+                if 'files' in data['continuation']:
+                    for fname in data['continuation']['files']:
+                        with io.open(os.path.join(os.path.dirname(yaml_path), fname), 'r', encoding='utf-8') as f:
+                            data2 = yaml.safe_load(f)
+                            self.continuation_rules.load_yaml(data2, constants, text_utils)
 
             self.comprehension_rules = ComprehensionTable()
             self.comprehension_rules.load_yaml_data(data, constants, text_utils)

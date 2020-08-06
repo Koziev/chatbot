@@ -48,6 +48,9 @@ class BaseRuleCondition(object):
         return self.key
 
     def check_text(self, input_text, etalon_texts, bot, session, interlocutor, interpreted_phrase, answering_engine):
+        if not input_text:
+            return False
+
         text_utils = answering_engine.get_text_utils()
         word_embeddings = answering_engine.get_word_embeddings()
 

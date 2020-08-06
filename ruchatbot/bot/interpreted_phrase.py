@@ -32,4 +32,14 @@ class InterpretedPhrase:
         return not self.is_question and not self.is_imperative
 
     def __repr__(self):
-        return u'{} (raw="{}" intents="{}")'.format(self.interpretation, self.raw_phrase, ','.join(self.intents))
+        s = self.interpretation
+        s += ' ('
+
+        if self.raw_phrase:
+            s += 'raw="{}"'.format(self.raw_phrase)
+
+        if self.intents:
+            s += ' intents={}'.format(','.join(self.intents))
+
+        s += ')'
+        return s

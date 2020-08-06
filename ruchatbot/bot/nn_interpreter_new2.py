@@ -181,9 +181,9 @@ class NN_InterpreterNew2(BaseUtteranceInterpreter2):
         return ' '.join(res_words)
 
     def interpret(self, phrases, text_utils):
-        if len(phrases) < 2:
-            logging.warning('%d input phrase(s) in NN_InterpreterNew2::interpret, at least 2 expected', len(phrases))
-            return phrases[-1]
+        #if len(phrases) < 2:
+        #    logging.warning('%d input phrase(s) in NN_InterpreterNew2::interpret, at least 2 expected', len(phrases))
+        #    return phrases[-1]
 
         context_phrases = phrases[:-1]
         short_phrase = phrases[-1]

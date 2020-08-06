@@ -41,6 +41,11 @@ class LGB_ReqInterpretation(BaseUtteranceInterpreter):
         self.no_expansion_phrases = set(self.model_config['no_expansion_phrases'])
 
     def require_interpretation(self, phrase0, text_utils):
+        # НАЧАЛО ОТЛАДКИ
+        #logging.error('DEBUG@45 МОДЕЛЬ REQ_INTERPRETATION ОТКЛЮЧЕНА!')
+        #return True
+        # КОНЕЦ ОТЛАДКИ
+
         phrase = text_utils.remove_terminators(phrase0.strip())
         phrase_words = text_utils.tokenizer.tokenize(phrase)
         phrase_str = u' '.join(phrase_words)

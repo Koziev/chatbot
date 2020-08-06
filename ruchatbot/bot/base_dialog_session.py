@@ -121,6 +121,9 @@ class BaseDialogSession(object):
                 return item
         return None
 
+    def get_last_utterance(self):
+        return self.conversation_history[-1] if len(self.conversation_history) > 0 else None
+
     def set_status(self, new_status):
         if new_status is None:
             # Если в стеке отложенных сценариев есть что-то, запускаем его.

@@ -1,5 +1,6 @@
 
 import random
+import logging
 
 from ruchatbot.bot.scenario import Scenario
 from ruchatbot.bot.running_scenario import RunningScenario
@@ -21,6 +22,11 @@ class Scenario_WhoAmI(Scenario):
         self.activation_counter = 0
 
         # Сколько раз бот попытался узнать у собеседника, кто он такой
+        self.who_are_you_counter = 0
+
+    def reset_usage_stat(self):
+        super(Scenario_WhoAmI, self).reset_usage_stat()
+        self.activation_counter = 0
         self.who_are_you_counter = 0
 
     def can_process_questions(self):
@@ -88,7 +94,10 @@ class Scenario_WhoAmI(Scenario):
             # Пусть движок выдаст ответ на вопрос "Кто я" из своей базы знаний.
             # Это более гибкий подход, нежели хардкодить реплику в коде сценария.
             premise = bot.get_engine().find_premise('кто я', bot, session, interlocutor)
-            assert(premise is not None)
+            if not premise:
+                logging.error('ERROR@scenario_who_am_i:97 empty premise')
+                bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+                return
 
             if self.activation_counter == 1:
                 # Сценарий запускается первый раз.
@@ -181,15 +190,23 @@ class Scenario_WhoAmI(Scenario):
                 bot.say(session, 'Не теряю надежду узнать, кто ты?')
             else:
                 # сейчас просто закрываем сценарий...
-                bot.say(session, 'Жаль, что ты не хочешь рассказать, кто ты')
+                sx = ['Жаль, что ты не хочешь рассказать, кто ты',
+                      'Мне жаль, что я мало узнала о тебе',
+                      'Жаль, что у меня так мало информации о тебе',
+                      'Печально, что я знаю так мало про тебя',
+                      'Хотелось бы узнать о тебе побольше']
+                bot.say(session, self.choice(bot, session, text_utils, sx))
                 bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
-
         else:
-            # Так как боту известно, кто собеседник, то выходим из сценария
+            # Так как боту известно, кто собеседник, то выходим из сценария.
+            # При первом выполнении сценария поблагодарим за знакомство.
             if self.activation_counter == 1:
                 sx = ['Теперь мы знаем, кто из нас кто',
                       'Вот и хорошо, что мы узнали кое-что друг про друга',
-                      'Отлично, мы узнали друг про друга кое-что']
+                      'Отлично, мы узнали друг про друга кое-что',
+                      'спасибо за информацию!',
+                      'благодарю за информацию!',
+                      'спасибо за ценную информацию!']
                 bot.say(session, self.choice(bot, session, text_utils, sx))
 
             bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
