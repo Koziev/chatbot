@@ -32,6 +32,7 @@ RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
 RUN pip install flask
 RUN pip install flask_sqlalchemy
 RUN pip install flask_wtf
+RUN pip install python-telegram-bot --upgrade
 
 WORKDIR /home
 ADD ruword2tags.tar.gz /home
@@ -88,6 +89,10 @@ WORKDIR /chatbot/scripts
 COPY ./scripts/console_bot.sh ./
 COPY ./scripts/test_console.sh ./
 COPY ./scripts/flask_bot.sh ./
+COPY ./scripts/tg_bot.sh ./
+
+WORKDIR /chatbot
+COPY CHANGELOG.txt ./
 
 EXPOSE 9001
 WORKDIR /chatbot/scripts
