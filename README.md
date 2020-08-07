@@ -115,6 +115,14 @@ werkzeug  -  * Running on http://0.0.0.0:9001/ (Press CTRL+C to quit)
 
 можно открыть в браузере адрес http://127.0.0.1:9001 и вводить вопросы к чатботу.
  
+Запуск чатбота в Telegram:
+
+```
+docker run -it chatbot bash -c "/chatbot/scripts/tg_bot.sh"
+``` 
+
+После старта появится приглашение ввода токена, который следует получить у @botfather в Telegram.
+ 
 
 
 ## Кастомизация чатбота, константы профиля
