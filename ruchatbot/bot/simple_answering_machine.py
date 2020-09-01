@@ -292,6 +292,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     phrase_person = 1
             else:
                 expanded_phrase = self.interpreter.normalize_person(expanded_phrase, self.text_utils)
+        else:
+            interpreted.intents = []
 
         interpreted.interpretation = expanded_phrase
 
@@ -468,6 +470,39 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                            self.text_utils,
                                                                            nb_results=1)
         return best_premise if best_rel >= self.min_premise_relevancy else None
+
+    def find_similar_fact(self, fact_str, bot, session, interlocutor):
+        memory_phrases = list(bot.facts.enumerate_facts(interlocutor))
+        best_fact, best_sim = self.synonymy_detector.get_most_similar(fact_str,
+                                                                      memory_phrases,
+                                                                      self.text_utils,
+                                                                      nb_results=1)
+        if best_sim >= self.synonymy_detector.get_threshold():
+            return best_fact
+        else:
+            return None
+
+    def find_contradictory_fact(self, fact_str, bot, session, interlocutor):
+        memory_phrases = list(bot.facts.enumerate_facts(interlocutor))
+        best_premise, best_rel = self.relevancy_detector.get_most_relevant(fact_str,
+                                                                           memory_phrases,
+                                                                           self.text_utils,
+                                                                           nb_results=1)
+        if best_rel >= self.min_premise_relevancy:
+            # Есть релевантный файл.
+            # Попробуем сгенерировать ответ.
+            premises = [[best_premise]]
+            premise_rels = [best_rel]
+            answers, answer_rels = self.answer_builder.build_answer_text(premises, premise_rels,
+                                                                         fact_str,
+                                                                         self.text_utils)
+            if answers:
+                answer = answers[0]
+                if answer != 'да':  # !хардкод русского текста ответа это плохо - потом отрефакторить!
+                    return best_premise
+
+        return None
+
 
     def calc_discourse_relevance(self, replica, session):
         """Возвращает оценку соответствия реплики replica текущему дискурсу беседы session"""
@@ -886,6 +921,42 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                           interlocutor,
                                                                           interpreted_phrase)
                         input_processed = insteadof_rule_result.insteadof_applied
+
+                # 23-08-2020
+                if interpreted_phrase.person == 1:
+                    # Если собес сообщает о себе факт, синоним которого есть для бота в БД,
+                    # то выдадим что-то вроде "и я тоже ... !"
+                    # H: я люблю компьютеры!
+                    # B: и я люблю компьютеры!
+                    s1 = self.interpreter.denormalize_person(interpreted_phrase.interpretation, self.text_utils)
+                    similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
+                    if similar_fact:
+                        self.logger.debug('similar fact="%s" for phrase="%s", resulting in style="same_for_me"', similar_fact, s1)
+                        s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['same_for_me'], self.text_utils)
+                        self.say(bot, session, s2)
+                    # если для факта, сообщенного собесом, есть оппозитный для бота, то выдадим "а я нет"
+                    contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
+                    if contradictory_fact:
+                        self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me"', contradictory_fact, s1)
+                        s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
+                        self.say(bot, session, s2)
+
+                elif interpreted_phrase.person not in (1, 2):
+                    # Если собес сообщает факт о третьем лице, и синонимичный факт уже есть в БД,
+                    # то выдадим что-то типа "я уже знаю, что ..."
+                    s1 = interpreted_phrase.interpretation
+                    similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
+                    if similar_fact:
+                        self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known"', similar_fact, s1)
+                        s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['already_known'], self.text_utils)
+                        self.say(bot, session, s2)
+                        input_processed = True  # не будем сохранять синонимичный факт в БД
+                    # если для факта, сообщенного собесом, есть оппозитный для 3-го лица, то выдадим "а я нет"
+                    #contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
+                    #if contradictory_fact:
+                    #    self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me"', contradictory_fact, s1)
+                    #    s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
+                    #    self.say(bot, session, s2)
 
                 # TODO: в принципе возможны два варианта последствий срабатывания
                 # правил. 1) считаем, что правило полностью выполнило все действия для

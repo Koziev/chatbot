@@ -91,6 +91,22 @@ class Paraphraser:
 
         return ' '.join(res_words)
 
+    def conditional_paraphrase(self, phrase, tags, text_utils):
+        # тут пока хардкодим костыли, а в будущем должна быть полномасштабная условная генерация текста...
+        if tags[0] == 'same_for_me':
+            new_phrase = 'и ' + phrase + ' тоже'
+            return new_phrase
+        elif tags[0] == 'already_known':
+            s0 = random.choice(['я уже знаю, что ', 'мне уже известно, что '])
+            new_phrase = s0 + phrase
+            return new_phrase
+        elif tags[0] == 'opposite_for_me':
+            new_phrase = 'а ' + phrase
+            return new_phrase
+        else:
+            raise NotImplementedError()
+
+
     def paraphrase(self, phrase, text_utils):
         new_phrase = phrase
 

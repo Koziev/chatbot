@@ -83,6 +83,8 @@ class RuleCondition_Intent(BaseRuleCondition):
         return 'intent={}'.format('|'.join(self.ored_intents))
 
     def check_condition(self, bot, session, interlocutor, interpreted_phrase, answering_engine):
+        assert(interpreted_phrase.intents is not None)
+        assert(self.ored_intents is not None)
         return RuleConditionMatching.create(any((x in self.ored_intents) for x in interpreted_phrase.intents))
 
 

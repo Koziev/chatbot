@@ -45,6 +45,8 @@ class LGB_ReqInterpretation(BaseUtteranceInterpreter):
         #logging.error('DEBUG@45 МОДЕЛЬ REQ_INTERPRETATION ОТКЛЮЧЕНА!')
         #return True
         # КОНЕЦ ОТЛАДКИ
+        if not phrase0:
+            return 0
 
         phrase = text_utils.remove_terminators(phrase0.strip())
         phrase_words = text_utils.tokenizer.tokenize(phrase)
