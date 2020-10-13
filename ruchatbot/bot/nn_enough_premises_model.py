@@ -38,6 +38,10 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
         self.arch_filepath = self.get_model_filepath(models_folder, model_config['arch_filepath'])
         self.weights_filepath = self.get_model_filepath(models_folder, model_config['weights_path'])
 
+        #self.graph = tf.Graph()
+        #self.tf_sess = tf.Session(graph=self.graph)
+        #self.tf_sess.__enter__()
+
         with open(self.arch_filepath, 'r') as f:
             m = model_from_json(f.read())
 

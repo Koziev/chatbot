@@ -109,4 +109,6 @@ if __name__ == '__main__':
             if question.lower() in (r'\exit', r'\q', r'\quit', '/stop'):
                 break
 
-            bot.push_phrase(user_id, question)
+        # 25-07-2020 пустая фраза имитирует ситуацию тупика в диалоге, бот должен попытаться
+        # предложить продолжение...
+        bot.push_phrase(user_id, question)
