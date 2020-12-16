@@ -44,7 +44,9 @@ class NoInformationModel(ModelApplicator):
             for s in data['no_relevant_information']['phrases']:
                 self.no_info_replicas.append(replace_constant(s, constants, text_utils))
 
-            self.unknown_order = data['unknown_order']
+            self.unknown_order = []
+            for s in data['unknown_order']:
+                self.unknown_order.append(replace_constant(s, constants, text_utils))
 
             if 'rules' in data['no_relevant_information']:
                 for rule_yaml in data['no_relevant_information']['rules']:
@@ -63,7 +65,10 @@ class NoInformationModel(ModelApplicator):
             return self.replicas[0]
 
     def order_not_understood(self, phrase, bot, text_utils):
+        s = None
         if len(self.unknown_order) > 1:
-            return random.choice(self.unknown_order)
+            s = random.choice(self.unknown_order)
         else:
-            return self.unknown_order[0]
+            s = self.unknown_order[0]
+
+        return s
