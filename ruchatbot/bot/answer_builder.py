@@ -10,6 +10,7 @@
 21-05-2020 Полная переработка генеративной модели на одну seq2seq with attention
 27-06-2020 Добавлена вторая экспериментальная модель генерации ответа - шаблонная knn-1
 28-07-2020 Исправление ошибки с потерей tf-сессии
+04-12-2020 Переделка на seq2seq модель, работающую с новой версией tensorflow
 """
 
 import os
@@ -22,48 +23,81 @@ import tensorflow as tf
 from keras.models import model_from_json
 import sentencepiece as spm
 
-# https://github.com/asmekal/keras-monotonic-attention
-from ruchatbot.layers.attention_decoder import AttentionDecoder
+from ruchatbot.layers.seq2seq_model import Seq2SeqEncoder, Seq2SeqDecoder, EOS_TOKEN, BOS_TOKEN
+
+
+class Sample:
+    def __init__(self):
+        self.left_str = None
+        self.left_tokens = None
+        self.right_str = None
+        self.right_tokens = None
 
 
 class AnswerBuilder(object):
     def __init__(self):
         self.logger = logging.getLogger('AnswerBuilder')
         self.trace_enabled = True
-        self.model = None
         self.answer_templates = None
         self.graph = None
+        self.encoder = None
+        self.decoder = None
+        self.model_config = None
 
     def load_models(self, models_folder, text_utils):
+        self.logger.info('Loading AnswerBuilder model files from "%s"', models_folder)
+
         self.models_folder = models_folder
 
-        self.graph = tf.get_default_graph()
+        self.graph = tf.compat.v1.get_default_graph()  # ??? вроде не работает нормально в tf2
 
         with open(os.path.join(models_folder, 'answer_templates.dat'), 'rb') as f:
             self.answer_templates = pickle.load(f)
 
-        config_path = os.path.join(models_folder, 'nn_seq2seq_pqa_generator.config')
-        with open(config_path, 'r') as f:
-            computed_params = json.load(f)
-
-        arch_file = os.path.join(models_folder, os.path.basename(computed_params['arch_path']))
-        weights_file = os.path.join(models_folder, os.path.basename(computed_params['weights_path']))
-
-        with open(arch_file, 'r') as f:
-            self.model = model_from_json(f.read(), {'AttentionDecoder': AttentionDecoder})
-
-        self.model.load_weights(weights_file)
+        # config_path = os.path.join(models_folder, 'nn_seq2seq_pqa_generator.config')
+        # with open(config_path, 'r') as f:
+        #     computed_params = json.load(f)
+        #
+        # arch_file = os.path.join(models_folder, os.path.basename(computed_params['arch_path']))
+        # weights_file = os.path.join(models_folder, os.path.basename(computed_params['weights_path']))
+        #
+        # with open(arch_file, 'r') as f:
+        #     self.model = model_from_json(f.read(), {'AttentionDecoder': AttentionDecoder})
+        #
+        # self.model.load_weights(weights_file)
 
         # Токенизатор
+        #self.bpe_model = spm.SentencePieceProcessor()
+        #rc = self.bpe_model.Load(os.path.join(models_folder, computed_params['bpe_model_name'] + '.model'))
+
+        with open(os.path.join(models_folder, 'answer_generator.config'), 'r') as f:
+            self.model_config = json.load(f)
+
+        self.model_params = self.model_config['model_params']
+
+        bpe_path = os.path.join(models_folder, self.model_config['model_params']['bpe_model_name'] + '.model')
         self.bpe_model = spm.SentencePieceProcessor()
-        rc = self.bpe_model.Load(os.path.join(models_folder, computed_params['bpe_model_name'] + '.model'))
+        rc = self.bpe_model.Load(bpe_path)
+        assert(rc is True)
 
-        self.token2index = computed_params['token2index']
-        self.index2token = dict((i, t) for t, i in computed_params['token2index'].items())
+        self.encoder = Seq2SeqEncoder(self.model_config['encoder']["vocab_size"],
+                                      self.model_config['encoder']["embedding_dim"],
+                                      self.model_config['encoder']["enc_units"],
+                                      self.model_config['encoder']["batch_sz"])
 
-        max_left_len = computed_params['max_left_len']
-        max_right_len = computed_params['max_right_len']
-        self.seq_len = max(max_left_len, max_right_len)
+        self.decoder = Seq2SeqDecoder(self.model_config['decoder']["vocab_size"],
+                                      self.model_config['decoder']["embedding_dim"],
+                                      self.model_config['decoder']["dec_units"],
+                                      self.model_config['decoder']["batch_sz"])
+
+        self.encoder.load_weights(os.path.join(models_folder, 'answer_generator_encoder.weights'))
+        self.decoder.load_weights(os.path.join(models_folder, 'answer_generator_decoder.weights'))
+
+        self.token2index = self.model_params['token2index']
+        self.index2token = dict((i, t) for t, i in self.model_params['token2index'].items())
+
+        self.max_left_len = self.model_params['max_left_len']
+        self.max_right_len = self.model_params['max_right_len']
 
     def get_w2v_paths(self):
         return []
@@ -158,12 +192,78 @@ class AnswerBuilder(object):
 
         return None, None
 
+    def create_prediction_sample(self, context):
+        sample = Sample()
+        sample.left_str = context
+        sample.left_tokens = [BOS_TOKEN] + self.bpe_model.EncodeAsPieces(sample.left_str) + [EOS_TOKEN]
+        sample.right_str = ''
+        sample.right_tokens = []
+        return sample
+
+    def vectorize_samples(self, samples):
+        nb_samples = len(samples)
+
+        token2index = self.model_params['token2index']
+        max_left_len = self.model_params['max_left_len']
+        max_right_len = self.model_params['max_right_len']
+
+        X = np.zeros((nb_samples, max_left_len), dtype=np.int32)
+        y = np.zeros((nb_samples, max_right_len), dtype=np.int32)
+
+        for isample, sample in enumerate(samples):
+            for itoken, token in enumerate(sample.left_tokens[:max_left_len]):
+                if token in token2index:
+                    X[isample, itoken] = token2index[token]
+
+            for itoken, token in enumerate(sample.right_tokens[:max_right_len]):
+                if token in token2index:
+                    y[isample, itoken] = token2index[token]
+
+        return X, y
+
+    def predict_output(self, context):
+        sample = self.create_prediction_sample(context)
+        input_tensor, _ = self.vectorize_samples([sample])
+
+        index2token = dict((i, t) for t, i in self.model_params['token2index'].items())
+        max_length_inp = self.model_params['max_left_len']
+        max_length_targ = self.model_params['max_right_len']
+
+        inputs = input_tensor
+
+        start_token_index = self.model_params['token2index'][BOS_TOKEN]
+
+        result = ''
+
+        units = self.model_params['hidden_dim']
+        hidden = [tf.zeros((1, units))]
+        enc_out, enc_hidden = self.encoder(inputs, hidden)
+
+        dec_hidden = enc_hidden
+        dec_input = tf.expand_dims([start_token_index], 0)
+
+        for t in range(max_length_targ):
+            predictions, dec_hidden, attention_weights = self.decoder(dec_input, dec_hidden, enc_out)
+            predicted_id = tf.argmax(predictions[0]).numpy()
+            new_token = index2token[predicted_id]
+
+            if new_token == EOS_TOKEN:
+                break
+
+            result += new_token
+
+            # the predicted ID is fed back into the model
+            dec_input = tf.expand_dims([predicted_id], 0)
+
+        pred_right = result.replace('▁', ' ').strip()
+        return pred_right
+
     def build_answer_text(self, premise_groups, premise_rels, question, text_utils):
         # Определяем способ генерации ответа
         answers = []
         answer_rels = []
 
-        X = np.zeros((1, self.seq_len), dtype=np.int32)
+        #X = np.zeros((1, self.seq_len), dtype=np.int32)
 
         question_str = ' '.join(text_utils.tokenize(question))
         if question_str[-1] != '?':
@@ -186,16 +286,8 @@ class AnswerBuilder(object):
 
                 left_parts.append(question_str)
                 left_str = ' '.join(left_parts)
-                left_tokens = self.bpe_model.EncodeAsPieces(left_str)
-                for itoken, token in enumerate(left_tokens):
-                    X[0, itoken] = self.token2index.get(token, 0)
 
-                with self.graph.as_default():
-                    y_pred = self.model.predict(X, verbose=0)
-
-                y_pred = np.argmax(y_pred[0], axis=-1)
-                tokens = [self.index2token[itok] for itok in y_pred]
-                answer_str = ''.join(tokens).replace('▁', ' ').strip()
+                answer_str = self.predict_output(left_str)
 
                 answers.append(answer_str)
 

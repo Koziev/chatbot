@@ -8,13 +8,15 @@ class KeywordMatcherLemma(object):
         self.lemma = lemma
 
     def match(self, input_phrase):
-        for input_token in input_phrase.tags:
-            if input_token[2] == self.lemma:
-                return True
+        if input_phrase.tags is not None:
+            for input_token in input_phrase.tags:
+                if input_token[2] == self.lemma:
+                    return True
 
-        for input_token in input_phrase.raw_tokens:
-            if input_token == self.lemma:
-                return True
+        if input_phrase.raw_tokens is not None:
+            for input_token in input_phrase.raw_tokens:
+                if input_token == self.lemma:
+                    return True
 
         return False
 

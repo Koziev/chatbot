@@ -26,6 +26,9 @@ class VerbalForm(object):
         self.insteadof_rules = None  # особые правила обработки ответов
         self.smalltalk_rules = None
 
+    def get_name(self):
+        return self.name
+
     @staticmethod
     def from_yaml(yaml_node, constants, text_utils):
         form = VerbalForm()

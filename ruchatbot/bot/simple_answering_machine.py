@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import operator
 import random
+import requests
 
 from ruchatbot.bot.base_answering_machine import BaseAnsweringMachine
 from ruchatbot.bot.simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -22,8 +23,11 @@ from ruchatbot.bot.nn_enough_premises_model import NN_EnoughPremisesModel
 from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
 # from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
 from ruchatbot.bot.jaccard_synonymy_detector import Jaccard_SynonymyDetector
+
 #from ruchatbot.bot.nn_interpreter import NN_Interpreter
-from ruchatbot.bot.nn_interpreter_new2 import NN_InterpreterNew2
+#from ruchatbot.bot.nn_interpreter_new2 import NN_InterpreterNew2
+from ruchatbot.bot.nn_interpreter6 import NN_InterpreterNew6
+
 from ruchatbot.bot.lgb_req_interpretation import LGB_ReqInterpretation
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
@@ -93,7 +97,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.text_utils = text_utils
         self.logger = logging.getLogger('SimpleAnsweringMachine')
         self.discourse = Discourse()
-        self.premise_not_found = None
+
+        self.chitchat_base_url = None  #'http://127.0.0.1:9099/reply?context={}'
+
+        self.premise_not_found = None  # модель генерации реплик для вопросов, на которые бот не знает ответ
+        self.premise_not_found_count = 0  # сколько раз вызывалась модель premise_not_found
 
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
@@ -147,7 +155,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # self.synonymy_detector = Jaccard_SynonymyDetector()
 
         # Интерпретатор для раскрытия анафоры, заполнения гэппинга, эллипсиса и т.д.
-        self.interpreter = NN_InterpreterNew2()
+        #self.interpreter = NN_InterpreterNew2()
+        self.interpreter = NN_InterpreterNew6()
         self.interpreter.load(models_folder)
 
         #self.req_interpretation = NN_ReqInterpretation()
@@ -341,6 +350,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             context_phrases.append(raw_phrase)  # это интерпретируемая реплика
             expansion = self.interpreter.interpret(context_phrases, self.text_utils)
 
+            # 04-11-2020 проверим, не вернул ли интерпретатор абракадабру
+            if self.intent_detector.detect_abracadabra(expansion, self.text_utils):
+                self.logger.debug('Interpreter returned abracadabra "%s" for context "%s"', expansion, ' | '.join(context_phrases) )
+                # оставим исходную фразу - это лучше, чем мусор.
+                expansion = raw_phrase
+
             # После интерпретации фраза может содержать несколько клауз, разделенных точкой.
             expansion2 = expansion.replace('.', '.|').replace('?', '?|')
             clauses = [s.strip() for s in expansion2.split('|') if sum(c in 'абвгдеёжзийклмпнопрстуфхцчшщъыьэюя23456789abcdefghijklmnopqrstuvwxyz' for c in s) > 0]
@@ -378,10 +393,22 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
         будет полностью прекращен."""
         if session.get_status():
-            if scenario.get_priority() <= session.get_status().get_priority():
-                self.logger.warning(u'New status priority %d is not greater than priority %d of running "%s"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
+            if scenario.get_name() == session.get_status().get_name():
+                # Новый сценарий - такой же, как уже запущенный (например, снова сработало
+                # тематическое правило, запускающие этот сценарий).
+                self.logger.warning('Could not re-start dialogue "%s"', scenario.get_name())
+                return
+            elif scenario.get_priority() < session.get_status().get_priority():
+                # Текущий сценарий имеет приоритет выше, чем новый. Поэтому новый пока откладываем.
+                self.logger.warning(u'New status priority %d is lower than priority %d of running "%s"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
                 session.defer_status(scenario)
                 return
+            elif scenario.get_priority() == session.get_status().get_priority():
+                # Тут могут быть разные нюансы, которые неплохо бы регулировать попарными свойствами.
+                # Но это будет слишком муторно для разработчика сценариев.
+                # Поэтому считаем, что новый сценарий вытесняет текущий в этом случае.
+                self.logger.debug(u'New scenario "%s" priority=%d is same as priority of currently running "%s"',
+                                  scenario.get_name(), scenario.get_priority(), session.get_status().get_name())
             else:
                 self.logger.debug(u'New scenario priority=%d is higher than currently running=%d',
                                   scenario.get_priority(), session.get_status().get_priority())
@@ -395,10 +422,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def call_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
         """Запуск вложенного сценария, при этом текущий сценарий приостанавливается до окончания нового."""
+        # 09-12-2020 если уже есть работающий экземпляр запускаемого сценария, то не будем запускать его снова.
+        if session.get_status():
+            if session.get_status().get_name() == scenario.get_name():
+                self.logger.debug('Scenario "%s" is already active', scenario.get_name())
+                return
+
         status = RunningScenario(scenario, current_step_index=-1)
         session.call_scenario(status)
         scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
-
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
@@ -489,7 +521,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                            self.text_utils,
                                                                            nb_results=1)
         if best_rel >= self.min_premise_relevancy:
-            # Есть релевантный файл.
+            # Есть релевантный факт.
             # Попробуем сгенерировать ответ.
             premises = [[best_premise]]
             premise_rels = [best_rel]
@@ -659,7 +691,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
 
             # Пробуем правила A -> B
-            best_phrases, best_rels = self.synonymy_detector.get_most_similar(u' '.join(interpreted_phrase.raw_tokens),
+            srt = ' '.join(interpreted_phrase.raw_tokens) if interpreted_phrase.raw_tokens else ''
+            best_phrases, best_rels = self.synonymy_detector.get_most_similar(srt,
                                                                               story_rules.get_keyphrases2(),
                                                                               self.text_utils,
                                                                               nb_results=10)
@@ -685,6 +718,26 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Ни одно из правил в insteadof_rules не подошло.
         return InsteadofRuleResult.GetFalse()
+
+    def apply_after_rule(self, after_rules, bot, session, interlocutor, interpreted_phrase):
+        # Выполним сначала высокоприоритетные правила
+        for rule in after_rules:
+            if rule.priority > 1.0:
+                if not session.is_rule_activated(rule):
+                    rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                    if rule_result.condition_success:
+                        return
+
+        # Теперь остальные правила, с приоритетом 1 и ниже
+        for rule in after_rules:
+            if rule.priority <= 1.0:
+                if not session.is_rule_activated(rule):
+                    rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                    if rule_result.condition_success:
+                        return
+
+        # Ни одно из правил в after_rules не подошло.
+        return
 
     def run_smalltalk_action(self, rule, condition_matching_results, bot, session, interlocutor, phrase, weight_factor):
         generated_replicas = []
@@ -721,6 +774,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         else:
             # Текст формируемой реплики указан буквально.
             for replica in rule.answers:
+                assert(isinstance(replica, str))
                 if condition_matching_results:
                     replica = substitute_bound_variables(SayingPhrase(replica), condition_matching_results, self.text_utils)
 
@@ -766,10 +820,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         break
 
                 # Правила с кондиктором text проверяем все сразу для эффективности.
-                best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase.interpretation,
-                                                                                 [(item.get_condition_text(), -1, -1)
-                                                                                  for item in text_rules],
-                                                                                 self.text_utils)
+                cx = [(item.get_condition_text(), -1, -1) for item in text_rules]
+                if cx:
+                    best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase.interpretation, cx, self.text_utils)
+                else:
+                    best_premise = None
+                    best_rel = 0.0
 
                 if best_rel > 0.7:  # TODO - брать из конфига бота
                     for rule in text_rules:
@@ -839,6 +895,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             time_decay = math.exp(-timegap)
                             generated_replicas.append((replica, rel * 0.9 * time_decay, 'debug3'))
 
+            # 11-10-2020
+            # используем внешний веб-сервис чит-чата
+            chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, phrase)
+            if chitchat_replicas:
+                generated_replicas.extend(chitchat_replicas)
+
+
         # Теперь среди подобранных реплик бота в generated_replicas выбираем
         # одну, учитывая их вес.
         if len(generated_replicas) > 0:
@@ -850,6 +913,35 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             return replica
 
         return None
+
+    def query_chitchat_service(self, bot, session, interlocutor, last_phrase):
+        res = []
+
+        if self.chitchat_base_url:
+            try:
+                # 16-10-2020
+                # Собираем контекст.
+                # Если последняя фраза проинтерпретирована и есть пред. реплика бота - добавляем в контекст эту реплику бота
+                # Если последняя фраза проинтерпретирована и нет пред. реплики бота - берем результат интерпретации
+                context = last_phrase.raw_phrase
+                if Jaccard_SynonymyDetector.jaccard(last_phrase.interpretation, last_phrase.raw_phrase, 3) < 0.95:
+                    # фраза проинтерпретирована.
+                    last_bot_phrase = session.get_last_bot_utterance()
+                    if last_bot_phrase is not None:
+                        context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
+
+                qurl = self.chitchat_base_url.format(context)
+                self.logger.debug('query_chitchat_service qurl="{}"'.format(qurl))
+                response = requests.get(qurl)
+                # todo потом должен быть json
+                if response.ok:
+                    rtext = response.text
+                    self.logger.debug('query_chitchat_service response.text="{}"'.format(rtext))
+                    res.append((rtext, 1.0, 'query_chitchat_service'))
+            except Exception as ex:
+                self.logger.error(ex)
+
+        return res
 
     def cancel_all_running_items(self, bot, interlocutor):
         session = self.get_session(bot, interlocutor)
@@ -865,6 +957,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False, force_question_answering=False):
         self.logger.info(u'push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
+        assert(isinstance(phrase, str))
         question = self.text_utils.canonize_text(phrase)
         if question == u'#traceon':
             self.trace_enabled = True
@@ -940,6 +1033,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me"', contradictory_fact, s1)
                         s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
                         self.say(bot, session, s2)
+                        #input_processed = True
 
                 elif interpreted_phrase.person not in (1, 2):
                     # Если собес сообщает факт о третьем лице, и синонимичный факт уже есть в БД,
@@ -977,7 +1071,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         self.logger.info(u'Adding "%s" to knowledge base', fact)
                     bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'), False)
 
+            insteadof_rule_result = None
             was_running_session = False
+
             if not input_processed and session.get_status():
                 was_running_session = True
                 if not interpreted_phrase.is_question:
@@ -1086,7 +1182,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
                 if not order_processed:
                     # Сообщим, что не знаем как обработать приказ.
-                    self.premise_not_found.order_not_understood(phrase, bot, self.text_utils)
+                    answer = self.premise_not_found.order_not_understood(phrase, bot, self.text_utils)
+                    self.logger.debug('"Order not processed" handler: "%s"', answer)
+                    self.say(bot, session, answer)
                     order_processed = True
             elif interpreted_phrase.is_question or is_question2:
                 self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
@@ -1146,7 +1244,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 answer_generated = False
                 answer = None
                 if not was_running_session:
-                    if not input_processed or not insteadof_rule_result.replica_is_generated:
+                    if not input_processed or (insteadof_rule_result and not insteadof_rule_result.replica_is_generated):
                         replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
                         if replica:
                             answer = replica
@@ -1154,6 +1252,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 if answer_generated:
                     self.say(bot, session, answer)
+
+            if bot.get_scripting().get_after_rules():
+                self.apply_after_rule(bot.get_scripting().get_after_rules(),
+                                      bot,
+                                      session,
+                                      interlocutor,
+                                      interpreted_phrase)
 
             if interpreted_phrase.is_imperative:
                 self.discourse.store_order_in_database(bot, session, interpreted_phrase)
@@ -1178,6 +1283,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                         interpreted_phrase)
 
         if order_processed and order_processed.is_any_applied():
+            # Сработало правило.
             return True
         else:
             if bot.faq:
@@ -1188,6 +1294,118 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if best_faq_rel > self.synonymy_detector.get_threshold():
                     self.logger.debug(u'Found FAQ rel=%g answer="%s"', best_faq_rel, best_faq_answer)
                     bot.say(session, best_faq_answer)
+                    return True
+
+            if True:
+                # Прогоняем императив через стандартный пайплайн обработки вопросов.
+                # Это позволит обрабатывать реплики типа:
+                # "Расскажи про свои оценки в школе"
+                answers = []
+                answer_rels = []
+                best_rels = None
+
+                # Нужна ли предпосылка, чтобы ответить на вопрос?
+                # Используем модель, которая вернет вероятность того, что
+                # пустой список предпосылок достаточен.
+                p_enough = self.enough_premises.is_enough(premise_str_list=[],
+                                                          question_str=interpreted_phrase.interpretation,
+                                                          text_utils=self.text_utils)
+                if p_enough > 0.5:
+                    # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
+                    answers00, answer_rels00 = self.answer_builder.build_answer_text([u''], [1.0],
+                                                                                     interpreted_phrase.interpretation,
+                                                                                     self.text_utils)
+                    if len(answers00) != 1:
+                        self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(
+                            interpreted_phrase.interpretation, len(answers00)))
+
+                    for answer, rel in zip(answers00, answer_rels00):
+                        # Если в качестве ответа сгенерирован мусор (абракадабра), то уберем такой ответ из выдачи.
+                        if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                            answers.append(answer)
+                            answer_rels.append(rel)
+                        else:
+                            self.logger.debug('Answer "%s" is recognized as abracadabra, so removing it', answer)
+
+                    best_rels = answer_rels
+                else:
+                    # определяем наиболее релевантную предпосылку
+                    memory_phrases = list(bot.facts.enumerate_facts(interlocutor))
+
+                    best_premises, best_rels = self.relevancy_detector.get_most_relevant(
+                        interpreted_phrase.interpretation,
+                        memory_phrases,
+                        self.text_utils,
+                        nb_results=3)
+                    if self.trace_enabled:
+                        if best_rels[0] >= self.min_premise_relevancy:
+                            self.logger.info('Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
+
+                    if len(answers) == 0:
+                        if False:  #bot.premise_is_answer:
+                            if best_rels[0] >= self.min_premise_relevancy:
+                                # В качестве ответа используется весь текст найденной предпосылки.
+                                answers = [best_premises[:1]]
+                                answer_rels = [best_rels[:1]]
+                        else:
+                            premises2 = []
+                            premise_rels2 = []
+
+                            # 30.11.2018 будем использовать только 1 предпосылку и генерировать 1 ответ
+                            if True:
+                                if best_rels[0] >= self.min_premise_relevancy:
+                                    premises2 = [best_premises[:1]]
+                                    premise_rels2 = best_rels[:1]
+                            else:
+                                max_rel = max(best_rels)
+                                for premise, rel in zip(best_premises[:1], best_rels[:1]):
+                                    if rel >= self.min_premise_relevancy and rel >= 0.4 * max_rel:
+                                        premises2.append([premise])
+                                        premise_rels2.append(rel)
+
+                            if len(premises2) > 0:
+                                # генерация ответа на основе выбранной предпосылки.
+                                # 28.08.2019 для вопросов к боту в качестве ответа будем выдавать полный текст найденного
+                                # факта.
+                                if False:  #interpreted_phrase.person == 2 and len(premises2) == 1 and len(premises2[0]) == 1:
+                                    answers.append(premises2[0][0])
+                                    answer_rels.append(1.0)
+                                else:
+                                    answers00, answer_rels00 = self.answer_builder.build_answer_text(premises2,
+                                                                                                     premise_rels2,
+                                                                                                     interpreted_phrase.interpretation,
+                                                                                                     self.text_utils)
+                                    for answer, rel in zip(answers00, answer_rels00):
+                                        if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                                            answers.append(answer)
+                                            answer_rels.append(rel)
+                                        else:
+                                            # если модель генерации ответа выдала мусор, то в качестве ответа отдадим предпосылку.
+                                            premise_str = premises2[0][0]
+                                            self.logger.debug(
+                                                'Answer "%s" is recognized as abracadabra, so returning premise "%s" as an answer',
+                                                answer, premise_str)
+                                            answers.append(premise_str)
+                                            answer_rels.append(rel * 0.99)
+
+                if answers:
+                    # Выберем один самый достоверный ответ.
+                    best_answer = None
+                    best_rel = 0.0
+                    for answer, rel in zip(answers, answer_rels):
+                        if rel > best_rel:
+                            best_answer = answer
+                            best_rel = rel
+
+                    bot.say(session, best_answer)
+                    return True
+
+            if self.chitchat_base_url:
+                chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, interpreted_phrase)
+                if chitchat_replicas:
+                    # TODO: выбирать наиболее уместную реплику
+                    answer = chitchat_replicas[0][0]
+                    bot.say(session, answer)
                     return True
 
             if self.premise_not_found.get_noanswer_rules():
@@ -1235,11 +1453,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                   text_utils=self.text_utils)
         if p_enough > 0.5:
             # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
-            answers, answer_rels = self.answer_builder.build_answer_text([u''], [1.0],
+            answers00, answer_rels00 = self.answer_builder.build_answer_text([u''], [1.0],
                                                                          interpreted_phrase.interpretation,
                                                                          self.text_utils)
-            if len(answers) != 1:
-                self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers)))
+            if len(answers00) != 1:
+                self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers00)))
+
+            for answer, rel in zip(answers00, answer_rels00):
+                # Если в качестве ответа сгенерирован мусор (абракадабра), то уберем такой ответ из выдачи.
+                if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                    answers.append(answer)
+                    answer_rels.append(rel)
+                else:
+                    self.logger.debug('Answer "%s" is recognized as abracadabra, so removing it', answer)
 
             best_rels = answer_rels
         else:
@@ -1252,7 +1478,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                  nb_results=3)
             if self.trace_enabled:
                 if best_rels[0] >= self.min_premise_relevancy:
-                    self.logger.info(u'Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
+                    self.logger.info('Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
 
             if len(answers) == 0:
                 if bot.premise_is_answer:
@@ -1284,9 +1510,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             answers.append(premises2[0][0])
                             answer_rels.append(1.0)
                         else:
-                            answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
-                                                                                         interpreted_phrase.interpretation,
-                                                                                         self.text_utils)
+                            answers00, answer_rels00 = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                             interpreted_phrase.interpretation,
+                                                                                             self.text_utils)
+                            for answer, rel in zip(answers00, answer_rels00):
+                                if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                                    answers.append(answer)
+                                    answer_rels.append(rel)
+                                else:
+                                    # если модель генерации ответа выдала мусор, то в качестве ответа отдадим предпосылку.
+                                    premise_str = premises2[0][0]
+                                    self.logger.debug('Answer "%s" is recognized as abracadabra, so returning premise "%s" as an answer', answer, premise_str)
+                                    answers.append(premise_str)
+                                    answer_rels.append(rel * 0.99)
 
                 if len(answers) == 0:
                     # Попробуем использовать 2 последних утверждения собеседника как предпосылки.
@@ -1303,9 +1539,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             best_rels = [rel]
                             premises2 = [[premise1, premise2]]
                             premise_rels2 = [rel]
-                            answers, answer_rels = self.answer_builder.build_answer_text(premises2, premise_rels2,
-                                                                                         interpreted_phrase.interpretation,
-                                                                                         self.text_utils)
+                            answers00, answer_rels00 = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                             interpreted_phrase.interpretation,
+                                                                                             self.text_utils)
+                            for answer, rel in zip(answers00, answer_rels00):
+                                if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                                    answers.append(answer)
+                                    answer_rels.append(rel)
+                                else:
+                                    self.logger.debug('Answer "%s" is recognized as abracadabra, so removing it', answer)
+
 
         if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если
@@ -1319,10 +1562,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Не удалось найти предпосылку для формирования ответа.
 
             # Попробуем обработать вопрос правилами.
-            if self.premise_not_found.get_noanswer_rules():
-                res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
-                                                None, #bot.get_scripting().get_story_rules(),
-                                                bot, session, interlocutor, interpreted_phrase)
+            res = InsteadofRuleResult.GetFalse()
+            if self.chitchat_base_url is None:
+                if self.premise_not_found.get_noanswer_rules():
+                    res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
+                                                    None, #bot.get_scripting().get_story_rules(),
+                                                    bot, session, interlocutor, interpreted_phrase)
 
             if not res.is_any_applied():
                 # ???? вроде уже отработали INSTEAD-OF RULES
@@ -1331,9 +1576,33 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                 bot, session, interlocutor, interpreted_phrase)
             if not res.is_any_applied():
                 # Правила не сработали, значит выдаем реплику "Информации нет"
-                answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
-                                                                bot,
-                                                                self.text_utils)
+                # 12-10-2020 меняем тактику в случае доступности веб-сервиса читчата.
+                self.premise_not_found_count += 1
+                answer = None
+
+                do_query_chitchat = False
+
+                # Стратегия №1: всегда предпочитаем вызывать сервис читчата, если он доступен,
+                # так как он дает более разнообразные и контекстные ответы, чем правила.
+                if self.chitchat_base_url:
+                    do_query_chitchat = True
+
+                # Стратегия №2: после первой реплики "не знаю" начинаем использовать веб-сервис чит-чата
+                # с некоторой частотой.
+                #if self.premise_not_found_count > 1:
+                #    if random.random() > math.exp(-self.premise_not_found_count):
+                #        do_query_chitchat = True
+
+                if do_query_chitchat:
+                    chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, interpreted_phrase)
+                    if chitchat_replicas:
+                        answer = chitchat_replicas[0][0]
+
+                if answer is None:
+                    answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
+                                                                    bot,
+                                                                    self.text_utils)
+
                 answers.append(answer)
                 answer_rels.append(1.0)
 

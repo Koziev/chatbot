@@ -152,7 +152,12 @@ class SmalltalkRules(object):
                     if 'say' in action:
                         rule = SmalltalkSayingRule(rule_name0, rule_condition)
                         for answer1 in SmalltalkRules.__get_node_list(action['say']):
-                            rule.add_answer(replace_constant(answer1, constants, text_utils))
+                            answer_str = replace_constant(answer1, constants, text_utils)
+                            if not isinstance(answer_str, str):
+                                print('Error in rule "{}": answer "{}" is not a string!'.format(rule_name0, answer1))
+                                exit(0)
+
+                            rule.add_answer(answer_str)
                         self.text_rules.append(rule)
                     elif 'generate' in action:
                         generative_templates = list(SmalltalkRules.__get_node_list(action['generate']))

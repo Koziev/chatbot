@@ -35,18 +35,34 @@ class IntentDetector(object):
     """Классификаторы реплики: интент, сентимент и т.д."""
     def __init__(self):
         self.models = []
+        self.abracadabda = None
 
     def load(self, model_dir):
-        for p in ['intent', 'abusive', 'sentiment', 'direction']:
+        for p in ['intent', 'abusive', 'sentiment', 'direction', 'abracadabra']:
             model_path = os.path.join(model_dir, '{}_classifier.model'.format(p))
             with open(model_path, 'rb') as f:
                 model = pickle.load(f)
             nlp_transform = model['nlp_transform']
             self.models.append((model, nlp_transform))
+            if p == 'abracadabra':
+                self.abracadabda = (model, nlp_transform)
 
     def append_intent(self, intents, intent):
         if not intent.startswith('0'):
             intents.append(intent)
+
+    def detect_abracadabra(self, phrase_str, text_utils):
+        model, nlp_transform = self.abracadabda
+
+        if nlp_transform == 'lower':
+            X_query = model['vectorizer'].transform([phrase_str.lower()])
+        else:
+            X_query = model['vectorizer'].transform([phrase_str])
+
+        y_query = model['estimator'].predict(X_query)
+        intent_index = y_query[0]
+        intent_name = model['index2label'][intent_index]
+        return not intent_name.startswith('0_')
 
     def detect_intent(self, phrase_str, text_utils):
         """Для фразы phrase_str вернет набор меток из классификаторов"""

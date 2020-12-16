@@ -45,7 +45,7 @@ class Wordchar2VectorModel:
         self.nb_chars = len(self.char2index)
 
     def vectorize_word(self, word, X_batch, irow):
-        for ich, ch in enumerate(word):
+        for ich, ch in enumerate(word[:self.max_word_len]):
             if ch not in self.char2index:
                 self.logger.error(u'Char "{}" code={} word="{}" missing in char2index'.format(ch, ord(ch), word))
             else:

@@ -60,6 +60,7 @@ class BotScripting(object):
         self.greetings = []
         self.goodbyes = []
         self.insteadof_rules = []
+        self.after_rules = []  # правила, срабатывающие после основной обработки реплики, например - активация дополнительного сценария
         self.comprehension_rules = None
         self.forms = []  # список экземпляров VerbalForm
         self.scenarios = []  # список экземпляров Scenario
@@ -123,6 +124,25 @@ class BotScripting(object):
                     logging.error(ex)
                     raise ex
 
+    def load_after_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
+        if 'after_rules' in data:
+            for rule in data['after_rules']:
+                try:
+                    if 'rule' in rule:
+                        rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
+                        self.after_rules.append(rule)
+                    elif 'file' in rule:
+                        rules_fpath = os.path.join(rules_dir, rule['file'])
+                        with io.open(rules_fpath, 'r', encoding='utf-8') as f:
+                            data2 = yaml.safe_load(f)
+                            self.load_after_rules(rules_dir, data2, compiled_grammars_path, constants, text_utils)
+                    else:
+                        logging.error('Unknown record "%s" in "after_rules" section', str(rule))
+                        raise RuntimeError()
+                except Exception as ex:
+                    logging.error(ex)
+                    raise ex
+
     def load_rules(self, yaml_path, compiled_grammars_path, constants, text_utils):
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
@@ -162,6 +182,10 @@ class BotScripting(object):
             # INSTEAD-OF правила
             if 'rules' in data:
                 self.load_instead_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
+
+            # AFTER правила (например, запуск дополнительных сценариев по ключевым словам)
+            if 'after_rules' in data:
+                self.load_after_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
 
             if 'smalltalk_rules' in data:
                 self.smalltalk_rules.load_yaml(data['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
@@ -225,6 +249,9 @@ class BotScripting(object):
 
     def get_insteadof_rules(self):
         return self.insteadof_rules
+
+    def get_after_rules(self):
+        return self.after_rules
 
     def get_story_rules(self):
         return self.story_rules

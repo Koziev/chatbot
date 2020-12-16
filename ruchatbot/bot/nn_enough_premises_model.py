@@ -48,7 +48,7 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
         m.load_weights(self.weights_filepath)
         self.model = m
 
-        self.graph = tf.get_default_graph() # эксперимент с багом 13-05-2019
+        self.graph = tf.compat.v1.get_default_graph() # эксперимент с багом 13-05-2019
 
         # начало отладки
         #self.model.summary()
@@ -88,8 +88,9 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
             words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
         text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
 
-        with self.graph.as_default():
-            y = self.model.predict(x=self.inputs)[0]
+        #with self.graph.as_default():
+        #    y = self.model.predict(x=self.inputs)[0]
+        y = self.model.predict(x=self.inputs)[0]
 
         p_enough = y[0]
         return p_enough

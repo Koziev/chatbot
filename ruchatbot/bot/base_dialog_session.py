@@ -30,7 +30,6 @@ class BaseDialogSession(object):
 
         self.slots = dict()  # переменные состояния
 
-
     def get_interlocutor(self):
         return self.interlocutor
 

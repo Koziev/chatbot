@@ -1,6 +1,7 @@
 # coding: utf-8
 """
-Сценарии - автономные фрагменты диалога.
+Сценарии - автономные, долгоживущие фрагменты диалога, выполняющие управление дискурсом.
+07.12.2020 - добавлена секции "pool" со списком вопросов
 """
 
 import random
@@ -141,14 +142,19 @@ class Scenario(object):
             step = running_scenario.scenario.steps[new_step_index]
             step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
 
+            do_terminate = False
             if len(running_scenario.passed_steps) == nsteps:
                 # Больше шагов нет
-                if self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
-                    # Уберем инстанс сценария из списка активных
-                    self.termination_check_count = 0
-                    if running_scenario.scenario.on_finish:
-                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
-                    bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+                do_terminate = True
+            elif self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
+                do_terminate = True
+
+            if do_terminate:
+                # Уберем инстанс сценария из списка активных
+                self.termination_check_count = 0
+                if running_scenario.scenario.on_finish:
+                    running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
+                bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
         else:
             raise NotImplementedError()
 
