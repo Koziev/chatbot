@@ -69,8 +69,19 @@ def load_samples(input_path):
                     phrase = phrases[-1]
                     if '|' in phrase:
                         px = phrase.lower().split('|')
-                        left = remove_terminators(px[0].strip())
-                        right = remove_terminators(px[1].strip())
+
+                        left = px[0].strip()
+                        if len(left) == 0:
+                            print('ERROR: empty left part in {}:{}'.format(input_path, iline))
+                            exit(0)
+
+                        right = px[1].strip()
+                        if len(right) == 0:
+                            print('ERROR: empty right part in {}:{}'.format(input_path, iline))
+                            exit(0)
+
+                        left = remove_terminators(left)
+                        right = remove_terminators(right)
                         if left != right:
                             if not left:
                                 print(u'Empty left part in line #{} in "{}"'.format(iline, input_path))
@@ -91,6 +102,8 @@ def load_samples(input_path):
                             # так как совпадает с левой.
                             samples0.add(right)
                     else:
+                        # Правая часть вообще не указана.
+                        # Значит, фразу не надо интерпретировать.
                         samples0.add(phrase)
 
                 phrases = []
@@ -158,7 +171,7 @@ if __name__ == '__main__':
 
     # Добавляем негативные примеры, то есть такие предложения, для которых
     # не надо выполнять интерпретацию.
-    df = pd.read_csv(os.path.join(data_folder, 'premise_question_relevancy.csv'),
+    df = pd.read_csv(os.path.join(tmp_folder, 'premise_question_relevancy.csv'),
                      encoding='utf-8',
                      delimiter='\t',
                      quoting=3)
