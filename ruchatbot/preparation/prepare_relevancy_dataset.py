@@ -21,6 +21,8 @@ questions.txt - список вопросов для негативного сэ
            из paraphrases.txt
 
 04-07-2020 Доработка загрузки негативных сэмплов из файла nonrelevant_premise_questions.txt
+27-07-2020 Подготовленный датасет premise_question_relevancy.csv теперь сохраняется в папке tmp, а не data
+10-08-2020 Добавлена подготовка датасета для детектора P(0,1,2)Q-релевантности
 """
 
 from __future__ import division  # for python2 compatability
@@ -39,7 +41,7 @@ import pandas as pd
 import networkx as nx
 
 from rutokenizer import Tokenizer
-from preparation.corpus_searcher import CorpusSearcher
+from preparation.mining.corpus_searcher import CorpusSearcher
 
 
 USE_AUTOGEN = True  # добавлять ли сэмплы из автоматически сгенерированных датасетов
@@ -61,6 +63,7 @@ data_folder = '../../data'
 paraphrases_paths = ['../../data/paraphrases.txt']
 qa_paths = [('qa.txt', HANDCRAFTED_WEIGHT, 10000000)]
 
+
 if USE_AUTOGEN:
     qa_paths.extend([('current_time_pqa.txt', AUTOGEN_WEIGHT, 1000000),
                      ('premise_question_answer6.txt', AUTOGEN_WEIGHT, MAX_NB_AUTOGEN),
@@ -79,6 +82,22 @@ stop_words = set(u'не ни ль и или ли что какой же ж ка�
 stop_words.update(u'о а в на у к с со по ко мне нам я он она над за из от до'.split())
 
 # ---------------------------------------------------------------
+
+
+def merge_context(question_premises):
+    question = question_premises[0]
+    if not question.endswith('?'):
+        question += '?'
+    premises = question_premises[1:]
+    #return ' | '.join(premises + [question])
+    x = ' | '.join([question] + premises)
+
+    # НАЧАЛО ОТЛАДКИ
+    #if x == 'складывать-то числа я умею? | я умею складывать числа':
+    #    print('DEBUG@95')
+    # КОНЕЦ ОТЛАДКИ
+
+    return x
 
 
 class PhraseCleaner:
@@ -123,6 +142,7 @@ class ResultantDataset(object):
         self.relevancy = []  # релевантность вопросов и предпосылок в парах
         self.weights = []  # вес сэмпла
         self.added_pairs_set = set()  # для предотвращения повторов
+        self.pair2rel = dict()
 
     def add_pair(self, x1, x2, rel, weight):
         s1 = x1.replace(u'\t', u'').strip()
@@ -133,7 +153,11 @@ class ResultantDataset(object):
             self.str_pairs.append((s1, s2))
             self.relevancy.append(rel)
             self.weights.append(weight)
+            self.pair2rel[s12] = rel
             return True
+        elif self.pair2rel[s12] != rel:
+            print('ERROR@159: sample premise="{}" question="{}" rel={} is already added with different label!'.format(x1, x2, rel))
+            #exit(0)
 
         return False
 
@@ -229,52 +253,6 @@ if __name__ == '__main__':
     posit_pairs_count = 0
     negat_pairs_count = 0
     random_negat_pairs_count = 0
-
-    # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
-    manual_negatives_pq = collections.defaultdict(list)
-    manual_negatives_qp = collections.defaultdict(list)
-    with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
-        for line in rdr:
-            line = line.strip()
-            if line:
-                tx = line.split('|')
-                if len(tx) == 2:
-                    premise = normalize_qline(tx[0])
-                    question = normalize_qline(tx[1])
-
-                    manual_negatives_pq[premise].append(question)
-                    manual_negatives_qp[question].append(premise)
-                elif len(tx) == 1:
-                    # Второй формат, аналогичный негативным синонимам
-
-                    # Может быть задан один вопрос и к нему много нерелевантных предпосылок,
-                    # или одна предпосылка и к ней много нерелевантных вопросов.
-                    # Определяем по последнему символу первой строки
-                    if tx[0].endswith('?'):
-                        # вопрос и к нему много нерелевантных предпосылок
-                        question = normalize_qline(tx[0])
-                        for line in rdr:
-                            if line.startswith('(-)'):
-                                premise = normalize_qline(line.replace('(-)', '').strip())
-                                manual_negatives_qp[question].append(premise)
-                                manual_negatives_pq[premise].append(question)
-                            else:
-                                break
-                    else:
-                        # предпосылка и к ней много нерелевантных вопросов
-                        premise = normalize_qline(tx[0])
-                        for line in rdr:
-                            if line.startswith('(-)'):
-                                question = normalize_qline(line.replace('(-)', '').strip())
-                                manual_negatives_qp[question].append(premise)
-                                manual_negatives_pq[premise].append(question)
-                            else:
-                                break
-
-
-    for premise, questions in manual_negatives_pq.items():
-        for question in questions:
-            res_dataset.add_pair(premise, question, 0, 1)
 
 
     # Загрузим датасет с перефразировками фраз, чтобы выполнить аугментацию pq-датасета синонимами.
@@ -466,6 +444,72 @@ if __name__ == '__main__':
 
         print('total_permutations={}'.format(total_permutations))
 
+
+    # ---------------------------------------------------------------------------
+
+    # Из отдельного файла загрузим список нерелевантных пар предпосылка-вопрос.
+    manual_negatives_pq = collections.defaultdict(list)
+    manual_negatives_qp = collections.defaultdict(list)
+    with codecs.open(os.path.join(data_folder, 'nonrelevant_premise_questions.txt'), 'r', 'utf-8') as rdr:
+        for line in rdr:
+            line = line.strip()
+            if line:
+                tx = line.split('|')
+                if len(tx) == 2:
+                    premise = normalize_qline(tx[0])
+                    question = normalize_qline(tx[1])
+
+                    manual_negatives_pq[premise].append(question)
+                    manual_negatives_qp[question].append(premise)
+                elif len(tx) == 1:
+                    # Второй формат, аналогичный негативным синонимам
+
+                    # идет группа вариантов вопроса или предпосылки, а затем
+                    # группа негативных вопросов и предпосылок
+                    posit_lines = [tx[0]]
+                    negat_lines = []
+
+                    for line in rdr:
+                        s = line.strip()
+                        if s:
+                            if s.startswith('(-)'):
+                                s = s.replace('(-)', '').strip()
+                                negat_lines.append(s)
+                            else:
+                                posit_lines.append(s)
+                        else:
+                            break
+
+                    # Декартово произведение двух списков posit_lines и negat_lines
+                    for s1, s2 in itertools.product(posit_lines, negat_lines):
+                        if s1.endswith('?') and not s2.endswith('?'):
+                            premise = s2
+                            question = s1
+                        elif s2.endswith('?') and not s1.endswith('?'):
+                            premise = s1
+                            question = s2
+                        elif s1.endswith('?') and s2.endswith('?'):
+                            # о чем ты мечтаешь?
+                            # (-) ты спросил: о чем ты мечтаешь?
+                            question = s1
+                            premise = s2
+                        else:
+                            print('ERROR@287 s1="{}" s2="{}"'.format(s1, s2))
+                            #exit(0)
+                            continue
+
+                        premise = normalize_qline(premise)
+                        question = normalize_qline(question)
+                        manual_negatives_qp[question].append(premise)
+                        manual_negatives_pq[premise].append(question)
+
+
+
+    for premise, questions in manual_negatives_pq.items():
+        for question in questions:
+            res_dataset.add_pair(premise, question, 0, 1)
+
+
     # ---------------------------------------------------------------------------
 
     # Теперь сокращаем кол-во негативных сэмплов
@@ -477,7 +521,7 @@ if __name__ == '__main__':
 
     # сохраним получившийся датасет в CSV
     print('Storing dataset..')
-    res_dataset.save_csv(os.path.join(data_folder, 'premise_question_relevancy.csv'))
+    res_dataset.save_csv(os.path.join(tmp_folder, 'premise_question_relevancy.csv'))
 
     # ------------------------------------------------------------
     # Генерация датасета для модели частичной релевантности (сэмплы с 2-мя предпосылками)
@@ -511,7 +555,7 @@ if __name__ == '__main__':
             if k not in partial_p2q:
                 partial_p2q[k] = 0
 
-    filepath = os.path.join(data_folder, 'partial_premise_question_relevancy.tsv')
+    filepath = os.path.join(tmp_folder, 'partial_premise_question_relevancy.tsv')
     print('Writing {} samples to "{}"'.format(len(partial_p2q), filepath))
     with io.open(filepath, 'w', encoding='utf-8') as wrt:
         wrt.write(u'premise\tquestion\trelevance\tweight\n')
@@ -520,7 +564,7 @@ if __name__ == '__main__':
 
     # Датасет для тренировки модели релевантности 2P<==>Q
     added_p2q = set()
-    filepath = os.path.join(data_folder, '2premises_question_relevancy.tsv')
+    filepath = os.path.join(tmp_folder, '2premises_question_relevancy.tsv')
     with io.open(filepath, 'w', encoding='utf-8') as wrt:
         wrt.write(u'premise1\tpremise2\tquestion\trelevance\n')
         for premises, question, answer in p2qa_samples:
@@ -565,3 +609,174 @@ if __name__ == '__main__':
     n0 = df[df['relevance'] == 0].shape[0]
     n1 = df[df['relevance'] == 1].shape[0]
     print('{} samples stored in "{}": n0={}, n1={}'.format(n0+n1, filepath, n0, n1))
+
+    # =========================================================================================
+    # 09-08-2020 Сборка общего датасета для тренировки модели детектора P(0,1,2)Q-релевантности
+    # =========================================================================================
+    samples_all = []
+    added_samples = set()
+
+    include_p0q = True
+    include_p2q = True
+
+    if include_p0q:
+        # Сэмплы P(0)Q возьмем из общего датасета pqa_all.dat
+        with io.open(os.path.join(tmp_folder, 'pqa_all.dat'), 'r', encoding='utf-8') as rdr:
+            lines = []
+            for line in rdr:
+                line = line.strip()
+                if len(line) == 0:
+                    if len(lines) == 2:
+                        question = lines[0]
+                        answer = lines[1]
+
+                        # Имеем релевантный P(0)Q-сэмпл.
+                        # Добавляем его без изменений.
+                        context = [question]
+                        x = merge_context(context)
+                        if x not in added_samples:
+                            samples_all.append((x, 1))
+                            added_samples.add(x)
+
+                        # Добавляем одну рандомную предпосылку, получаем нерелевантный P(1)Q-сэмпл
+                        if False:
+                            context = [question]
+                            context.append(random.choice(premises))
+                            x = merge_context(context)
+                            if x not in added_samples:
+                                samples_all.append((x, 0))
+                                added_samples.add(x)
+
+                            if include_p2q:
+                                # Добавляем еще одну рандомную предпосылку, получаем нерелевантный P(2)Q-сэмпл
+                                context.append(random.choice(premises))
+                                x = merge_context(context)
+                                if x not in added_samples:
+                                    samples_all.append((x, 0))
+                                    added_samples.add(x)
+
+                    lines = []
+                else:
+                    lines.append(line)
+
+    df1 = pd.read_csv(os.path.join(tmp_folder, 'premise_question_relevancy.csv'), delimiter='\t')
+    for i, r in df1.iterrows():
+        # P(1)Q-сэмплы переносим все как они есть.
+        premise = r.premise
+        question = r.question
+        label = r.relevance
+
+        context = [question]
+        if premise:
+            context.append(premise)
+        x = merge_context(context)
+        samples_all.append((x, label))
+        added_samples.add(x)
+
+        # НАЧАЛО ОТЛАДКИ
+        #if premise == 'я умею перемножать числа' and question == 'бегать умею':
+        #    print('DEBUG@649 x={}'.format(x))
+        #    exit(0)
+        # КОНЕЦ ОТЛАДКИ
+
+        if label == 1:
+            # Имеем релевантный P(1)Q-сэмпл.
+
+            if include_p0q:
+                # Убираем предпосылку, получаем нерелевантный p(0)q-сэмпл
+                context = [question]
+                x = merge_context(context)
+                if x not in added_samples:
+                    samples_all.append((x, 0))
+                    added_samples.add(x)
+
+            if False:  #include_p2q:
+                # Добавляем рандомную предпосылку, получаем нерелевантный P(2)Q-сэмпл
+                context = [question]
+                context.append(premise)
+                context.append(random.choice(premises))
+                x = merge_context(context)
+                if x not in added_samples:
+                    samples_all.append((x, 0))
+                    added_samples.add(x)
+
+                # с другим порядком
+                context = [question]
+                context.append(random.choice(premises))
+                context.append(premise)
+                x = merge_context(context)
+                if x not in added_samples:
+                    samples_all.append((x, 0))
+                    added_samples.add(x)
+
+    if include_p2q:
+        df2 = pd.read_csv(filepath, delimiter='\t')
+        for i, r in df2.iterrows():
+            premise1 = r.premise1
+            premise2 = r.premise2
+            question = r.question
+            label = r.relevance
+
+            # Переносим все имеющиеся P(2)Q сэмплы
+            context = [question, premise1, premise2]
+            x = merge_context(context)
+            if x not in added_samples:
+                added_samples.add(x)
+                samples_all.append((x, label))
+
+            if label:
+                # Убираем одну предпосылку - получаем нерелевантный P(1)Q сэмпл
+                context = [question, premise1]
+                x = merge_context(context)
+                if x not in added_samples:
+                    added_samples.add(x)
+                    samples_all.append((x, 0))
+
+                context = [question, premise2]
+                x = merge_context(context)
+                if x not in added_samples:
+                    added_samples.add(x)
+                    samples_all.append((x, 0))
+
+    filepath12 = os.path.join(tmp_folder, 'all_premises_question_relevancy.tsv')
+    n0 = sum((s[1] == 0) for s in samples_all)
+    n1 = sum((s[1] == 1) for s in samples_all)
+    print('Writing {} samples to "{}": n0={} n1={} ...'.format(len(samples_all), filepath12, n0, n1))
+    with io.open(filepath12, 'w', encoding='utf-8') as wrt:
+        wrt.write('context\tlabel\n')
+        for context, label in samples_all:
+            wrt.write('{}\t{}\n'.format(context, label))
+
+
+    # Выведем некоторую полезную статистику по сэмплам для P(0,1,2)Q релевантности
+    p0q_0 = 0
+    p0q_1 = 0
+    p1q_0 = 0
+    p1q_1 = 0
+    p2q_0 = 0
+    p2q_1 = 0
+    for context, label in samples_all:
+        nb_premise = context.count('|')
+        if nb_premise == 0:
+            if label:
+                p0q_1 += 1
+            else:
+                p0q_0 += 1
+        elif nb_premise == 1:
+            if label:
+                p1q_1 += 1
+            else:
+                p1q_0 += 1
+        elif nb_premise == 2:
+            if label:
+                p2q_1 += 1
+            else:
+                p2q_0 += 1
+        else:
+            print('Invalid context: {}'.format(context))
+            exit(0)
+
+    print('\nP(0,1,2)Q samples statistics:')
+    print('P(0)Q  n0={:<8d} n1={}'.format(p0q_0, p0q_1))
+    print('P(1)Q  n0={:<8d} n1={}'.format(p1q_0, p1q_1))
+    print('P(2)Q  n0={:<8d} n1={}'.format(p2q_0, p2q_1))
