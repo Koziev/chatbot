@@ -4,6 +4,7 @@
 23.06.2020 добавлен пакетный режим как временный эрзац пакетного теста
 16.07.2020 создание экземпляра бота с дефолтным функционалом вынесено в хелпер-функцию create_chatbot
 16.07.2020 пакетный режим перенесен в chatbot_tester.py
+11.11.2020 добавлен параметр: урл веб-сервиса чит-чата
 """
 
 import os
@@ -17,10 +18,14 @@ from ruchatbot.frontend.bot_creator import create_chatbot
 
 
 def on_order(order_anchor_str, bot, session):
-    bot.say(session, u'Выполняю команду \"{}\"'.format(order_anchor_str))
-    # Всегда возвращаем True, как будто можем выполнить любой приказ.
-    # В реальных сценариях нужно вернуть False, если приказ не опознан
-    return True
+    if True:
+        logging.debug('Order callback with order_anchor_str="%s"', order_anchor_str)
+        return False
+    else:
+        bot.say(session, u'Выполняю команду \"{}\"'.format(order_anchor_str))
+        # Всегда возвращаем True, как будто можем выполнить любой приказ.
+        # В реальных сценариях нужно вернуть False, если приказ не опознан
+        return True
 
 
 def on_weather_forecast(bot, session, user_id, interpreted_phrase, verb_form_fields):
@@ -66,6 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
     parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
     parser.add_argument('--debugging', action='store_true')
+    parser.add_argument('--chitchat_url', type=str)
 
     args = parser.parse_args()
     profile_path = os.path.expanduser(args.profile)
@@ -77,7 +83,7 @@ if __name__ == '__main__':
     init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'), args.debugging)
 
     logging.debug('Bot loading...')
-    bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging)
+    bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging, chitchat_url=args.chitchat_url)
 
     # Выполняем привязку обработчиков
     bot.on_process_order = on_order
