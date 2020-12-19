@@ -415,6 +415,41 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         else:
             self.logger.error('Empty phrase in say()')
 
+    def say_before_b(self, bot, session, answer):
+        self.logger.info('Say before B: "%s"', answer)
+        new_is_question = answer.endswith('?')
+        new_is_assertion = not answer.endswith('?')
+
+        last_phrase = session.get_last_utterance()
+        last_is_question = last_phrase and last_phrase.is_bot_phrase and last_phrase.raw_phrase.endswith('?')
+        last_is_assertion = last_phrase and last_phrase.is_bot_phrase and not last_phrase.raw_phrase.endswith('?')
+
+        if new_is_question and last_is_question:
+            # Два вопроса подряд - плохо.
+            self.logger.error('Two consequent questions issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            return
+
+        if new_is_assertion and last_is_question:
+            # Утверждение после вопроса - плохо, так как вопрос экранируется
+            self.logger.error('Assertion after the question issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            return
+
+        # Более 2х реплик подряд от бота - слишком много.
+        nb = session.count_prev_consequent_b()
+
+        if nb >= 2:
+            self.logger.error('More than 2 utterances issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            return
+
+        answer = self.paraphraser.paraphrase(answer, self.text_utils)
+        answer_interpretation = InterpretedPhrase(answer)
+        answer_interpretation.is_bot_phrase = True
+        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
+        answer_interpretation.set_modality(phrase_modality, phrase_person)
+        session.insert_into_buffer(answer)
+        session.add_phrase_to_history(answer_interpretation)
+        self.discourse.process_bot_phrase(bot, session, answer)
+
     def run_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
         """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
         будет полностью прекращен."""
@@ -1190,13 +1225,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 # мы не будем выдавать, оставим только вопрос сценария.
                                 if session.get_output_buffer_phrase():
                                     if session.get_output_buffer_phrase()[-1] != '?':
-                                        session.add_to_buffer(replica)
+                                        #session.add_to_buffer(replica)
+                                        self.say(bot, session, replica)
                                 else:
-                                    session.add_to_buffer(replica)
+                                    #session.add_to_buffer(replica)
+                                    self.say(bot, session, replica)
                             else:
                                 # Вставляем эту реплику перед фразой шага, чтобы вопрос сценария не был
                                 # экранирован smalltalk-репликой.
-                                session.insert_into_buffer(replica)
+                                #session.insert_into_buffer(replica)
+                                self.say_before_b(bot, session, replica)
 
                         if rule_applied:
                             return
