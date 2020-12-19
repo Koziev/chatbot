@@ -5,6 +5,7 @@
 """
 
 import random
+import logging
 
 from ruchatbot.bot.actors import ActorBase
 from ruchatbot.bot.smalltalk_rules import SmalltalkRules
@@ -66,6 +67,11 @@ class Scenario(object):
         else:
             scenario.steps_policy = 'sequential'
 
+        if 'chitchat_questions_per_step_rate' in yaml_node:
+            scenario.chitchat_questions_per_step_rate = yaml_node['chitchat_questions_per_step_rate']
+        else:
+            scenario.chitchat_questions_per_step_rate = 0
+
         if 'steps' in yaml_node:
             for step_node in yaml_node['steps']:
                 step = ActorBase.from_yaml(step_node, constants, text_utils)
@@ -101,11 +107,17 @@ class Scenario(object):
     def is_sequential_steps(self):
         return self.steps_policy == 'sequential'
 
+    def get_chitchat_questions_per_step_rate(self):
+        return self.chitchat_questions_per_step_rate
+
     def started(self, running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils):
         if self.on_start:
-            self.on_start.do_action(bot, session, interlocutor, interpreted_phrase, condition_matching_results=None, text_utils=text_utils)
+            self.on_start.do_action(bot, session, interlocutor, interpreted_phrase,
+                                    condition_matching_results=None,
+                                    text_utils=text_utils)
 
-        self.run_step(running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils=text_utils)
+        #self.run_step(running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils=text_utils)
+        return
 
     def run_step(self, running_scenario, bot, session, interlocutor, interpreted_phrase, text_utils):
         # Через running_scenario передается состояние выполняющегося сценария - номер текущего шага,
@@ -118,6 +130,8 @@ class Scenario(object):
                 new_step_index = running_scenario.current_step_index + 1
                 if new_step_index == len(running_scenario.scenario.steps):
                     # Сценарий исчерпан
+                    logging.debug('Scenario "%s" is exhausted', self.get_name())
+
                     if self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
                         # Уберем инстанс сценария из списка активных
                         self.termination_check_count = 0
@@ -127,6 +141,7 @@ class Scenario(object):
                     break
                 else:
                     running_scenario.current_step_index = new_step_index
+                    logging.debug('Executing step #%d in scenario "%s"', new_step_index, self.get_name())
                     step = running_scenario.scenario.steps[new_step_index]
                     running_scenario.passed_steps.add(new_step_index)
                     step_ok = step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
@@ -138,6 +153,7 @@ class Scenario(object):
             nsteps = len(running_scenario.scenario.steps)
             step_indeces = list(i for i in range(nsteps) if i not in running_scenario.passed_steps)
             new_step_index = random.choice(step_indeces)
+            logging.debug('Executing step #%d in scenario "%s"', new_step_index, self.get_name())
             running_scenario.passed_steps.add(new_step_index)
             step = running_scenario.scenario.steps[new_step_index]
             step.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils=text_utils)
@@ -150,6 +166,8 @@ class Scenario(object):
                 do_terminate = True
 
             if do_terminate:
+                logging.debug('Scenario "%s" is exhausted', self.get_name())
+
                 # Уберем инстанс сценария из списка активных
                 self.termination_check_count = 0
                 if running_scenario.scenario.on_finish:

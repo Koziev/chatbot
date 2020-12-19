@@ -372,11 +372,37 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def say(self, bot, session, answer):
         self.logger.info('Say "%s"', answer)
         if answer:
-            if answer.endswith('?'):
-                last_phrase = session.get_last_utterance()
-                if last_phrase and last_phrase.is_bot_phrase and last_phrase.raw_phrase.endswith('?'):
-                    self.logger.error('Two consequent questions issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
-                    return
+            new_is_question = answer.endswith('?')
+            new_is_assertion = not answer.endswith('?')
+
+            last_phrase = session.get_last_utterance()
+            last_is_question = last_phrase and last_phrase.is_bot_phrase and last_phrase.raw_phrase.endswith('?')
+            last_is_assertion = last_phrase and last_phrase.is_bot_phrase and not last_phrase.raw_phrase.endswith('?')
+
+            # НАЧАЛО ОТЛАДКИ
+            #self.logger.debug('DEBUG@382 last_phrase=%s', last_phrase)
+            # КОНЕЦ ОТЛАДКИ
+
+            if new_is_question and last_is_question:
+                # Два вопроса подряд - плохо.
+                self.logger.error('Two consequent questions issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+                return
+
+            if new_is_assertion and last_is_question:
+                # Утверждение после вопроса - плохо, так как вопрос экранируется
+                self.logger.error('Assertion after the question issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+                return
+
+            # Более 2х реплик подряд от бота - слишком много.
+            nb = session.count_prev_consequent_b()
+
+            # НАЧАЛО ОТЛАДКИ
+            #self.logger.debug('DEBUG@400 nb=%d', nb)
+            # КОНЕЦ ОТЛАДКИ
+
+            if nb >= 2:
+                self.logger.error('More than 2 utterances issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+                return
 
             answer = self.paraphraser.paraphrase(answer, self.text_utils)
             answer_interpretation = InterpretedPhrase(answer)
@@ -434,6 +460,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
+        self.logger.debug('Exit scenario "%s"', session.get_status().get_name())
         session.exit_scenario()
         if session.get_status():
             if isinstance(session.get_status(), RunningScenario):
@@ -1141,6 +1168,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 else:
                                     replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(),
                                                                               bot, session, interlocutor)
+
+                            # 19.12.2020 если читчат сгенерировал вопрос, то вместо перехода на следующий шаг в сценарии
+                            #            можно просто выдать этот вопрос и дождаться реакции пользователя.
+                            if replica[-1] == '?':
+                                x = session.get_status().get_remaining_chitchat_questions_per_step()
+                                if x > 0:
+                                    session.add_to_buffer(replica)
+                                    #do_next_step = False
+                                    #replica = None
+                                    return
 
                         # Отрабатывает шаг сценария
                         if do_next_step:

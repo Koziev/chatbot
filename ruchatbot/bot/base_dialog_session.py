@@ -123,6 +123,19 @@ class BaseDialogSession(object):
     def get_last_utterance(self):
         return self.conversation_history[-1] if len(self.conversation_history) > 0 else None
 
+    def count_prev_consequent_b(self):
+        """Количество подряд идущих справа B-фраз"""
+        nb = 0
+        for item in self.conversation_history[::-1]:
+            if item.is_bot_phrase:
+                nb += 1
+            else:
+                break
+
+        return nb
+
+
+
     def set_status(self, new_status):
         if new_status is None:
             # Если в стеке отложенных сценариев есть что-то, запускаем его.

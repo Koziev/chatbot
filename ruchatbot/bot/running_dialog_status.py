@@ -14,3 +14,6 @@ class RunningDialogStatus(object):
 
     def get_name(self):
         raise NotImplementedError()
+
+    def get_remaining_chitchat_questions_per_step(self):
+        return 0
