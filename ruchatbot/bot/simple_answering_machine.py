@@ -250,11 +250,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # Если похожесть проверяемой реплики на любой вариант в таблице приказов выше порога,
         # то дальше будем обрабатывать нормализованную фразу вместо исходной введенной.
-        comprehension_threshold = 0.70
+        #comprehension_threshold = 0.70
+        comprehension_threshold = bot.get_comprehension_threshold()
         if best_sim > comprehension_threshold:
             if self.trace_enabled:
-                self.logger.info(
-                    u'Closest comprehension phrase is "{}" with similarity={} above threshold={}'.format(best_order, best_sim, comprehension_threshold))
+                self.logger.info('Closest comprehension phrase for "%s" is "%s" with similarity=%f above threshold=%f',
+                                 raw_phrase, best_order, best_sim, comprehension_threshold)
 
             interpreted_order = order2anchor[canonized2raw[best_order]]
             if raw_phrase2 != interpreted_order:

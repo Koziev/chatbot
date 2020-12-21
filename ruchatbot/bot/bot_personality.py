@@ -51,6 +51,10 @@ class BotPersonality:
     def get_comprehension_templates(self):
         return self.scripting.comprehension_rules
 
+    def get_comprehension_threshold(self):
+        # TODO - потом читать эту константу из конфига бота
+        return 0.7
+
     def start_conversation(self, user_id):
         self.engine.start_conversation(self, user_id)
 
