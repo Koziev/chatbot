@@ -171,11 +171,6 @@ class BotScripting(object):
             #        grammar.set_dictionaries(text_utils.gg_dictionaries)
             #        smalltalk_rule2grammar[key] = grammar
 
-            if 'scenarios' in data:
-                for scenario_node in data['scenarios']:
-                    scenario = Scenario.load_yaml(scenario_node['scenario'], smalltalk_rule2grammar, constants, text_utils)
-                    self.scenarios.append(scenario)
-
             if 'story_rules' in data:
                 self.load_story_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
 
@@ -189,6 +184,11 @@ class BotScripting(object):
 
             if 'smalltalk_rules' in data:
                 self.smalltalk_rules.load_yaml(data['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
+
+            if 'scenarios' in data:
+                for scenario_node in data['scenarios']:
+                    scenario = Scenario.load_yaml(scenario_node['scenario'], self, smalltalk_rule2grammar, constants, text_utils)
+                    self.scenarios.append(scenario)
 
             self.continuation_rules = ContinuationRules()
             if 'continuation' in data:

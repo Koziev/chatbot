@@ -598,7 +598,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return None
 
-
     def calc_discourse_relevance(self, replica, session):
         """Возвращает оценку соответствия реплики replica текущему дискурсу беседы session"""
         # TODO

@@ -54,7 +54,7 @@ class Scenario(object):
         return self.name
 
     @staticmethod
-    def load_yaml(yaml_node, smalltalk_rule2grammar, constants, text_utils):
+    def load_yaml(yaml_node, global_bot_scripting, smalltalk_rule2grammar, constants, text_utils):
         scenario = Scenario()
         scenario.name = yaml_node['name']
         if 'priority' in yaml_node:
@@ -90,11 +90,17 @@ class Scenario(object):
             scenario.smalltalk_rules = SmalltalkRules()
             scenario.smalltalk_rules.load_yaml(yaml_node['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
 
+        scenario.insteadof_rules = []
         if 'rules' in yaml_node:
-            scenario.insteadof_rules = []
             for rule in yaml_node['rules']:
                 rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
                 scenario.insteadof_rules.append(rule)
+
+        if 'insteadof_rule_import' in yaml_node:
+            insteadof_rule_import = yaml_node['insteadof_rule_import']
+            if insteadof_rule_import == 'from_global':
+                # добавляем в список глобальные insteadof-правила
+                scenario.insteadof_rules.extend(global_bot_scripting.insteadof_rules)
 
         return scenario
 
