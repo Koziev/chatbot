@@ -1,7 +1,11 @@
 """
 Хелпер для создания экземпляра бота со всем дефолтным функционалом.
 Используется консольным, flask и telegram-вариантами чатбота.
+
+25-10-2020 добавлено автоконфигурирование веб-сервиса читчата
 """
+
+import requests
 
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
@@ -13,7 +17,7 @@ from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
 from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
 
 
-def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot'):
+def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot', chitchat_url=None):
     # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
     # part-of-speech tagger, NP chunker и прочее.
     text_utils = TextUtils()
@@ -30,6 +34,17 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
     machine.load_models(data_folder, models_folder, profile.constants)
     machine.trace_enabled = debugging
 
+    # Пробуем подцепить локальный сервис читчата
+    if chitchat_url:
+        probe_chitchat_url = chitchat_url
+        try:
+            chitchat_response = requests.get(probe_chitchat_url + '/')
+            if chitchat_response.ok:
+                machine.chitchat_base_url = probe_chitchat_url + '/reply?context={}'
+        except Exception as ex:
+            # веб-сервис чит-чата недоступен...
+            pass
+
     # Контейнер для правил
     scripting = BotScripting(data_folder)
     scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
@@ -42,7 +57,7 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
                                        profile_path=profile.premises_path,
                                        constants=profile.constants)
 
-    # Подключем простое файловое хранилище с FAQ-правилами бота.
+    # Подключаем простое файловое хранилище с FAQ-правилами бота.
     # Движок бота сопоставляет вопрос пользователя с опорными вопросами в FAQ базе,
     # и если нашел хорошее соответствие (синонимичность выше порога), то
     # выдает ответную часть найденной записи.
