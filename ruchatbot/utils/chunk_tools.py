@@ -1,6 +1,9 @@
 
 
 def normalize_chunk(tokens, edges, flexer, word2tags, target_tags=dict()):
+    if len(tokens) == 0:
+        return []
+
     normal_tokens = [t.word for t in tokens]
 
     # Ищем среди токенов чанка ведущий токен.
