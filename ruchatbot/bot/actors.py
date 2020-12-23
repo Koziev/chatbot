@@ -306,7 +306,7 @@ class ActorScenario(ActorBase):
     def __init__(self):
         super(ActorScenario, self).__init__('scenario')
         self.scenario_name = None
-        self.mode = 'replace'
+        self.mode = 'replace'  # по умолчанию новый сценарий убирает все текущие сценарии (включая отложенные на стеке)
 
     @staticmethod
     def from_yaml(yaml_node):

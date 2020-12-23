@@ -24,6 +24,7 @@ from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
 # from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
 from ruchatbot.bot.jaccard_synonymy_detector import Jaccard_SynonymyDetector
 
+
 #from ruchatbot.bot.nn_interpreter import NN_Interpreter
 #from ruchatbot.bot.nn_interpreter_new2 import NN_InterpreterNew2
 from ruchatbot.bot.nn_interpreter6 import NN_InterpreterNew6
@@ -370,6 +371,43 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return interpretations
 
+    def check_repetition_before_saying(self, bot, session, answer):
+        last_phrase = session.get_last_utterance()
+
+        # Более 2х реплик подряд от бота - слишком много.
+        nb = session.count_prev_consequent_b()
+
+        if nb >= 2:
+            self.logger.error('more than 2 utterances issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            return 1
+
+        for prev_b in session.select_prev_consequent_bs():
+            if answer in prev_b or prev_b in answer:
+                self.logger.error('repetition in consequent B phrases: prev_b="%s" new_b="%s"', prev_b, answer)
+                return 1
+
+            js = Jaccard_SynonymyDetector.jaccard(prev_b, answer, shingle_len=3)
+            if js >= 0.95:
+                self.logger.error('two consequent B phrases are too similar: prev_b="%s" new_b="%s" jaccard=%f',
+                                  prev_b, answer, js)
+                return 1
+
+        # Также проверим накопившиеся в буфере выдачи реплики. Если там есть очень похожая на answer,
+        # то при выдаче всей накопившейся пачки получится не очень красиво.
+        for prev_b in session.select_answer_buffer_bs():
+            if answer in prev_b or prev_b in answer:
+                self.logger.error('repetition in answer buffer B phrases: prev_b="%s" new_b="%s"', prev_b, answer)
+                return 1
+
+            js = Jaccard_SynonymyDetector.jaccard(prev_b, answer, shingle_len=3)
+            if js >= 0.95:
+                self.logger.error(
+                    'two consequent B phrases in answer buffer are too similar: prev_b="%s" new_b="%s" jaccard=%f',
+                    prev_b, answer, js)
+                return 1
+
+        return 0
+
     def say(self, bot, session, answer):
         self.logger.info('Say "%s"', answer)
         if answer:
@@ -394,15 +432,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 self.logger.error('Assertion after the question issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
                 return
 
-            # Более 2х реплик подряд от бота - слишком много.
-            nb = session.count_prev_consequent_b()
-
-            # НАЧАЛО ОТЛАДКИ
-            #self.logger.debug('DEBUG@400 nb=%d', nb)
-            # КОНЕЦ ОТЛАДКИ
-
-            if nb >= 2:
-                self.logger.error('More than 2 utterances issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            if self.check_repetition_before_saying(bot, session, answer):
+                self.logger.error('SAY: repetition detected, phrase "%s" is muted', answer)
                 return
 
             answer = self.paraphraser.paraphrase(answer, self.text_utils)
@@ -435,11 +466,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.logger.error('Assertion after the question issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
             return
 
-        # Более 2х реплик подряд от бота - слишком много.
-        nb = session.count_prev_consequent_b()
-
-        if nb >= 2:
-            self.logger.error('More than 2 utterances issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+        if self.check_repetition_before_saying(bot, session, answer):
+            self.logger.error('SAY_BEFORE_B: repetition detected, phrase "%s" is muted', answer)
             return
 
         answer = self.paraphraser.paraphrase(answer, self.text_utils)
@@ -453,7 +481,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def run_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
         """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
-        будет полностью прекращен."""
+        будет полностью прекращен. При этом будут удалены и все отложенные диалоги в стеке."""
         if session.get_status():
             if scenario.get_name() == session.get_status().get_name():
                 # Новый сценарий - такой же, как уже запущенный (например, снова сработало
@@ -474,9 +502,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             else:
                 self.logger.debug(u'New scenario priority=%d is higher than currently running=%d',
                                   scenario.get_priority(), session.get_status().get_priority())
+                # Удаляем все отложенные сценарии...
+                session.cancel_all_running_items()
+
         else:
             self.logger.debug(u'Start scenario "%s"', scenario.name)
 
+        # Запускаем новый
         status = RunningScenario(scenario, current_step_index=-1)
         session.set_status(status)
         scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)

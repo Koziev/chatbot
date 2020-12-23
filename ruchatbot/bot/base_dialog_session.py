@@ -39,14 +39,27 @@ class BaseDialogSession(object):
         :param phrase: добавляемая реплика
         """
         assert(phrase is not None and len(phrase) > 0)
-        self.answer_buffer.append(phrase)
+        #self.answer_buffer.append(phrase)
+        # 23-12-2020 сортируем фразы так, чтобы вопросы были в конце
+        if phrase.endswith('?') or len(self.answer_buffer) == 0:
+            self.answer_buffer.append(phrase)
+        else:
+            if self.answer_buffer[-1].endswith('?'):
+                # вставляем добавляемый не-вопрос ПЕРЕД хвостовым вопросом.
+                self.answer_buffer.insert(len(self.answer_buffer) - 1, phrase)
+            else:
+                self.answer_buffer.append(phrase)
 
     def get_output_buffer_phrase(self):
         return self.answer_buffer[-1] if len(self.answer_buffer) > 0 else None
 
     def insert_into_buffer(self, phrase):
         if len(self.answer_buffer) > 0:
-            self.answer_buffer.insert(0, phrase)
+            if phrase.endswith('?'):
+                # Вопросы должны быть в хвосте
+                self.answer_buffer.append(phrase)
+            else:
+                self.answer_buffer.insert(0, phrase)
         else:
             self.answer_buffer.append(phrase)
 
@@ -123,6 +136,19 @@ class BaseDialogSession(object):
     def get_last_utterance(self):
         return self.conversation_history[-1] if len(self.conversation_history) > 0 else None
 
+    def select_answer_buffer_bs(self):
+        return list(self.answer_buffer)
+
+    def select_prev_consequent_bs(self):
+        """Вернем список с текстами последних подряд идущих реплик бота"""
+        bs = []
+        for item in self.conversation_history[::-1]:
+            if item.is_bot_phrase:
+                bs.append(item.raw_phrase)
+            else:
+                break
+        return bs
+
     def count_prev_consequent_b(self):
         """Количество подряд идущих справа B-фраз"""
         nb = 0
@@ -133,8 +159,6 @@ class BaseDialogSession(object):
                 break
 
         return nb
-
-
 
     def set_status(self, new_status):
         if new_status is None:
