@@ -23,7 +23,10 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
     # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
     # part-of-speech tagger, NP chunker и прочее.
     text_utils = TextUtils()
-    text_utils.load_embeddings(w2v_dir=w2v_folder, wc2v_dir=models_folder)
+    if enable_verbal_forms:
+        text_utils.load_embeddings(w2v_dir=w2v_folder, wc2v_dir=models_folder)
+    else:
+        text_utils.load_embeddings(w2v_dir=w2v_folder, wc2v_dir=None)
     text_utils.load_dictionaries(data_folder, models_folder)
 
     # Настроечные параметры аватара собраны в профиле - файле в json формате.

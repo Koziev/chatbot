@@ -24,15 +24,16 @@ class WordEmbeddings(object):
         self.wordchar2vector_model = None
         self.logger = logging.getLogger('WordEmbeddings')
 
-    def load_models(self, models_folder):
+    def load_models(self, models_folder, wc2v_dir):
         """
         Загружаются нейросетевые модели, позволяющие сгенерировать
         вектор нового слова. Для самых частотных слов готовые вектора
         рассчитаны заранее и сохранены в файле, поэтому они будут
         обработаны объектом self.wc2v.
         """
-        self.wordchar2vector_model = Wordchar2VectorModel()
-        self.wordchar2vector_model.load(models_folder)
+        if wc2v_dir is not None:
+            self.wordchar2vector_model = Wordchar2VectorModel()
+            self.wordchar2vector_model.load(models_folder)
 
     def load_wc2v_model(self, wc2v_path):
         self.logger.info(u'Loading wordchar2vector from "%s"', wc2v_path)
@@ -59,7 +60,7 @@ class WordEmbeddings(object):
     def vectorize_words(self, w2v_filename, words, X_batch, irow):
         w2v = self.w2v[w2v_filename]
         w2v_dims = self.w2v_dims[w2v_filename]
-        for iword, word in enumerate(words):
+        for iword, word in enumerate(words[:X_batch.shape[1]]):
             if word != PAD_WORD:
                 if word in w2v:
                     X_batch[irow, iword, :w2v_dims] = w2v[word]

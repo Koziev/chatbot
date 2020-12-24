@@ -65,10 +65,11 @@ class TextUtils(object):
     def load_embeddings(self, w2v_dir, wc2v_dir):
         # Загрузка векторных словарей
         self.word_embeddings = WordEmbeddings()
-        self.word_embeddings.load_models(w2v_dir)
+        self.word_embeddings.load_models(w2v_dir, wc2v_dir)
 
-        p = os.path.join(wc2v_dir, 'wc2v.kv')
-        self.word_embeddings.load_wc2v_model(p)
+        if wc2v_dir:
+            p = os.path.join(wc2v_dir, 'wc2v.kv')
+            self.word_embeddings.load_wc2v_model(p)
 
         p = os.path.join(w2v_dir, 'w2v.kv')
         self.word_embeddings.load_w2v_model(p)
