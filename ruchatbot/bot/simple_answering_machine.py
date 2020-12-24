@@ -1244,7 +1244,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                             # 19.12.2020 если читчат сгенерировал вопрос, то вместо перехода на следующий шаг в сценарии
                             #            можно просто выдать этот вопрос и дождаться реакции пользователя.
-                            if replica[-1] == '?':
+                            if replica and replica.endswith('?'):
                                 x = session.get_status().get_remaining_chitchat_questions_per_step()
                                 if x > 0:
                                     session.add_to_buffer(replica)

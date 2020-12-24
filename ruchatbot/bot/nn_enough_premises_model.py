@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
+"""
+24-12-2020 переработка модели: токенизация BPE, обучаемые эмбеддинги токенов.
+"""
+
 
 import os
 import json
 import logging
+
 import numpy as np
 from keras.models import model_from_json
 from keras import backend as K
-
+import sentencepiece as spm
 import tensorflow as tf  # 13-05-2019
-
 
 from ruchatbot.bot.enough_premises_model import EnoughPremisesModel
 
@@ -30,13 +34,14 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
             model_config = json.load(f)
 
         self.max_inputseq_len = model_config['max_inputseq_len']
-        self.w2v_path = model_config['w2v_path']
-        self.wordchar2vector_path = model_config['wordchar2vector_path']
-        self.padding = model_config['padding']
-        self.word_dims = model_config['word_dims']
         self.max_nb_premises = model_config['max_nb_premises']
+        self.token2index = model_config['token2index']
         self.arch_filepath = self.get_model_filepath(models_folder, model_config['arch_filepath'])
         self.weights_filepath = self.get_model_filepath(models_folder, model_config['weights_path'])
+
+        self.bpe_model = spm.SentencePieceProcessor()
+        rc = self.bpe_model.Load(self.get_model_filepath(models_folder, model_config['bpe_model_name']+'.model'))
+        self.logger.debug('NN_EnoughPremisesModel.bpe_model loaded with status=%d', rc)
 
         #self.graph = tf.Graph()
         #self.tf_sess = tf.Session(graph=self.graph)
@@ -54,11 +59,9 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
         #self.model.summary()
         # конец отладки
 
-        self.w2v_filename = os.path.basename(self.w2v_path)
-
         self.Xn_probe = []
         for _ in range(self.max_nb_premises+1):
-            x = np.zeros((1, self.max_inputseq_len, self.word_dims), dtype=np.float32)
+            x = np.zeros((1, self.max_inputseq_len,), dtype=np.int32)
             self.Xn_probe.append(x)
 
         self.inputs = dict()
@@ -76,17 +79,13 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
 
         # Заполняем входные тензоры векторами слов предпосылок и вопроса.
         for ipremise, premise in enumerate(premise_str_list):
-            if self.padding == 'right':
-                words = text_utils.rpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)
-            else:
-                words = text_utils.lpad_wordseq(text_utils.tokenize(premise), self.max_inputseq_len)
-            text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[ipremise], 0)
+            tx = self.bpe_model.EncodeAsPieces(premise)
+            for itoken, token in enumerate(tx):
+                self.Xn_probe[ipremise][0, itoken] = self.token2index.get(token, 0)
 
-        if self.padding == 'right':
-            words = text_utils.rpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
-        else:
-            words = text_utils.lpad_wordseq(text_utils.tokenize(question_str), self.max_inputseq_len)
-        text_utils.word_embeddings.vectorize_words(self.w2v_filename, words, self.Xn_probe[self.max_nb_premises], 0)
+        tx = self.bpe_model.EncodeAsPieces(question_str)
+        for itoken, token in enumerate(tx):
+            self.Xn_probe[self.max_nb_premises][0, itoken] = self.token2index.get(token, 0)
 
         #with self.graph.as_default():
         #    y = self.model.predict(x=self.inputs)[0]
