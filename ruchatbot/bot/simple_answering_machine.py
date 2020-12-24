@@ -120,7 +120,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         _, tail = os.path.split(old_filepath)
         return os.path.join(models_folder, tail)
 
-    def load_models(self, data_folder, models_folder, constants):
+    def load_models(self, data_folder, models_folder, constants, enable_verbal_forms):
         self.logger.info(u'Loading models from "%s"', models_folder)
         self.models_folder = models_folder
 
@@ -197,8 +197,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.intent_detector = IntentDetector()
         self.intent_detector.load(models_folder)
 
-        self.entity_extractor = EntityExtractor()
-        self.entity_extractor.load(models_folder)
+        if enable_verbal_forms:
+            self.entity_extractor = EntityExtractor()
+            self.entity_extractor.load(models_folder)
+        else:
+            self.entity_extractor = None
 
         self.jsyndet = Jaccard_SynonymyDetector()
 
@@ -208,7 +211,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.debug('All models loaded')
 
     def extract_entity(self, entity_name, phrase_str):
-        return self.entity_extractor.extract_entity(entity_name, phrase_str, self.text_utils, self.text_utils.word_embeddings)
+        if self.entity_extractor:
+            return self.entity_extractor.extract_entity(entity_name, phrase_str, self.text_utils, self.text_utils.word_embeddings)
+        else:
+            return ''
 
     def start_conversation(self, bot, interlocutor):
         """
@@ -1373,7 +1379,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 self.discourse.store_question_in_database(bot, session, interpreted_phrase)
             elif interpreted_phrase.is_assertion:
                 self.discourse.store_assertion_in_database(bot, session, interpreted_phrase)
-
 
     def process_order(self, bot, session, interlocutor, interpreted_phrase):
         self.logger.debug(u'Processing order "%s"', interpreted_phrase.interpretation)

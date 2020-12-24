@@ -17,7 +17,9 @@ from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
 from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
 
 
-def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot', chitchat_url=None):
+def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot',
+                   chitchat_url=None,
+                   enable_verbal_forms=False):
     # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
     # part-of-speech tagger, NP chunker и прочее.
     text_utils = TextUtils()
@@ -31,7 +33,7 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
     # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
     # ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
     machine = SimpleAnsweringMachine(text_utils=text_utils)
-    machine.load_models(data_folder, models_folder, profile.constants)
+    machine.load_models(data_folder, models_folder, profile.constants, enable_verbal_forms)
     machine.trace_enabled = debugging
 
     # Пробуем подцепить локальный сервис читчата
