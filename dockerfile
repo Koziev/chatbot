@@ -20,19 +20,21 @@ RUN yes | apt-get install python-numpy
 
 RUN pip install sentencepiece
 RUN pip install lightgbm
-RUN pip install keras==2.2.4
-RUN pip install --upgrade scikit-learn
+RUN pip install keras==2.4.3
+RUN pip install scikit-learn==0.24.0
 RUN pip install gensim
 RUN pip install pathlib
 RUN pip install python-crfsuite
-RUN pip install tensorflow==1.14
+RUN pip install tensorflow==2.3.1
 RUN pip install colorama
 RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
+RUN pip install requests
 RUN pip install flask
 RUN pip install flask_sqlalchemy
 RUN pip install flask_wtf
 RUN pip install python-telegram-bot --upgrade
+RUN pip install h5py==2.10.0
 
 WORKDIR /home
 ADD ruword2tags.tar.gz /home
