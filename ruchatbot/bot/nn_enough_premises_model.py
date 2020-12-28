@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 24-12-2020 переработка модели: токенизация BPE, обучаемые эмбеддинги токенов.
+28-12-2020 поправлена ошибка выхода за пределы макс. длины списка токенов self.max_inputseq_len
 """
 
 
@@ -80,11 +81,11 @@ class NN_EnoughPremisesModel(EnoughPremisesModel):
         # Заполняем входные тензоры векторами слов предпосылок и вопроса.
         for ipremise, premise in enumerate(premise_str_list):
             tx = self.bpe_model.EncodeAsPieces(premise)
-            for itoken, token in enumerate(tx):
+            for itoken, token in enumerate(tx[:self.max_inputseq_len]):
                 self.Xn_probe[ipremise][0, itoken] = self.token2index.get(token, 0)
 
         tx = self.bpe_model.EncodeAsPieces(question_str)
-        for itoken, token in enumerate(tx):
+        for itoken, token in enumerate(tx[:self.max_inputseq_len]):
             self.Xn_probe[self.max_nb_premises][0, itoken] = self.token2index.get(token, 0)
 
         #with self.graph.as_default():
