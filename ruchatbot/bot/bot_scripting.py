@@ -67,6 +67,7 @@ class BotScripting(object):
         self.smalltalk_rules = SmalltalkRules()
         self.story_rules = StoryRules()
         self.continuation_rules = ContinuationRules()
+        self.rule_paths = []
 
     @staticmethod
     def __get_node_list(node):
@@ -74,6 +75,9 @@ class BotScripting(object):
             return node
         else:
             return [node]
+
+    def get_rule_paths(self):
+        return self.rule_paths
 
     def load_story_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
         for rule in data['story_rules']:
@@ -144,6 +148,8 @@ class BotScripting(object):
                     raise ex
 
     def load_rules(self, yaml_path, compiled_grammars_path, constants, text_utils):
+        logging.debug('Loading rules from "%s"...', yaml_path)
+        self.rule_paths.append(yaml_path)
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
             if 'greeting' in data:
@@ -207,6 +213,12 @@ class BotScripting(object):
                 for common_phrase in data['common_phrases']:
                     common_phrase = replace_constant(common_phrase, constants, text_utils)
                     self.common_phrases.append(common_phrase)
+
+            if 'import' in data:
+                for import_filename in data['import']:
+                    add_path = os.path.join(os.path.dirname(yaml_path), import_filename)
+                    self.load_rules(add_path, compiled_grammars_path, constants, text_utils)
+
 
     def add_scenario(self, scenario):
         self.scenarios.append(scenario)

@@ -1,7 +1,7 @@
 {
 	"premises": "$DATA/profile_facts_1.dat",
 	"faq": "$DATA/faq2.txt",
-	"rules": "$DATA/rules.yaml",
+	"rules": "$DATA/profile_rules_1.yaml",
 	
 	"smalltalk_enabled": true,
 	"generative_smalltalk_enabled": false,

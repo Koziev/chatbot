@@ -23,7 +23,6 @@ class BotProfile(object):
 
         #self.smalltalk_generative_rules = self._replace(self.profile['smalltalk_generative_rules'],
         #                                                data_dir,
-
         #                                                models_dir)
         self.constants = self.profile['constants']
 

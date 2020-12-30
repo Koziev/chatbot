@@ -12,6 +12,7 @@ from sqlalchemy.sql import text
 
 from .config import Config
 
+
 flask_app = Flask(__name__)
 
 #flask_app.config['SECRET_KEY'] = 'ChatBot-service-key'

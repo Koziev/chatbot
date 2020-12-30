@@ -71,7 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
     parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
     parser.add_argument('--debugging', action='store_true')
-    parser.add_argument('--chitchat_url', type=str)
+    parser.add_argument('--chitchat_url', type=str, help='chit-chat service endpoint')
 
     args = parser.parse_args()
     profile_path = os.path.expanduser(args.profile)

@@ -120,12 +120,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         _, tail = os.path.split(old_filepath)
         return os.path.join(models_folder, tail)
 
-    def load_models(self, data_folder, models_folder, constants, enable_verbal_forms):
-        self.logger.info(u'Loading models from "%s"', models_folder)
+    def load_models(self, rule_paths, data_folder, models_folder, constants, enable_verbal_forms):
+        self.logger.info('Loading models from "%s"', models_folder)
         self.models_folder = models_folder
 
         self.premise_not_found = NoInformationModel()
-        self.premise_not_found.load(models_folder, data_folder, constants, self.text_utils)
+        self.premise_not_found.load(rule_paths, models_folder, data_folder, constants, self.text_utils)
 
         # Загружаем общие параметры для сеточных моделей
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:

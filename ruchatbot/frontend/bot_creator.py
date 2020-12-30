@@ -35,10 +35,17 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
     profile = BotProfile()
     profile.load(profile_path, data_folder, models_folder)
 
+    # Контейнер для правил
+    scripting = BotScripting(data_folder)
+    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
+
+    # Добавляем скрипты на питоне
+    scripting.add_scenario(Scenario_WhoAmI())
+
     # Инициализируем движок вопросно-ответной системы. Он может обслуживать несколько
     # ботов с разными провилями (базами фактов и правил), хотя тут у нас будет работать только один.
     machine = SimpleAnsweringMachine(text_utils=text_utils)
-    machine.load_models(data_folder, models_folder, profile.constants, enable_verbal_forms)
+    machine.load_models(scripting.get_rule_paths(), data_folder, models_folder, profile.constants, enable_verbal_forms)
     machine.trace_enabled = debugging
 
     # Пробуем подцепить локальный сервис читчата
@@ -51,13 +58,6 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
         except Exception as ex:
             # веб-сервис чит-чата недоступен...
             pass
-
-    # Контейнер для правил
-    scripting = BotScripting(data_folder)
-    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
-
-    # Добавляем скрипты на питоне
-    scripting.add_scenario(Scenario_WhoAmI())
 
     # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
     profile_facts = ProfileFactsReader(text_utils=text_utils,

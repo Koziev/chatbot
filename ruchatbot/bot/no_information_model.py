@@ -34,26 +34,27 @@ class NoInformationModel(ModelApplicator):
         self.unknown_order = []
         self.rules = []
 
-    def load(self, model_folder, data_folder, constants, text_utils):
-        yaml_path = os.path.join(data_folder, 'rules.yaml')
-        logging.info(u'Loading NoInformationModel replicas from "%s"', yaml_path)
+    def load(self, rule_paths, model_folder, data_folder, constants, text_utils):
+        for yaml_path in rule_paths:
+            logging.info('Loading NoInformationModel replicas and rules from "%s"', yaml_path)
 
-        with io.open(yaml_path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-            self.no_info_replicas = []
-            for s in data['no_relevant_information']['phrases']:
-                self.no_info_replicas.append(replace_constant(s, constants, text_utils))
+            with io.open(yaml_path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+                if 'no_relevant_information' in data:
+                    for s in data['no_relevant_information']['phrases']:
+                        self.no_info_replicas.append(replace_constant(s, constants, text_utils))
 
-            self.unknown_order = []
-            for s in data['unknown_order']:
-                self.unknown_order.append(replace_constant(s, constants, text_utils))
+                if 'unknown_order' in data:
+                    for s in data['unknown_order']:
+                        self.unknown_order.append(replace_constant(s, constants, text_utils))
 
-            if 'rules' in data['no_relevant_information']:
-                for rule_yaml in data['no_relevant_information']['rules']:
-                    rule = ScriptingRule.from_yaml(rule_yaml['rule'], constants, text_utils)
-                    self.rules.append(rule)
+                if 'no_relevant_information' in data:
+                    if 'rules' in data['no_relevant_information']:
+                        for rule_yaml in data['no_relevant_information']['rules']:
+                            rule = ScriptingRule.from_yaml(rule_yaml['rule'], constants, text_utils)
+                            self.rules.append(rule)
 
-        logging.info(u'NoInformationModel loaded: %d phrase(s), %d rule(s)', len(self.no_info_replicas), len(self.rules))
+        logging.info('NoInformationModel loaded: %d phrase(s), %d rule(s)', len(self.no_info_replicas), len(self.rules))
 
     def get_noanswer_rules(self):
         return self.rules
