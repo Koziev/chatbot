@@ -127,11 +127,11 @@ class TextUtils(object):
         tag2 = tag[0] + '=' + tag[1]
         for word in words:
             #tagsets = self.gg_dictionaries.grdict.get_word_tagsets2(word.lower(), part_of_speech)
-            for tagset in self.word2tags[word]:
+            for tagset in self.word2tags[word.lower()]:
                 if part_of_speech in tagset and tag2 in tagset:
                     return word
 
-        msg = u'Could not choose a word among {}'.format(u' '.join(words))
+        msg = 'Could not choose a word among {}'.format(' '.join(words))
         raise RuntimeError(msg)
 
     def tag(self, words, with_lemmas=False):
