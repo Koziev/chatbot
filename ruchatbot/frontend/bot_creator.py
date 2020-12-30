@@ -20,6 +20,8 @@ from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
 def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot',
                    chitchat_url=None,
                    enable_verbal_forms=False):
+    """Создаем и инициализируем экземпляр чатбота с заданным профилем """
+
     # NLP pileline: содержит инструменты для работы с текстом, включая морфологию и таблицы словоформ,
     # part-of-speech tagger, NP chunker и прочее.
     text_utils = TextUtils()

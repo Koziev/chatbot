@@ -2,7 +2,6 @@
 	"premises": "$DATA/profile_facts_1.dat",
 	"faq": "$DATA/faq2.txt",
 	"rules": "$DATA/rules.yaml",
-	"smalltalk_generative_rules": "$MODELS/smalltalk_generative_grammars.bin",
 	
 	"smalltalk_enabled": true,
 	"generative_smalltalk_enabled": false,
@@ -16,5 +15,4 @@
 		"gender": "ЖЕН",
 		"name_nomn": "Вика"
 	}
-	
 }	
