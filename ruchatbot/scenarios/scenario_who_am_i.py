@@ -24,6 +24,8 @@ class Scenario_WhoAmI(Scenario):
         # Сколько раз бот попытался узнать у собеседника, кто он такой
         self.who_are_you_counter = 0
 
+        self.chitchat_questions_per_step_rate = 0
+
     def reset_usage_stat(self):
         super(Scenario_WhoAmI, self).reset_usage_stat()
         self.activation_counter = 0
