@@ -5,6 +5,7 @@
 import collections
 import random
 import os
+import logging
 import pickle
 
 
@@ -107,7 +108,7 @@ class Paraphraser:
             raise NotImplementedError()
 
 
-    def paraphrase(self, phrase, text_utils):
+    def paraphrase(self, phrase, text_utils, bot, session):
         new_phrase = phrase
 
         if new_phrase in self.processed_phrases:
@@ -138,6 +139,51 @@ class Paraphraser:
             else:
                 if phrase in self.simple_paraphrases:
                     new_phrase = random.choice(self.simple_paraphrases[phrase])
+
+        # Если нам известна гендерная самоидентификация собеседника (см. GenderIdentificationDetector),
+        # то может потребоваться скорректировать грамматический род лексики выдаваемой реплики.
+        interlocutor_gender = bot.facts.find_tagged_fact(session.get_interlocutor(), '<<<interlocutor_gender>>>')
+        if interlocutor_gender:
+            if interlocutor_gender == 'ты женского пола':
+                interlocutor_gender = 'Fem'
+            else:
+                interlocutor_gender = 'Masc'
+
+            parsed_data = text_utils.parse_syntax(new_phrase)
+
+            # 1. Если есть глагол в прошедшем времени в роли сказуемого и подлежащее "я", то берем его тэг грамматического
+            # рода.
+            up_words = [z.form.lower().replace('ё', 'е') for z in parsed_data]
+            up_lemmas = [z.lemma.lower().replace('ё', 'е') for z in parsed_data]
+            edges2 = []
+            for pred_token in parsed_data:
+                if pred_token.head != '0':
+                    edges2.append((pred_token.form.lower(), parsed_data[pred_token.head].form.lower()))
+
+                if pred_token.head == '0' and pred_token.upos == 'VERB':
+                    if text_utils.get_udpipe_attr(pred_token, 'Tense') == 'Past':
+                        g = text_utils.get_udpipe_attr(pred_token, 'Gender')
+                        if g:
+                            if g != interlocutor_gender:
+                                # нужна коррекция грамматического рода глагола
+                                new_verb_form = text_utils.change_verb_gender(pred_token.lemma, interlocutor_gender)
+                                if new_verb_form:
+                                    new_phrase2 = new_phrase.replace(pred_token.form, new_verb_form)
+                                    logging.debug('Changing phrase gender: old_phrase="%s" new_phrase="%s"', new_phrase, new_phrase2)
+                                    new_phrase = new_phrase2
+                                    break
+
+                if pred_token.head == '0' and pred_token.upos == 'ADJ':
+                    for token2 in parsed_data:
+                        if token2.head == pred_token.id and token2.upos == 'PRON' and token2.deprel == 'nsubj':
+                            if text_utils.get_udpipe_attr(pred_token, 'Gender') != interlocutor_gender:
+                                # коррекция для именного сказуемого ("я счастлив" -> "я счастлива") ("ты должен ответить"...)
+                                new_adj_form = text_utils.change_adj_gender(pred_token.lemma, interlocutor_gender, text_utils.get_udpipe_attr(pred_token, 'Variant'))
+                                if new_adj_form:
+                                    new_phrase2 = new_phrase.replace(pred_token.form, new_adj_form)
+                                    logging.debug('Changing phrase gender: old_phrase="%s" new_phrase="%s"', new_phrase, new_phrase2)
+                                    new_phrase = new_phrase2
+                                    break
 
         self.processed_phrases[new_phrase] += 1
 

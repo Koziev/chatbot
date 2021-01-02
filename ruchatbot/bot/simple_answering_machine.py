@@ -42,6 +42,7 @@ from ruchatbot.bot.p2q_relevancy_lgb import P2Q_Relevancy_LGB
 from ruchatbot.bot.paraphraser import Paraphraser
 from ruchatbot.bot.actors import substitute_bound_variables, SayingPhrase
 from ruchatbot.bot.discourse import Discourse
+from ruchatbot.bot.interlocutor_gender_detector import InterlocutorGenderDetector
 
 
 class InsteadofRuleResult(object):
@@ -126,6 +127,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         self.premise_not_found = NoInformationModel()
         self.premise_not_found.load(rule_paths, models_folder, data_folder, constants, self.text_utils)
+
+        self.gender_detector = InterlocutorGenderDetector()
+        self.gender_detector.load(models_folder)
 
         # Загружаем общие параметры для сеточных моделей
         with open(os.path.join(models_folder, 'qa_model_selector.config'), 'r') as f:
@@ -442,7 +446,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 self.logger.error('SAY: repetition detected, phrase "%s" is muted', answer)
                 return
 
-            answer = self.paraphraser.paraphrase(answer, self.text_utils)
+            answer = self.paraphraser.paraphrase(answer, self.text_utils, bot, session)
+
             answer_interpretation = InterpretedPhrase(answer)
             answer_interpretation.is_bot_phrase = True
             phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
@@ -476,7 +481,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.logger.error('SAY_BEFORE_B: repetition detected, phrase "%s" is muted', answer)
             return
 
-        answer = self.paraphraser.paraphrase(answer, self.text_utils)
+        answer = self.paraphraser.paraphrase(answer, self.text_utils, bot, session)
         answer_interpretation = InterpretedPhrase(answer)
         answer_interpretation.is_bot_phrase = True
         phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(answer, self.text_utils)
@@ -1056,7 +1061,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.paraphraser.reset_usage_stat()
 
     def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False, force_question_answering=False):
-        self.logger.info(u'push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
+        self.logger.info('push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
         assert(isinstance(phrase, str))
         question = self.text_utils.canonize_text(phrase)
         if question == u'#traceon':
@@ -1097,9 +1102,25 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # общения, поэтому результат интерпретации сразу добавляем в историю.
             session.add_phrase_to_history(interpreted_phrase)
 
+            if not bot.facts.find_tagged_fact(interlocutor, bot.facts.INTERCOLUTOR_GENDER_FACT):
+                # Пол собеседника пока неизвестен, будем пытаться определить его из лексического и синтаксического
+                # содержания фразы.
+                interlocutor_gender = self.gender_detector.detect_interlocutor_gender(interpreted_phrase.interpretation, self.text_utils)
+                if interlocutor_gender:
+                    if interlocutor_gender == 'Fem':
+                        fact_text = 'ты женского пола'
+                    elif interlocutor_gender == 'Masc':
+                        fact_text = 'ты мужского пола'
+                    else:
+                        fact_text = None
+
+                    if fact_text:
+                        self.logger.debug('Gender identification of interlocutor: %s', fact_text)
+                        bot.facts.store_new_fact(interlocutor, (fact_text, '2', bot.facts.INTERCOLUTOR_GENDER_FACT), True)
+
             input_processed = False
             if interpreted_phrase.is_assertion and not is_question2:
-                self.logger.debug(u'Processing as assertion: "%s"', interpreted_phrase.interpretation)
+                self.logger.debug('Processing as assertion: "%s"', interpreted_phrase.interpretation)
 
                 # Обработка прочих фраз. Обычно это просто утверждения (новые факты, болтовня).
                 # Пробуем применить общие правила, которые опираются в том числе на
@@ -1168,7 +1189,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     fact_person = '3'
                     fact = interpreted_phrase.interpretation
                     if self.trace_enabled:
-                        self.logger.info(u'Adding "%s" to knowledge base', fact)
+                        self.logger.info('Adding "%s" to knowledge base', fact)
                     bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'), False)
 
             insteadof_rule_result = None
@@ -1381,7 +1402,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 self.discourse.store_assertion_in_database(bot, session, interpreted_phrase)
 
     def process_order(self, bot, session, interlocutor, interpreted_phrase):
-        self.logger.debug(u'Processing order "%s"', interpreted_phrase.interpretation)
+        self.logger.debug('Processing order "%s"', interpreted_phrase.interpretation)
 
         # Пробуем применить общие правила, которые опираются в том числе на
         # intent реплики или ее текст.

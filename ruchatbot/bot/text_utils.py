@@ -8,6 +8,9 @@ NLP Pipeline чатбота
 Различные словарные базы.
 
 Для проекта чатбота https://github.com/Koziev/chatbot
+
+01.12.2021 Добавляем UDPipe в пайплайн для реализации детектора гендерной самоидентификации собеседника
+           и для задач аугментации.
 """
 
 import itertools
@@ -15,6 +18,10 @@ import re
 import os
 import io
 import yaml
+import logging
+
+import pyconll
+from ufal.udpipe import Model, Pipeline, ProcessingError
 
 import rupostagger
 import rulemma
@@ -90,6 +97,12 @@ class TextUtils(object):
         self.word2tags.load()
         self.flexer.load()
         self.chunker.load()
+
+        # Грузим dependency parser UDPipe и русскоязычную модель
+        model_file = os.path.join(models_folder, 'udpipe_syntagrus.model')
+        self.udpipe_model = Model.load(model_file)
+        self.udpipe_pipeline = Pipeline(self.udpipe_model, 'tokenize', Pipeline.DEFAULT, Pipeline.DEFAULT, 'conllu')
+        self.udpipe_error = ProcessingError()
 
         #self.syntan = rusyntax2.Tagger(self.word2tags, w2v, self.postagger)
         #self.syntan.load()
@@ -233,3 +246,58 @@ class TextUtils(object):
 
     def word_similarity(self, word1, word2):
         return self.word_embeddings.word_similarity(word1, word2)
+
+    def parse_syntax(self, text_str):
+        processed = self.udpipe_pipeline.process(text_str, self.udpipe_error)
+        if self.udpipe_error.occurred():
+            logging.error("An error occurred when running run_udpipe: %s", self.udpipe_error.message)
+            return None
+
+        parsed_data = pyconll.load_from_string(processed)[0]
+        return parsed_data
+
+    def get_udpipe_attr(self, token, tag_name):
+        if tag_name in token.feats:
+            v = list(token.feats[tag_name])[0]
+            return v
+
+        return ''
+
+    def change_verb_gender(self, verb_inf, new_gender):
+        """ Изменение формы глагола в прошедшем времени единственном числе """
+        required_tags = [('ВРЕМЯ', 'ПРОШЕДШЕЕ'), ('ЧИСЛО', 'ЕД')]
+        if new_gender == 'Fem':
+            required_tags.append(('РОД', 'ЖЕН'))
+        else:
+            required_tags.append(('РОД', 'МУЖ'))
+
+        forms = list(self.flexer.find_forms_by_tags(verb_inf, required_tags))
+        if forms:
+            return forms[0]
+        else:
+            return None
+
+    def change_adj_gender(self, adj_lemma, new_gender, variant):
+        if adj_lemma == 'должен':
+            if new_gender == 'Fem':
+                return 'должна'
+            else:
+                return 'должен'
+
+        required_tags = [('ЧИСЛО', 'ЕД')]
+        if variant == 'Short':
+            required_tags.append(('КРАТКИЙ', '1'))
+        else:
+            required_tags.append(('КРАТКИЙ', '0'))
+            required_tags.append(('ПАДЕЖ', 'ИМ'))
+
+        if new_gender == 'Fem':
+            required_tags.append(('РОД', 'ЖЕН'))
+        else:
+            required_tags.append(('РОД', 'МУЖ'))
+
+        forms = list(self.flexer.find_forms_by_tags(adj_lemma, required_tags))
+        if forms:
+            return forms[0]
+        else:
+            return None

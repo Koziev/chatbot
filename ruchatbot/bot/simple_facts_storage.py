@@ -112,3 +112,6 @@ class SimpleFactsStorage(BaseFactsStorage):
 
     def store_new_fact(self, interlocutor, fact, unique):
         raise NotImplementedError()
+
+    def find_tagged_fact(self, interlocutor, fact_tag):
+        raise NotImplementedError()

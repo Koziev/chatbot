@@ -10,6 +10,8 @@ class BaseFactsStorage(object):
     новые факты только в памяти, либо на диске etc.
     """
 
+    INTERCOLUTOR_GENDER_FACT = '<<<interlocutor_gender>>>'
+
     def __init__(self):
         pass
 
