@@ -4,6 +4,9 @@
 
 30.12.2020 Добавляем возможность догрузки фактов из других файлов с помощью директивы "## import XXX",
            чтобы общие для нескольких профилей факты хранить в одной файле.
+
+02.01.2020 Храним новые факты в привязке к идентификатору собеседника, чтобы нормально работал режим параллельного
+           диалога с множеством собеседников.
 """
 
 import io
@@ -11,6 +14,7 @@ import itertools
 import os
 import re
 import logging
+import collections
 
 from ruchatbot.bot.simple_facts_storage import SimpleFactsStorage
 from ruchatbot.utils.constant_replacer import replace_constant
@@ -32,7 +36,7 @@ class ProfileFactsReader(SimpleFactsStorage):
         self.profile_path = profile_path
         self.profile_facts = None
         self.constants = constants
-        self.new_facts = []
+        self.new_facts = collections.defaultdict(list)  # списки новых фактов в привязке к id собеса
 
     def load_profile(self):
         logger = logging.getLogger('ProfileFactsReader')
@@ -85,29 +89,30 @@ class ProfileFactsReader(SimpleFactsStorage):
         # родительский класс добавит факты о текущем времени и т.д.
         parent_facts = list(super(ProfileFactsReader, self).enumerate_facts(interlocutor))
 
-        for f in itertools.chain(self.new_facts, self.profile_facts, parent_facts):
+        for f in itertools.chain(self.new_facts[interlocutor], self.profile_facts, parent_facts):
             yield f
 
     def store_new_fact(self, interlocutor, fact, unique):
         # Новые факты, добавляемые собеседником в ходе диалога, сохраняем только в оперативке,
         # в других реализациях хранилища будет персистентность.
+        interlocutor_facts = self.new_facts[interlocutor]
         if unique:
             # Ищем факт с именем fact[2], если найден - заменяем, а не вносим новый.
             found = False
-            for i, fact0 in enumerate(self.new_facts):
+            for i, fact0 in enumerate(interlocutor_facts):
                 if fact0[2] == fact[2]:
-                    self.new_facts[i] = fact
+                    interlocutor_facts[i] = fact
                     found = True
                     break
 
             if not found:
-                self.new_facts.append(fact)
+                interlocutor_facts.append(fact)
         else:
-            self.new_facts.append(fact)
+            interlocutor_facts.append(fact)
 
     def find_tagged_fact(self, interlocutor, fact_tag):
         """Среди новых фактов ищем имеющий указанный тэг"""
-        for fact, section, tag in self.new_facts:
+        for fact, section, tag in self.new_facts[interlocutor]:
             if tag == fact_tag:
                 return fact
 
