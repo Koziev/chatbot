@@ -176,7 +176,7 @@ class Paraphraser:
                 if pred_token.head == '0' and pred_token.upos == 'ADJ':
                     for token2 in parsed_data:
                         if token2.head == pred_token.id and token2.upos == 'PRON' and token2.deprel == 'nsubj':
-                            if text_utils.get_udpipe_attr(pred_token, 'Gender') != interlocutor_gender:
+                            if text_utils.get_udpipe_attr(pred_token, 'Gender') != interlocutor_gender and text_utils.get_udpipe_attr(pred_token, 'Number') == 'Sing':
                                 # коррекция для именного сказуемого ("я счастлив" -> "я счастлива") ("ты должен ответить"...)
                                 new_adj_form = text_utils.change_adj_gender(pred_token.lemma, interlocutor_gender, text_utils.get_udpipe_attr(pred_token, 'Variant'))
                                 if new_adj_form:
