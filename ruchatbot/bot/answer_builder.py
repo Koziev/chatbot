@@ -264,10 +264,12 @@ class AnswerBuilder(object):
         answer_rels = []
 
         #X = np.zeros((1, self.seq_len), dtype=np.int32)
-
-        question_str = ' '.join(text_utils.tokenize(question))
-        if question_str[-1] != '?':
-            question_str += ' ?'
+        qtx = list(text_utils.tokenize(question))
+        if qtx[-1] in ['.', '!']:
+            qtx = qtx[:-1]
+        if qtx[-1] != '?':
+            qtx.append('?')
+        question_str = ' '.join(qtx)
 
         for premises, group_rel in zip(premise_groups, premise_rels):
             # Сначала попробуем точную knn-1 модель
@@ -288,6 +290,8 @@ class AnswerBuilder(object):
                 left_str = ' '.join(left_parts)
 
                 answer_str = self.predict_output(left_str)
+
+                self.logger.debug('AnswerBuilder seq2seq context="%s" output="%s"', left_str, answer_str)
 
                 answers.append(answer_str)
 

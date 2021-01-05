@@ -27,7 +27,7 @@ class Jaccard_SynonymyDetector(SynonymyDetector):
     def jaccard(s1, s2, shingle_len):
         shingles1 = Jaccard_SynonymyDetector.ngrams(s1.lower(), shingle_len)
         shingles2 = Jaccard_SynonymyDetector.ngrams(s2.lower(), shingle_len)
-        return float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2))
+        return float(len(shingles1 & shingles2)) / float(len(shingles1 | shingles2) + 1e-6)
 
     def get_most_similar(self, probe_phrase, phrases, text_utils, nb_results=1):
         assert(nb_results > 0)

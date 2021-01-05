@@ -19,6 +19,7 @@ from ruchatbot.bot.lgb_relevancy_detector import LGB_RelevancyDetector
 from ruchatbot.bot.answer_builder import AnswerBuilder
 from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
 from ruchatbot.bot.nn_enough_premises_model import NN_EnoughPremisesModel
+from ruchatbot.bot.nn_syntax_validator import NN_SyntaxValidator
 # from nn_synonymy_detector import NN_SynonymyDetector
 from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
 # from nn_synonymy_tripleloss import NN_SynonymyTripleLoss
@@ -212,6 +213,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.paraphraser = Paraphraser()
         self.paraphraser.load(models_folder)
 
+        self.syntax_validator = NN_SyntaxValidator()
+        self.syntax_validator.load(models_folder)
+
         self.logger.debug('All models loaded')
 
     def extract_entity(self, entity_name, phrase_str):
@@ -292,6 +296,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(expanded_phrase, self.text_utils)
 
+        interpreted.raw_phrase = ' '.join(raw_tokens)
         interpreted.raw_tokens = raw_tokens
 
         if not internal_issuer:
@@ -1041,8 +1046,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # todo потом должен быть json
                 if response.ok:
                     rtext = response.text
-                    self.logger.debug('query_chitchat_service response.text="{}"'.format(rtext))
-                    res.append((rtext, 1.0, 'query_chitchat_service'))
+                    p_valid = self.syntax_validator.is_valid(rtext, self.text_utils)
+                    self.logger.debug('query_chitchat_service response.text="%s" p_valid=%f', rtext, p_valid)
+                    res.append((rtext, p_valid, 'query_chitchat_service'))
             except Exception as ex:
                 self.logger.error(ex)
 
@@ -1455,10 +1461,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     for answer, rel in zip(answers00, answer_rels00):
                         # Если в качестве ответа сгенерирован мусор (абракадабра), то уберем такой ответ из выдачи.
                         if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                            # Валидация синтаксиса
+                            p_valid = self.syntax_validator.is_valid(answer)
+                            if p_valid < 0.5:
+                                self.logger.debug('Answer "%s" has invalid syntax p_valid=%f', answer, p_valid)
+
+                            # TODO не использовать ответы с невалидным синтаксисом?
+
                             answers.append(answer)
                             answer_rels.append(rel)
                         else:
                             self.logger.debug('Answer "%s" is recognized as abracadabra, so removing it', answer)
+
 
                     best_rels = answer_rels
                 else:
