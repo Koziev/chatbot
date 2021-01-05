@@ -93,17 +93,30 @@ class Paraphraser:
 
         return ' '.join(res_words)
 
+    def cast_to_aa(self, s):
+        return s[0].lower() + s[1:]
+
     def conditional_paraphrase(self, phrase, tags, text_utils):
         # тут пока хардкодим костыли, а в будущем должна быть полномасштабная условная генерация текста...
         if tags[0] == 'same_for_me':
-            new_phrase = 'и ' + phrase + ' тоже'
+            if phrase.startswith('я '):
+                prefix = random.choice('я тоже|и я тоже'.split('|'))
+                new_phrase = prefix + phrase[1:]
+            else:
+                new_phrase = 'и ' + phrase + ' тоже'
+
             return new_phrase
         elif tags[0] == 'already_known':
             s0 = random.choice(['я уже знаю, что ', 'мне уже известно, что '])
             new_phrase = s0 + phrase
             return new_phrase
         elif tags[0] == 'opposite_for_me':
-            new_phrase = 'а ' + phrase
+            if phrase.startswith('я '):
+                prefix = random.choice('а я наоборот|ну а я наоборот|а я вот|а вот я|а я напротив'.split('|'))
+                new_phrase = prefix + phrase[1:]
+            else:
+                new_phrase = 'а ' + self.cast_to_aa(phrase)
+
             return new_phrase
         else:
             raise NotImplementedError()
