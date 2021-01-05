@@ -46,6 +46,11 @@ class BotProfile(object):
     def replica_after_answering(self):
         return self.profile.get('replica_after_answering', True)
 
+    # Политика формирования ответов в ответ на вопросы к боту ("как тебя зовут?")
+    PERSONAL_QUESTIONS_ANSWERING__GENERAL = 'general'  # используется общий пайплайн с генерацией ответа
+    PERSONAL_QUESTIONS_ANSWERING__PREMISE = 'premise'  # выдавать текст подобранной предпосылки в качестве ответа
+    PERSONAL_QUESTIONS_ANSWERING__RANDOM  = 'random'   # рандомный выбор между двумя предыдущими способами
+
     @property
-    def premise_is_answer(self):
-        return self.profile.get('premise_is_answer', False)
+    def personal_question_answering_policy(self):
+        return self.profile.get('personal_questions_answering_policy', BotProfile.PERSONAL_QUESTIONS_ANSWERING__GENERAL)

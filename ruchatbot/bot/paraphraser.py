@@ -11,7 +11,7 @@ import pickle
 
 class Paraphraser:
     def __init__(self):
-        self.processed_phrases = collections.Counter()
+        self.processed_phrases = collections.defaultdict(collections.Counter)
         self.paraphraser_templates = None
         self.simple_paraphrases = None
 
@@ -19,8 +19,9 @@ class Paraphraser:
         with open(os.path.join(models_folder, 'generative_paraphraser.dat'), 'rb') as f:
             self.paraphraser_templates = pickle.load(f)
             self.simple_paraphrases = pickle.load(f)
+        return
 
-    def reset_usage_stat(self):  # TODO - надо бы хранить статистику в разрезе user_id
+    def reset_usage_stat(self):
         self.processed_phrases.clear()
 
     def match_support_template(self, template, tokens, w2v):
@@ -107,11 +108,23 @@ class Paraphraser:
         else:
             raise NotImplementedError()
 
-
     def paraphrase(self, phrase, text_utils, bot, session):
         new_phrase = phrase
 
-        if new_phrase in self.processed_phrases:
+        processed_phrases = self.processed_phrases[session.get_interlocutor()]
+
+        if new_phrase in processed_phrases:
+            if phrase in ('да', 'нет'):  # and random.random() > 0.7 and bot.has_scripting():
+                if phrase == 'да':
+                    variants = list(filter(lambda f: f not in processed_phrases, bot.get_scripting().get_confirmations()))
+                else:
+                    variants = list(filter(lambda f: f not in processed_phrases, bot.get_scripting().get_negations()))
+
+                if variants:
+                    new_phrase = random.choice(variants)
+                    processed_phrases[new_phrase] += 1
+                    return new_phrase
+
             phrase_quest = phrase[-1] == '?'
             tokens = text_utils.lemmatize2(new_phrase)
             tokens = [(t[0], t[1].split('|'), t[2]) for t in tokens if self.is_important_token2(t)]
@@ -129,7 +142,7 @@ class Paraphraser:
                             fx.append(out)
 
             if fx:
-                fx1 = [f for f in fx if f not in self.processed_phrases]
+                fx1 = [f for f in fx if f not in processed_phrases]
                 if len(fx1) == 1:
                     new_phrase = fx1[0]
                 elif len(fx1) == 0:
@@ -185,6 +198,6 @@ class Paraphraser:
                                     new_phrase = new_phrase2
                                     break
 
-        self.processed_phrases[new_phrase] += 1
+        processed_phrases[new_phrase] += 1
 
         return new_phrase

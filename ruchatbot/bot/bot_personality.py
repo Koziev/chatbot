@@ -23,7 +23,9 @@ class BotPersonality:
         self.enable_scripting = profile.rules_enabled
         self.enable_smalltalk = profile.smalltalk_enabled
         self.force_question_answering = profile.force_question_answering
-        self.premise_is_answer = profile.premise_is_answer
+
+        self.personal_question_answering_policy = profile.personal_question_answering_policy
+
         self.replica_after_answering = profile.replica_after_answering
         self.generative_smalltalk_enabled = profile.generative_smalltalk_enabled
 

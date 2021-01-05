@@ -1628,7 +1628,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     self.logger.info('Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
 
             if len(answers) == 0:
-                if bot.premise_is_answer:
+                if False:
                     if best_rels[0] >= self.min_premise_relevancy:
                         # В качестве ответа используется весь текст найденной предпосылки.
                         answers = [best_premises[:1]]
@@ -1653,7 +1653,23 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         # генерация ответа на основе выбранной предпосылки.
                         # 28.08.2019 для вопросов к боту в качестве ответа будем выдавать полный текст найденного
                         # факта.
+                        # 05.01.2021 выбор способа формирования ответа для вопросов к боту задается политикой в конфиге,
+                        #            и может быть рандомным выбором между двумя способами.
+
+                        premise_as_answer = False
                         if interpreted_phrase.person == 2 and len(premises2) == 1 and len(premises2[0]) == 1:
+                            if bot.personal_question_answering_policy == bot.profile.PERSONAL_QUESTIONS_ANSWERING__PREMISE:
+                                # Всегда выдаем текст найденной предпосылки в качестве ответной реплики
+                                premise_as_answer = True
+                            elif bot.personal_question_answering_policy == bot.profile.PERSONAL_QUESTIONS_ANSWERING__RANDOM:
+                                # Рандомно выбираем между выдачей текста найденной предпосылки и сгенерированным ответом
+                                premise_as_answer = random.choice([False, True])
+                            elif bot.personal_question_answering_policy == bot.profile.PERSONAL_QUESTIONS_ANSWERING__GENERAL:
+                                premise_as_answer = False
+                            else:
+                                raise NotImplementedError()
+
+                        if premise_as_answer:
                             answers.append(premises2[0][0])
                             answer_rels.append(1.0)
                         else:

@@ -59,6 +59,8 @@ class BotScripting(object):
         self.data_folder = data_folder
         self.greetings = []
         self.goodbyes = []
+        self.confirmations = []
+        self.negations = []
         self.insteadof_rules = []
         self.after_rules = []  # правила, срабатывающие после основной обработки реплики, например - активация дополнительного сценария
         self.comprehension_rules = None
@@ -153,12 +155,18 @@ class BotScripting(object):
         with io.open(yaml_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
             if 'greeting' in data:
-                self.greetings = []
                 for s in data['greeting']:
                     self.greetings.append(replace_constant(s, constants, text_utils))
 
+            if 'confirmations' in data:
+                for s in data['confirmations']:
+                    self.confirmations.append(replace_constant(s, constants, text_utils))
+
+            if 'negations' in data:
+                for s in data['negations']:
+                    self.negations.append(replace_constant(s, constants, text_utils))
+
             if 'goodbye' in data:
-                self.goodbyes = []
                 for s in data['goodbye']:
                     self.goodbyes.append(replace_constant(s, constants, text_utils))
 
@@ -219,6 +227,11 @@ class BotScripting(object):
                     add_path = os.path.join(os.path.dirname(yaml_path), import_filename)
                     self.load_rules(add_path, compiled_grammars_path, constants, text_utils)
 
+    def get_confirmations(self):
+        return self.confirmations
+
+    def get_negations(self):
+        return self.negations
 
     def add_scenario(self, scenario):
         self.scenarios.append(scenario)
