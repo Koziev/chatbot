@@ -65,7 +65,7 @@ if __name__ == '__main__':
     if args.preload:
         init_chatbot()
 
-    logging.info('Going to run flask_app listening %s:%d profile_path="%s" models_folder="%s" data_folder="%s" w2v_folder="%s"',
+    logging.info('Going to run flask_app listening %s:%s profile_path="%s" models_folder="%s" data_folder="%s" w2v_folder="%s"',
                  listen_ip, listen_port, profile_path, models_folder, data_folder, w2v_folder)
     flask_app.run(debug=args.debugging, host=listen_ip, port=listen_port)
 
