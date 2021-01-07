@@ -377,9 +377,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             expansion2 = expansion.replace('.', '.|').replace('?', '?|')
             clauses = [s.strip() for s in expansion2.split('|') if sum(c in 'абвгдеёжзийклмпнопрстуфхцчшщъыьэюя23456789abcdefghijklmnopqrstuvwxyz' for c in s) > 0]
             for i, clause in enumerate(clauses):
-                raw_phrase2 = raw_phrase if i == 0 else ''
-                interpreted = self.interpret_phrase0(bot, session, raw_phrase2, clause, internal_issuer)
-                interpretations.append(interpreted)
+                # 07.01.2021 проверим, валидна ли клауза.
+                p_valid = self.syntax_validator.is_valid(clause)
+                if p_valid > 0.5:
+                    raw_phrase2 = raw_phrase if i == 0 else ''
+                    interpreted = self.interpret_phrase0(bot, session, raw_phrase2, clause, internal_issuer)
+                    interpretations.append(interpreted)
+                else:
+                    self.logger.error('Interpreter output clause "%s" is invalid p_valid=%f', clause, p_valid)
         else:
             interpreted = self.interpret_phrase0(bot, session, raw_phrase, raw_phrase, internal_issuer)
             interpretations.append(interpreted)
@@ -1047,8 +1052,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if response.ok:
                     rtext = response.text
                     p_valid = self.syntax_validator.is_valid(rtext, self.text_utils)
-                    self.logger.debug('query_chitchat_service response.text="%s" p_valid=%f', rtext, p_valid)
-                    res.append((rtext, p_valid, 'query_chitchat_service'))
+                    if p_valid > 0.5:
+                        self.logger.debug('query_chitchat_service response.text="%s" p_valid=%f', rtext, p_valid)
+                        res.append((rtext, p_valid, 'query_chitchat_service'))
+                    else:
+                        self.logger.debug('query_chitchat_service produced invalid response response.text="%s" p_valid=%f', rtext, p_valid)
+
             except Exception as ex:
                 self.logger.error(ex)
 
@@ -1550,7 +1559,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if self.chitchat_base_url:
                 chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, interpreted_phrase)
                 if chitchat_replicas:
-                    # TODO: выбирать наиболее уместную реплику
+                    # TODO: выбирать наиболее уместную в текущем контексте реплику
                     answer = chitchat_replicas[0][0]
                     bot.say(session, answer)
                     return True
