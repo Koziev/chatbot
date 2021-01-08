@@ -5,6 +5,7 @@
 
 import os
 import json
+import re
 import numpy as np
 import logging
 import random
@@ -77,8 +78,13 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
 
         return u' '.join(outwords)
 
+    def postprocess_prepositions(self, s):
+        s = re.sub(r'\bко тебе\b', 'к тебе', s)
+        s = re.sub(r'\bк мне\b', 'ко мне', s)
+        return s
+
     def normalize_person(self, raw_phrase, text_utils):
-        return self.flip_person(raw_phrase, text_utils)
+        return self.postprocess_prepositions(self.flip_person(raw_phrase, text_utils))
 
     def denormalize_person(self, normal_phrase, text_utils):
-        return self.flip_person(normal_phrase, text_utils)
+        return self.postprocess_prepositions(self.flip_person(normal_phrase, text_utils))

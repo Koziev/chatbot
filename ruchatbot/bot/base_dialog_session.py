@@ -19,8 +19,8 @@ class BaseDialogSession(object):
         self.bot_id = bot_id
         self.interlocutor = interlocutor
         self.facts_storage = facts_storage
-        self.answer_buffer = []
-        self.conversation_history = []  # все фразы беседы
+        self.conversation_history = []  # все фразы беседы, экземпляры InterpretedPhrase
+        self.output_b_index = -1  # индекс последней отданной наружу B-фразы в списке conversation_history
 
         self.activated_rules = []  # правила-обработчики, сработавшие (рекурсивно) в ходе обработки реплики собеседника
 
@@ -33,35 +33,60 @@ class BaseDialogSession(object):
     def get_interlocutor(self):
         return self.interlocutor
 
-    def add_to_buffer(self, phrase):
-        """
-        В буфер ожидающих выдачи ответов бота добавляем новую реплику
-        :param phrase: добавляемая реплика
-        """
-        assert(phrase is not None and len(phrase) > 0)
-        #self.answer_buffer.append(phrase)
-        # 23-12-2020 сортируем фразы так, чтобы вопросы были в конце
-        if phrase.endswith('?') or len(self.answer_buffer) == 0:
-            self.answer_buffer.append(phrase)
-        else:
-            if self.answer_buffer[-1].endswith('?'):
-                # вставляем добавляемый не-вопрос ПЕРЕД хвостовым вопросом.
-                self.answer_buffer.insert(len(self.answer_buffer) - 1, phrase)
+    def add_phrase_to_history(self, interpreted_phrase):
+        self.conversation_history.append(interpreted_phrase)
+
+    def add_output_phrase(self, interpreted_phrase):
+        phrase_text = interpreted_phrase.raw_phrase
+
+        # Сколько B-реплик, ожидающих выдачи, уже накопилось в истории.
+        nb_last_b = 0
+        for history_item in self.conversation_history[::-1]:
+            if not history_item.is_bot_phrase:
+                break
             else:
-                self.answer_buffer.append(phrase)
+                nb_last_b += 1
+
+        if nb_last_b == 0:
+            # Так как ожидающих выдачи B-фраз нет, то просто добавляем новую запись в историю.
+            self.conversation_history.append(interpreted_phrase)
+        else:
+            # 23-12-2020 сортируем фразы так, чтобы вопросы были в конце.
+            if phrase_text.endswith('?'):
+                self.conversation_history.append(interpreted_phrase)
+            else:
+                if self.conversation_history[-1].raw_phrase.endswith('?'):
+                    # вставляем добавляемый не-вопрос ПЕРЕД хвостовым вопросом.
+                    self.conversation_history.insert(len(self.conversation_history) - 1, interpreted_phrase)
+                else:
+                    self.conversation_history.append(interpreted_phrase)
+
+    def insert_output_phrase(self, interpreted_phrase):
+        phrase_text = interpreted_phrase.raw_phrase
+
+        # Сколько B-реплик, ожидающих выдачи, уже накопилось в истории.
+        nb_last_b = 0
+        for history_item in self.conversation_history[::-1]:
+            if not history_item.is_bot_phrase:
+                break
+            else:
+                nb_last_b += 1
+
+        if nb_last_b > 0:
+            if phrase_text.endswith('?'):
+                # Вопросы должны быть в хвосте
+                self.conversation_history.append(interpreted_phrase)
+            else:
+                self.conversation_history.insert(len(self.conversation_history)-nb_last_b, interpreted_phrase)
+        else:
+            self.conversation_history.append(interpreted_phrase)
 
     def get_output_buffer_phrase(self):
-        return self.answer_buffer[-1] if len(self.answer_buffer) > 0 else None
-
-    def insert_into_buffer(self, phrase):
-        if len(self.answer_buffer) > 0:
-            if phrase.endswith('?'):
-                # Вопросы должны быть в хвосте
-                self.answer_buffer.append(phrase)
-            else:
-                self.answer_buffer.insert(0, phrase)
-        else:
-            self.answer_buffer.append(phrase)
+        if self.conversation_history:
+            last_h = self.conversation_history[-1]
+            if last_h.is_bot_phrase:
+                return last_h.raw_phrase
+        return None
 
     def extract_from_buffer(self):
         """
@@ -74,13 +99,14 @@ class BaseDialogSession(object):
         # реплики собеседника.
         self.activated_rules = []
 
-        if len(self.answer_buffer) == 0:
-            return u''
+        # Ищем первую фразу после индекса output_b_index
+        for i in range(self.output_b_index+1, len(self.conversation_history)):
+            if self.conversation_history[i].is_bot_phrase:
+                self.output_b_index = i
+                return self.conversation_history[i].raw_phrase
 
-        return self.answer_buffer.pop(0)
-
-    def add_phrase_to_history(self, interpreted_phrase):
-        self.conversation_history.append(interpreted_phrase)
+        # В истории нет невыданных B-фраз
+        return ''
 
     def rule_activated(self, rule):
         self.activated_rules.append(rule)
@@ -137,7 +163,15 @@ class BaseDialogSession(object):
         return self.conversation_history[-1] if len(self.conversation_history) > 0 else None
 
     def select_answer_buffer_bs(self):
-        return list(self.answer_buffer)
+        output_bs = []
+        for history_item in self.conversation_history[::-1]:
+            if not history_item.is_bot_phrase:
+                break
+            else:
+                assert(len(history_item.raw_phrase) > 0)
+                output_bs.insert(0, history_item.raw_phrase)
+
+        return output_bs
 
     def select_prev_consequent_bs(self):
         """Вернем список с текстами последних подряд идущих реплик бота"""
@@ -204,4 +238,16 @@ class BaseDialogSession(object):
 
     def reset_history(self):
         self.conversation_history = []
+        #self.answer_buffer.clear()
         self.slots.clear()
+        self.activated_rules.clear()
+        self.deferred_running_items.clear()
+        self.output_b_index = -1
+
+    def set_causal_clause(self, interpreted_phrase):
+        for item in self.conversation_history[::-1]:
+            if item.causal_interpretation_clause is not None or not item.is_bot_phrase:
+                break
+            else:
+                item.causal_interpretation_clause = interpreted_phrase
+

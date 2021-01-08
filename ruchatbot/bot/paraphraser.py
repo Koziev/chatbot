@@ -99,9 +99,14 @@ class Paraphraser:
     def conditional_paraphrase(self, phrase, tags, text_utils):
         # тут пока хардкодим костыли, а в будущем должна быть полномасштабная условная генерация текста...
         if tags[0] == 'same_for_me':
-            if phrase.startswith('я '):
-                prefix = random.choice('я тоже|и я тоже'.split('|'))
+            uphrase = phrase.lower()
+            if uphrase.startswith('я '):
+                # я люблю кошек ==> я тоже люблю кошек
+                prefix = random.choice('я тоже|и я тоже|кстати, я тоже|а я ведь тоже'.split('|'))
                 new_phrase = prefix + phrase[1:]
+            elif uphrase.startswith('у меня '):
+                prefix = random.choice('у меня тоже|и у меня тоже|кстати, у меня тоже|у меня ведь тоже'.split('|'))
+                new_phrase = prefix + phrase[6:]
             else:
                 new_phrase = 'и ' + phrase + ' тоже'
 
@@ -188,26 +193,41 @@ class Paraphraser:
 
                 if pred_token.head == '0' and pred_token.upos == 'VERB':
                     if text_utils.get_udpipe_attr(pred_token, 'Tense') == 'Past':
-                        g = text_utils.get_udpipe_attr(pred_token, 'Gender')
-                        if g:
-                            if g != interlocutor_gender:
-                                # нужна коррекция грамматического рода глагола
-                                new_verb_form = text_utils.change_verb_gender(pred_token.lemma, interlocutor_gender)
-                                if new_verb_form:
-                                    new_phrase2 = new_phrase.replace(pred_token.form, new_verb_form)
-                                    logging.debug('Changing phrase gender: old_phrase="%s" new_phrase="%s"', new_phrase, new_phrase2)
-                                    new_phrase = new_phrase2
-                                    break
+                        # Меняем только в случае, если есть подлежащее 2-го лица.
+                        # TODO: может быть было считать клаузу с глагольным сказуемым прошедшего времени
+                        # без явно указанного подлежащего тоже вторым лицом и менять там род "- ты читала Айболита? - читала"
+                        is_2nd_person = False
+                        for token2 in parsed_data:
+                            if token2.head == pred_token.id and token2.upos == 'PRON' \
+                                    and text_utils.get_udpipe_attr(token2, 'Person') == '2' \
+                                    and text_utils.get_udpipe_attr(token2, 'Number') == 'Sing':
+                                is_2nd_person = True
+                                break
+
+                        if is_2nd_person:
+                            g = text_utils.get_udpipe_attr(pred_token, 'Gender')
+                            if g:
+                                if g != interlocutor_gender:
+                                    # нужна коррекция грамматического рода глагола
+                                    new_verb_form = text_utils.change_verb_gender(pred_token.lemma, interlocutor_gender)
+                                    if new_verb_form:
+                                        new_phrase2 = new_phrase.replace(pred_token.form, new_verb_form)
+                                        logging.debug('Changing phrase gender (@215): old_phrase="%s" new_phrase="%s"', new_phrase, new_phrase2)
+                                        new_phrase = new_phrase2
+
+                        break
 
                 if pred_token.head == '0' and pred_token.upos == 'ADJ':
                     for token2 in parsed_data:
-                        if token2.head == pred_token.id and token2.upos == 'PRON' and token2.deprel == 'nsubj':
-                            if text_utils.get_udpipe_attr(pred_token, 'Gender') != interlocutor_gender and text_utils.get_udpipe_attr(pred_token, 'Number') == 'Sing':
-                                # коррекция для именного сказуемого ("я счастлив" -> "я счастлива") ("ты должен ответить"...)
+                        if token2.head == pred_token.id and token2.upos == 'PRON' and token2.deprel == 'nsubj' \
+                                and text_utils.get_udpipe_attr(pred_token, 'Number') == 'Sing' \
+                                and text_utils.get_udpipe_attr(pred_token, 'Person') == '2':
+                            if text_utils.get_udpipe_attr(pred_token, 'Gender') != interlocutor_gender:
+                                # коррекция для именного сказуемого ("ты должен ответить" --> "ты должна ответить")
                                 new_adj_form = text_utils.change_adj_gender(pred_token.lemma, interlocutor_gender, text_utils.get_udpipe_attr(pred_token, 'Variant'))
                                 if new_adj_form:
                                     new_phrase2 = new_phrase.replace(pred_token.form, new_adj_form)
-                                    logging.debug('Changing phrase gender: old_phrase="%s" new_phrase="%s"', new_phrase, new_phrase2)
+                                    logging.debug('Changing phrase gender (@230): old_phrase="%s" new_phrase="%s"', new_phrase, new_phrase2)
                                     new_phrase = new_phrase2
                                     break
 

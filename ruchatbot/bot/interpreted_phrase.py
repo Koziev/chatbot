@@ -8,6 +8,7 @@ class InterpretedPhrase:
         self.is_bot_phrase = False
         self.raw_phrase = raw_phrase
         self.interpretation = raw_phrase
+        self.causal_interpretation_clause = None  # для реплик бота тут будет фраза (или клауза после интерпретации), ответом на которую является данная фраза
         self.raw_tokens = None
         self.is_question = None
         self.is_imperative = None
