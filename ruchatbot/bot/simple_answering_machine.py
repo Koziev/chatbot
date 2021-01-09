@@ -423,7 +423,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                     interpreted = self.interpret_phrase0(bot, session, raw_phrase2, clause, internal_issuer)
 
-                    if clause == interpretations[-1].interpretation:
+                    if i > 0 and clause == interpretations[-1].interpretation:
                         # В результате неверное работы генеративной модели может возникнуть цепочка повторов клаузы:
                         # я работаю в редакции журнала . ты работаешь в белоруссии . ты работаешь в белоруссии . ты работаешь в белоруссии . ты работаешь в белоруссии . ты работаешь в белорусси
                         self.logger.error('Interpreter output: repetition of clause "%s" detected', clause)
