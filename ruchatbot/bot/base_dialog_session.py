@@ -147,6 +147,12 @@ class BaseDialogSession(object):
                 res.append(item.interpretation)
         return res
 
+    def get_all_phrases(self):
+        res = []
+        for item in self.conversation_history:
+            res.append(item.interpretation)
+        return res
+
     def get_last_interlocutor_utterance(self):
         for item in self.conversation_history[::-1]:
             if not item.is_bot_phrase:

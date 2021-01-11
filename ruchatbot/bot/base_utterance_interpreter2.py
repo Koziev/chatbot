@@ -80,7 +80,14 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
 
     def postprocess_prepositions(self, s):
         s = re.sub(r'\bко тебе\b', 'к тебе', s)
+        s = re.sub(r'\bобо тебе\b', 'о тебе', s)
+        s = re.sub(r'\bсо тобой\b', 'с тобой', s)
+        s = re.sub(r'\bво тебе\b', 'в тебе', s)
+
         s = re.sub(r'\bк мне\b', 'ко мне', s)
+        s = re.sub(r'\bо мне\b', 'обо мне', s)
+        s = re.sub(r'\bс мной\b', 'со мне', s)
+        s = re.sub(r'\bв мне\b', 'во мне', s)
         return s
 
     def normalize_person(self, raw_phrase, text_utils):

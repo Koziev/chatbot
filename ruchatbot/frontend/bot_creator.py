@@ -3,6 +3,7 @@
 Используется консольным, flask и telegram-вариантами чатбота.
 
 25-10-2020 добавлено автоконфигурирование веб-сервиса читчата
+10.01.2021 кроме урла сервиса читчата теперь используется структура с доп. конфигурационными полями (температура etc)
 """
 
 import requests
@@ -17,8 +18,23 @@ from ruchatbot.bot.plain_file_faq_storage import PlainFileFaqStorage
 from ruchatbot.scenarios.scenario_who_am_i import Scenario_WhoAmI
 
 
+class ChitchatConfig:
+    """ Конфигурационные параметры сервиса читчата """
+    def __init__(self):
+        self.service_endpoint = 'http://127.0.0.1:9098'
+        self.temperature = 0.9
+        self.num_return_sequences = 1
+
+    def build_query_url(self, context):
+        s = '{}/reply?context={}&temperature={}'.format(self.service_endpoint, context, self.temperature)
+        if self.num_return_sequences > 1:
+            s += '&num_return_sequences={}'.format(self.num_return_sequences)
+
+        return s
+
+
 def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot',
-                   chitchat_url=None,
+                   chitchat_config=None,
                    enable_verbal_forms=False):
     """Создаем и инициализируем экземпляр чатбота с заданным профилем """
 
@@ -49,12 +65,12 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
     machine.trace_enabled = debugging
 
     # Пробуем подцепить локальный сервис читчата
-    if chitchat_url:
-        probe_chitchat_url = chitchat_url
+    if chitchat_config is not None and chitchat_config.service_endpoint:
+        probe_chitchat_url = chitchat_config.service_endpoint
         try:
             chitchat_response = requests.get(probe_chitchat_url + '/')
             if chitchat_response.ok:
-                machine.chitchat_base_url = probe_chitchat_url + '/reply?context={}'
+                machine.chitchat_config = chitchat_config
         except Exception as ex:
             # веб-сервис чит-чата недоступен...
             pass

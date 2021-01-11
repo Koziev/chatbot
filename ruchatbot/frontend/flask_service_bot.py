@@ -12,7 +12,7 @@ import logging
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.bot_service import flask_app
 from ruchatbot.bot_service.global_params import profile_path, models_folder, data_folder, w2v_folder, chitchat_url
-from ruchatbot.frontend.bot_creator import create_chatbot
+from ruchatbot.frontend.bot_creator import create_chatbot, ChitchatConfig
 
 
 listen_ip = '127.0.0.1'
@@ -25,7 +25,15 @@ def init_chatbot():
         logging.info('init_chatbot: profile_path="%s" models_folder="%s" data_folder="%s" chitchat_url="%s"',
                      profile_path, models_folder, data_folder, chitchat_url)
 
-        bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging=True, chitchat_url=chitchat_url)
+        if chitchat_url:
+            rugpt_chitchat_config = ChitchatConfig()
+            rugpt_chitchat_config.service_endpoint = chitchat_url
+            # rugpt_chitchat_config.temperature = 0.9
+            rugpt_chitchat_config.num_return_sequences = 2
+        else:
+            rugpt_chitchat_config = None
+
+        bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging=True, chitchat_config=rugpt_chitchat_config)
 
         #def on_order(order_anchor_str, bot, session):
         #    bot.say(session, 'Выполняю команду "{}"'.format(order_anchor_str))

@@ -14,7 +14,7 @@ import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 from ruchatbot.utils.logging_helpers import init_trainer_logging
-from ruchatbot.frontend.bot_creator import create_chatbot
+from ruchatbot.frontend.bot_creator import create_chatbot, ChitchatConfig
 
 
 def start(bot, update):
@@ -59,6 +59,7 @@ if __name__ == '__main__':
     parser.add_argument('--w2v_folder', type=str, default='../../tmp')
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
     parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
+    parser.add_argument('--chitchat_url', type=str, help='chit-chat service endpoint')
 
     args = parser.parse_args()
 
@@ -78,8 +79,17 @@ if __name__ == '__main__':
     tg_bot = telegram.Bot(token=telegram_token)
     logging.info('Telegram bot: %s', tg_bot.getMe())
 
+    if args.chitchat_url:
+        rugpt_chitchat_config = ChitchatConfig()
+        rugpt_chitchat_config.service_endpoint = args.chitchat_url
+        # rugpt_chitchat_config.temperature = 0.9
+        rugpt_chitchat_config.num_return_sequences = 2
+    else:
+        rugpt_chitchat_config = None
+
     logging.debug('Bot loading...')
-    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, True, bot_id='telegram_bot')
+    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, True, bot_id='telegram_bot',
+                             chitchat_config=rugpt_chitchat_config)
 
     updater = Updater(token=telegram_token)
     dispatcher = updater.dispatcher

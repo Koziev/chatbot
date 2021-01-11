@@ -101,7 +101,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger = logging.getLogger('SimpleAnsweringMachine')
         self.discourse = Discourse()
 
-        self.chitchat_base_url = None  #'http://127.0.0.1:9099/reply?context={}'
+        self.chitchat_config = None
 
         self.premise_not_found = None  # модель генерации реплик для вопросов, на которые бот не знает ответ
         self.premise_not_found_count = 0  # сколько раз вызывалась модель premise_not_found
@@ -711,8 +711,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def calc_discourse_relevance(self, replica, session):
         """Возвращает оценку соответствия реплики replica текущему дискурсу беседы session"""
-        # TODO
-        return 1.0
+        px = []
+        for phrase in session.get_all_phrases():
+            sim = Jaccard_SynonymyDetector.jaccard(replica, phrase, shingle_len=3)
+            px.append(sim)
+
+        if px:
+            return np.mean(px)
+        else:
+            return 1.0
 
     def bot_replica_already_uttered(self, bot, session, phrase):
         """Проверяем, была ли такая же или синонимичная реплика уже сказана ботом ранее"""
@@ -1080,9 +1087,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if len(generated_replicas) > 0:
             replica_px = [z[1] for z in generated_replicas]
             replicas = list(map(operator.itemgetter(0), generated_replicas))
-            sum_p = sum(replica_px)  # +1e-7
+            sum_p = sum(replica_px) + np.finfo(float).eps  # +1e-7
             replica_px = [p / sum_p for p in replica_px]
-            replica = np.random.choice(replicas, p=replica_px)
+            try:
+                replica = np.random.choice(replicas, p=replica_px)
+            except ValueError:
+                replica = random.choice(replicas)
+
             return replica
 
         return None
@@ -1090,7 +1101,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def query_chitchat_service(self, bot, session, interlocutor, last_phrase):
         res = []
 
-        if self.chitchat_base_url:
+        if self.chitchat_config:
             try:
                 # 16-10-2020
                 # Собираем контекст.
@@ -1103,18 +1114,33 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     if last_bot_phrase is not None:
                         context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
 
-                qurl = self.chitchat_base_url.format(context)
-                self.logger.debug('query_chitchat_service qurl="{}"'.format(qurl))
+                qurl = self.chitchat_config.build_query_url(context)
+                self.logger.debug('query_chitchat_service qurl="%s" interlocutor=%s', qurl, interlocutor)
                 response = requests.get(qurl)
                 # todo потом должен быть json
                 if response.ok:
-                    rtext = response.text
-                    p_valid = self.syntax_validator.is_valid(rtext, self.text_utils)
-                    if p_valid > 0.5:
-                        self.logger.debug('query_chitchat_service response.text="%s" p_valid=%f', rtext, p_valid)
-                        res.append((rtext, p_valid, 'query_chitchat_service'))
-                    else:
-                        self.logger.debug('query_chitchat_service produced invalid response response.text="%s" p_valid=%f', rtext, p_valid)
+                    generated_lines = response.text.split('\n')
+                    self.logger.debug('Chitchat returned %d lines for interlocutor=%s', len(generated_lines), interlocutor)
+                    ranked_lines = []
+                    for rtext in generated_lines:
+                        # Валидация синтаксиса языковой моделью
+                        p_syntax = self.syntax_validator.is_valid(rtext, self.text_utils)
+
+                        if p_syntax < 0.5:
+                            self.logger.debug('query_chitchat_service produced invalid response text="%s" p_syntax=%f', rtext, p_syntax)
+
+                        # Взвешиваем по контексту
+                        p_discourse = self.calc_discourse_relevance(rtext, session)
+
+                        p_line = p_syntax * p_discourse
+                        ranked_lines.append((rtext, p_line))
+
+                    if ranked_lines:
+                        ranked_lines = sorted(ranked_lines, key=lambda z: -z[1])
+                        best_line = ranked_lines[0][0]
+                        best_p = ranked_lines[0][1]
+                        self.logger.debug('query_chitchat_service response: best_line="%s" best_p=%f', best_line, best_p)
+                        res.append((best_line, best_p, 'query_chitchat_service'))
 
             except Exception as ex:
                 self.logger.error(ex)
@@ -1637,7 +1663,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     bot.say(session, best_answer)
                     return True
 
-            if self.chitchat_base_url:
+            if self.chitchat_config:
                 chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, interpreted_phrase)
                 if chitchat_replicas:
                     # TODO: выбирать наиболее уместную в текущем контексте реплику
@@ -1816,7 +1842,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             # Попробуем обработать вопрос правилами.
             res = InsteadofRuleResult.GetFalse()
-            if self.chitchat_base_url is None:
+            if self.chitchat_config is None:
                 if self.premise_not_found.get_noanswer_rules():
                     res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
                                                     None, #bot.get_scripting().get_story_rules(),
@@ -1837,7 +1863,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 # Стратегия №1: всегда предпочитаем вызывать сервис читчата, если он доступен,
                 # так как он дает более разнообразные и контекстные ответы, чем правила.
-                if self.chitchat_base_url:
+                if self.chitchat_config is not None:
                     do_query_chitchat = True
 
                 # Стратегия №2: после первой реплики "не знаю" начинаем использовать веб-сервис чит-чата

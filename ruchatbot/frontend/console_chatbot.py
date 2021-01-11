@@ -14,7 +14,7 @@ import io
 
 from ruchatbot.bot.console_utils import input_kbd, print_answer, print_tech_banner, flush_logging
 from ruchatbot.utils.logging_helpers import init_trainer_logging
-from ruchatbot.frontend.bot_creator import create_chatbot
+from ruchatbot.frontend.bot_creator import create_chatbot, ChitchatConfig
 
 
 def on_order(order_anchor_str, bot, session):
@@ -62,7 +62,7 @@ def on_buy_pizza(bot, session, user_id, interpreted_phrase, verb_form_fields):
 
 
 if __name__ == '__main__':
-    user_id = 'test'
+    user_id = 'anonymous'
 
     parser = argparse.ArgumentParser(description='Question answering machine')
     parser.add_argument('--data_folder', type=str, default='../../data')
@@ -82,8 +82,16 @@ if __name__ == '__main__':
 
     init_trainer_logging(os.path.join(tmp_folder, 'console_chatbot.log'), args.debugging)
 
+    if args.chitchat_url:
+        rugpt_chitchat_config = ChitchatConfig()
+        rugpt_chitchat_config.service_endpoint = args.chitchat_url
+        # rugpt_chitchat_config.temperature = 0.9
+        rugpt_chitchat_config.num_return_sequences = 2
+    else:
+        rugpt_chitchat_config = None
+
     logging.debug('Bot loading...')
-    bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging, chitchat_url=args.chitchat_url)
+    bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging, chitchat_config=rugpt_chitchat_config)
 
     # Выполняем привязку обработчиков
     bot.on_process_order = on_order
