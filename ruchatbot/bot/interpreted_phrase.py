@@ -44,3 +44,6 @@ class InterpretedPhrase:
 
         s += ')'
         return s
+
+    def is_abracadabra(self):
+        return 'абракадабра' in self.intents

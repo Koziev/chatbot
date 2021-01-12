@@ -1122,7 +1122,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     generated_lines = response.text.split('\n')
                     self.logger.debug('Chitchat returned %d lines for interlocutor=%s', len(generated_lines), interlocutor)
                     ranked_lines = []
+                    all_session_phrases = session.get_all_phrases()
                     for rtext in generated_lines:
+                        # Проверим, что такая реплика еще не использовалась в этой сессии
+                        if rtext in all_session_phrases:
+                            continue
+
                         # Валидация синтаксиса языковой моделью
                         p_syntax = self.syntax_validator.is_valid(rtext, self.text_utils)
 
@@ -1296,11 +1301,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     # текущего собеседника.
                     # TODO: факты касательно третьих лиц надо вносить в общий раздел базы, а не
                     # для текущего собеседника.
-                    fact_person = '3'
+                    # 12.01.2021 Абракадабру не сохраняем в БД
                     fact = interpreted_phrase.interpretation
-                    if self.trace_enabled:
-                        self.logger.info('Adding "%s" to knowledge base', fact)
-                    bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'), False)
+
+                    if interpreted_phrase.is_abracadabra():
+                        self.logger.debug('Assertion "%s" is abracadabra, not saved to knowledge base. user=%s', fact, interlocutor)
+                    else:
+                        fact_person = '3'
+                        if self.trace_enabled:
+                            self.logger.info('Adding "%s" to knowledge base. user=%s', fact, interlocutor)
+                        bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'), False)
 
             insteadof_rule_result = None
             was_running_session = False
@@ -1505,12 +1515,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                       interlocutor,
                                       interpreted_phrase)
 
-            if interpreted_phrase.is_imperative:
-                self.discourse.store_order_in_database(bot, session, interpreted_phrase)
-            elif interpreted_phrase.is_question or is_question2:
-                self.discourse.store_question_in_database(bot, session, interpreted_phrase)
-            elif interpreted_phrase.is_assertion:
-                self.discourse.store_assertion_in_database(bot, session, interpreted_phrase)
+            if not interpreted_phrase.is_abracadabra():
+                if interpreted_phrase.is_imperative:
+                    self.discourse.store_order_in_database(bot, session, interpreted_phrase)
+                elif interpreted_phrase.is_question or is_question2:
+                    self.discourse.store_question_in_database(bot, session, interpreted_phrase)
+                elif interpreted_phrase.is_assertion:
+                    self.discourse.store_assertion_in_database(bot, session, interpreted_phrase)
 
             # Для всех реплик бота, добавленных в историю, проставим поле causal_interpreted_clause, чтобы
             # потом знать, на какую часть входной реплики они отвечают.
