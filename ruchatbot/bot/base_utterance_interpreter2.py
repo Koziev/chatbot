@@ -1,26 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Реализация методов нормализации и денормализации лица для интерпретатора.
+
+12.01.2021 Добавляем работу с репликами в уважительной форме 2л мн.ч "как Вас зовут?"
 """
 
 import os
-import json
 import re
-import numpy as np
 import logging
-import random
 import pickle
-import itertools
-
-from keras.models import model_from_json
-
-import keras_contrib
-from keras_contrib.layers import CRF
-from keras_contrib.losses import crf_loss
-from keras_contrib.metrics import crf_viterbi_accuracy
 
 from ruchatbot.bot.base_utterance_interpreter import BaseUtteranceInterpreter
-from ruchatbot.utils.padding_utils import PAD_WORD, lpad_wordseq, rpad_wordseq
 
 
 class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
@@ -35,27 +25,57 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
         with open(os.path.join(models_folder, 'person_change_dictionary.pickle'), 'rb') as f:
             self.person_changing_data = pickle.load(f)
 
-        #self.w1s = self.person_changing_data['word_1s']
-        #self.w2s = self.person_changing_data['word_2s']
         self.person_change_1s_2s = self.person_changing_data['person_change_1s_2s']
         self.person_change_2s_1s = self.person_changing_data['person_change_2s_1s']
+        self.person_change_2p_1s = self.person_changing_data['person_change_2p_1s']
 
-        self.hard_replacement = {u'я': u'ты',
-                                 u'ты': u'я'}
+        self.hard_replacement = {'я': 'ты',
+                                 'ты': 'я',
+                                 'вы': 'я'}
 
-        self.special_changes_3 = {u'меня': u'тебя',
-                                  u'мне': u'тебе',
-                                  u'мной': u'тобой',
-                                  u'мною': u'тобою',
-                                  u'тебя': u'меня',
-                                  u'тебе': u'мне',
-                                  u'тобой': u'мной',
-                                  u'тобою': u'мною',
-                                  u'по-моему': u'по-твоему',
-                                  u'по-твоему': u'по-моему',
-                                  u'ваш': u'мой',
-                                  u'наш': u'ваш',
-                                  u'по-вашему': u'по-моему'
+        self.special_changes_3 = {'меня': 'тебя',
+                                  'мне': 'тебе',
+                                  'мной': 'тобой',
+                                  'мною': 'тобою',
+
+                                  'тебя': 'меня',
+                                  'тебе': 'мне',
+                                  'тобой': 'мной',
+                                  'тобою': 'мною',
+
+                                  'вас': 'меня',
+                                  'вам': 'мне',
+                                  'вами': 'мной',
+
+                                  'по-моему': 'по-твоему',
+                                  'по-твоему': 'по-моему',
+                                  'по-вашему': 'по-моему',
+
+                                  'ваш': 'мой',
+                                  'ваши': 'мои',
+                                  'вашим': 'моим',
+                                  'вашими': 'моими',
+                                  'ваших': 'моих',
+                                  'вашем': 'моем',
+                                  'вашему': 'моему',
+                                  'вашей': 'моей',
+                                  'вашу': 'мою',
+                                  'ваша': 'моя',
+                                  'ваше': 'мое',
+
+                                  'твой': 'мой',
+                                  'твои': 'мои',
+                                  'твоим': 'моим',
+                                  'твоими': 'моими',
+                                  'твоих': 'моих',
+                                  'твоем': 'моем',
+                                  'твоему': 'моему',
+                                  'твоей': 'моей',
+                                  'твою': 'мою',
+                                  'твоя': 'моя',
+                                  'твое': 'мое',
+
+                                  'наш': 'ваш',
                                   }
 
     def flip_person(self, src_phrase, text_utils):
@@ -69,6 +89,8 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
                     outwords.append(self.person_change_1s_2s[word])
                 elif word in self.person_change_2s_1s:
                     outwords.append(self.person_change_2s_1s[word])
+                elif word in self.person_change_2p_1s:
+                    outwords.append(self.person_change_2p_1s[word])
                 else:
                     # немного хардкода.
                     if word in self.special_changes_3:
