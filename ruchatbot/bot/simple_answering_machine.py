@@ -475,7 +475,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return 0
 
     def say(self, bot, session, answer):
-        self.logger.info('Say "%s"', answer)
+        self.logger.info('Say "%s" user=%s', answer, session.get_interlocutor())
         if answer:
             new_is_question = answer.endswith('?')
             new_is_assertion = not answer.endswith('?')
@@ -499,10 +499,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 return
 
             # НАЧАЛО ОТЛАДКИ
-            if new_is_assertion:
-                n = session.count_prev_consequent_b()
-                if n > 0:
-                    self.logger.debug('DEBUG@491')
+            #if new_is_assertion:
+            #    n = session.count_prev_consequent_b()
+            #    if n > 0:
+            #        self.logger.debug('DEBUG@491')
             # КОНЕЦ ОТЛАДКИ
 
             answer = self.paraphraser.paraphrase(answer, self.text_utils, bot, session)
@@ -519,7 +519,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             self.logger.error('Empty phrase in say()')
 
     def say_before_b(self, bot, session, answer):
-        self.logger.info('Say before B: "%s"', answer)
+        self.logger.info('Say before B: "%s" user=%s', answer, session.get_interlocutor())
         new_is_question = answer.endswith('?')
         new_is_assertion = not answer.endswith('?')
 
@@ -542,10 +542,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             return
 
         # НАЧАЛО ОТЛАДКИ
-        if new_is_assertion:
-            n = session.count_prev_consequent_b()
-            if n > 0:
-                self.logger.debug('DEBUG@534')
+        #if new_is_assertion:
+        #    n = session.count_prev_consequent_b()
+        #    if n > 0:
+        #        self.logger.debug('DEBUG@534')
         # КОНЕЦ ОТЛАДКИ
 
         answer = self.paraphraser.paraphrase(answer, self.text_utils, bot, session)
@@ -569,23 +569,23 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 return
             elif scenario.get_priority() < session.get_status().get_priority():
                 # Текущий сценарий имеет приоритет выше, чем новый. Поэтому новый пока откладываем.
-                self.logger.warning(u'New status priority %d is lower than priority %d of running "%s"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
+                self.logger.warning('New status priority %d is lower than priority %d of running "%s"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
                 session.defer_status(scenario)
                 return
             elif scenario.get_priority() == session.get_status().get_priority():
                 # Тут могут быть разные нюансы, которые неплохо бы регулировать попарными свойствами.
                 # Но это будет слишком муторно для разработчика сценариев.
                 # Поэтому считаем, что новый сценарий вытесняет текущий в этом случае.
-                self.logger.debug(u'New scenario "%s" priority=%d is same as priority of currently running "%s"',
+                self.logger.debug('New scenario "%s" priority=%d is same as priority of currently running "%s"',
                                   scenario.get_name(), scenario.get_priority(), session.get_status().get_name())
             else:
-                self.logger.debug(u'New scenario priority=%d is higher than currently running=%d',
+                self.logger.debug('New scenario priority=%d is higher than currently running=%d',
                                   scenario.get_priority(), session.get_status().get_priority())
                 # Удаляем все отложенные сценарии...
                 session.cancel_all_running_items()
 
         else:
-            self.logger.debug(u'Start scenario "%s"', scenario.name)
+            self.logger.debug('Start scenario "%s"', scenario.name)
 
         # Запускаем новый
         status = RunningScenario(scenario, current_step_index=-1)
@@ -598,7 +598,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # 09-12-2020 если уже есть работающий экземпляр запускаемого сценария, то не будем запускать его снова.
         if session.get_status():
             if session.get_status().get_name() == scenario.get_name():
-                self.logger.debug('Scenario "%s" is already active', scenario.get_name())
+                self.logger.debug('Scenario "%s" is already active. user=%s', scenario.get_name(), interlocutor)
                 return
 
         status = RunningScenario(scenario, current_step_index=-1)
@@ -607,7 +607,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
-        self.logger.debug('Exit scenario "%s"', session.get_status().get_name())
+        self.logger.debug('Exit scenario "%s" user=%s', session.get_status().get_name(), interlocutor)
         session.exit_scenario()
         if session.get_status():
             if isinstance(session.get_status(), RunningScenario):
@@ -656,7 +656,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         assert(isinstance(status, RunningFormStatus))
         form = status.form
         if form.ok_action:
-            logging.debug(u'Выполнение действия формы "%s"', form.name)
+            logging.debug('Выполнение действия формы "%s"', form.name)
             form.compiled_ok_action.do_action(bot, session, interlocutor, None, None, text_utils=self.text_utils)
         session.form_executed()
 
@@ -1115,12 +1115,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
 
                 qurl = self.chitchat_config.build_query_url(context)
-                self.logger.debug('query_chitchat_service qurl="%s" interlocutor=%s', qurl, interlocutor)
+                self.logger.debug('query_chitchat_service qurl="%s" user=%s', qurl, interlocutor)
                 response = requests.get(qurl)
                 # todo потом должен быть json
                 if response.ok:
                     generated_lines = response.text.split('\n')
-                    self.logger.debug('Chitchat returned %d lines for interlocutor=%s', len(generated_lines), interlocutor)
+                    self.logger.debug('Chitchat returned %d lines for user=%s', len(generated_lines), interlocutor)
                     ranked_lines = []
                     all_session_phrases = session.get_all_phrases()
                     for rtext in generated_lines:
@@ -1168,15 +1168,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.logger.info('push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
         assert(isinstance(phrase, str))
         question = self.text_utils.canonize_text(phrase)
-        if question == u'#traceon':
+        if question == '#traceon':
             self.trace_enabled = True
             return
-        elif question == u'#traceoff':
+        elif question == '#traceoff':
             self.trace_enabled = False
             return
-        elif question == u'#facts':
+        elif question == '#facts':
             for fact, person, fact_id in bot.facts.enumerate_facts(interlocutor):
-                print(u'{}'.format(fact))
+                print('{}'.format(fact))
             return
 
         session = self.get_session(bot, interlocutor)
@@ -1235,7 +1235,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             input_processed = False
             if interpreted_phrase.is_assertion and not is_question2:
-                self.logger.debug('Processing as assertion: "%s"', interpreted_phrase.interpretation)
+                self.logger.debug('Processing as assertion: "%s" user=%s', interpreted_phrase.interpretation, interlocutor)
 
                 # Обработка прочих фраз. Обычно это просто утверждения (новые факты, болтовня).
                 # Пробуем применить общие правила, которые опираются в том числе на
@@ -1260,13 +1260,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     s1 = self.interpreter.denormalize_person(interpreted_phrase.interpretation, self.text_utils)
                     similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
                     if similar_fact:
-                        self.logger.debug('similar fact="%s" for phrase="%s", resulting in style="same_for_me"', similar_fact, s1)
+                        self.logger.debug('similar fact="%s" for phrase="%s", resulting in style="same_for_me". user=%s', similar_fact, s1, interlocutor)
                         s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['same_for_me'], self.text_utils)
                         self.say(bot, session, s2)
                     # если для факта, сообщенного собесом, есть оппозитный для бота, то выдадим "а я нет"
                     contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
                     if contradictory_fact:
-                        self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me"', contradictory_fact, s1)
+                        self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me". user=%s', contradictory_fact, s1, interlocutor)
                         s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
                         self.say(bot, session, s2)
                         #input_processed = True
@@ -1277,7 +1277,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     s1 = interpreted_phrase.interpretation
                     similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
                     if similar_fact:
-                        self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known"', similar_fact, s1)
+                        self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known". user=%s', similar_fact, s1, interlocutor)
                         s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['already_known'], self.text_utils)
                         self.say(bot, session, s2)
                         input_processed = True  # не будем сохранять синонимичный факт в БД
@@ -1432,7 +1432,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             self.discourse.process_interrogator_phrase(bot, session, interpreted_phrase)
             if interpreted_phrase.is_imperative:
-                self.logger.debug(u'Processing as imperative: "%s"', interpreted_phrase.interpretation)
+                self.logger.debug('Processing as imperative: "%s" user=%s', interpreted_phrase.interpretation, interlocutor)
                 # Обработка приказов (императивов).
                 order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
                 if not order_processed:
@@ -1442,7 +1442,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     self.say(bot, session, answer)
                     order_processed = True
             elif interpreted_phrase.is_question or is_question2:
-                self.logger.debug(u'Processing as question: "%s"', interpreted_phrase.interpretation)
+                self.logger.debug('Processing as question: "%s" user=%s', interpreted_phrase.interpretation, interlocutor)
 
                 replica = None
                 input_processed = False

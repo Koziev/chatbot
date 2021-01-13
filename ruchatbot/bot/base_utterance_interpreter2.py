@@ -108,7 +108,7 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
 
         s = re.sub(r'\bк мне\b', 'ко мне', s)
         s = re.sub(r'\bо мне\b', 'обо мне', s)
-        s = re.sub(r'\bс мной\b', 'со мне', s)
+        s = re.sub(r'\bс мной\b', 'со мной', s)
         s = re.sub(r'\bв мне\b', 'во мне', s)
         return s
 
