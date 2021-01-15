@@ -13,6 +13,8 @@ from ruchatbot.bot.base_answering_machine import BaseAnsweringMachine
 from ruchatbot.bot.simple_dialog_session_factory import SimpleDialogSessionFactory
 # from xgb_relevancy_detector import XGB_RelevancyDetector
 from ruchatbot.bot.lgb_relevancy_detector import LGB_RelevancyDetector
+#from ruchatbot.bot.nn_pq_relevancy_detector import NN_RelevancyDetector
+
 #from nn_relevancy_tripleloss import NN_RelevancyTripleLoss
 #from xgb_person_classifier_model import XGB_PersonClassifierModel
 #from nn_person_change import NN_PersonChange
@@ -150,6 +152,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Определение релевантности предпосылки и вопроса на основе XGB модели
         # self.relevancy_detector = XGB_RelevancyDetector()
         self.relevancy_detector = LGB_RelevancyDetector()
+        #self.relevancy_detector = NN_RelevancyDetector()
         # self.relevancy_detector = NN_RelevancyTripleLoss()
         self.relevancy_detector.load(models_folder)
 
@@ -258,10 +261,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         canonized2raw = dict((f2[0], f1) for (f1, f2) in zip(phrases, phrases2))
 
         raw_phrase2 = self.text_utils.wordize_text(raw_phrase)
-        best_order, best_sim = self.synonymy_detector.get_most_similar(raw_phrase2,
-                                                                       phrases2,
-                                                                       self.text_utils,
-                                                                       nb_results=1)
+        if phrases2:
+            best_order, best_sim = self.synonymy_detector.get_most_similar(raw_phrase2,
+                                                                           phrases2,
+                                                                           self.text_utils,
+                                                                           nb_results=1)
+        else:
+            best_order = None
+            best_sim = 0.0
 
         # Если похожесть проверяемой реплики на любой вариант в таблице приказов выше порога,
         # то дальше будем обрабатывать нормализованную фразу вместо исходной введенной.
@@ -585,11 +592,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 session.cancel_all_running_items()
 
         else:
-            self.logger.debug('Start scenario "%s"', scenario.name)
+            self.logger.debug('Start scenario "%s" user=%s', scenario.name, interlocutor)
 
         # Запускаем новый
         status = RunningScenario(scenario, current_step_index=-1)
         session.set_status(status)
+        self.logger.debug('Scenario stack depth now is %d:[ %s ]  user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
         scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
@@ -599,16 +607,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if session.get_status():
             if session.get_status().get_name() == scenario.get_name():
                 self.logger.debug('Scenario "%s" is already active. user=%s', scenario.get_name(), interlocutor)
+                # TODO - надо вытащить этот сценарий в топ, удалив все сценарии перед ним.
                 return
 
         status = RunningScenario(scenario, current_step_index=-1)
         session.call_scenario(status)
+        self.logger.debug('Scenario stack depth now is %d:[ %s ]  user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
         scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
         self.logger.debug('Exit scenario "%s" user=%s', session.get_status().get_name(), interlocutor)
         session.exit_scenario()
+        self.logger.debug('Scenario stack depth now is %d: %s  user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
         if session.get_status():
             if isinstance(session.get_status(), RunningScenario):
                 self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)

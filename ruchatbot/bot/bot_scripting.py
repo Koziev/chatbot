@@ -63,13 +63,14 @@ class BotScripting(object):
         self.negations = []
         self.insteadof_rules = []
         self.after_rules = []  # правила, срабатывающие после основной обработки реплики, например - активация дополнительного сценария
-        self.comprehension_rules = None
         self.forms = []  # список экземпляров VerbalForm
         self.scenarios = []  # список экземпляров Scenario
         self.smalltalk_rules = SmalltalkRules()
         self.story_rules = StoryRules()
         self.continuation_rules = ContinuationRules()
         self.rule_paths = []
+        self.comprehension_rules = ComprehensionTable()
+        self.common_phrases = []
 
     @staticmethod
     def __get_node_list(node):
@@ -204,7 +205,6 @@ class BotScripting(object):
                     scenario = Scenario.load_yaml(scenario_node['scenario'], self, smalltalk_rule2grammar, constants, text_utils)
                     self.scenarios.append(scenario)
 
-            self.continuation_rules = ContinuationRules()
             if 'continuation' in data:
                 self.continuation_rules.load_yaml(data['continuation'], constants, text_utils)
                 if 'files' in data['continuation']:
@@ -213,10 +213,8 @@ class BotScripting(object):
                             data2 = yaml.safe_load(f)
                             self.continuation_rules.load_yaml(data2, constants, text_utils)
 
-            self.comprehension_rules = ComprehensionTable()
             self.comprehension_rules.load_yaml_data(data, constants, text_utils)
 
-            self.common_phrases = []
             if 'common_phrases' in data:
                 for common_phrase in data['common_phrases']:
                     common_phrase = replace_constant(common_phrase, constants, text_utils)

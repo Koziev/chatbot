@@ -232,6 +232,22 @@ class BaseDialogSession(object):
     def get_status(self):
         return self.status
 
+    def get_scenario_stack_depth(self):
+        """Вернет количество сценариев в сессии - один текущий и еще сколько-то в стеке отложенных"""
+        n = 0
+        if self.status:
+            n += 1
+            n += len(self.deferred_running_items)
+        return n
+
+    def list_scenario_stack(self):
+        names = []
+        if self.status:
+            names.append('0:{}'.format(self.status.get_name()))
+            for depth, item in enumerate(self.deferred_running_items, start=1):
+                names.append('-{}:{}'.format(depth, item.get_name()))
+        return ' '.join(names)
+
     def cancel_all_running_items(self):
         self.deferred_running_items = []
         self.status = None
