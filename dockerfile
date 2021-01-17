@@ -35,6 +35,8 @@ RUN pip install flask_sqlalchemy
 RUN pip install flask_wtf
 RUN pip install python-telegram-bot --upgrade
 RUN pip install h5py==2.10.0
+RUN pip install pyconll
+RUN pip install ufal.udpipe
 
 WORKDIR /home
 ADD ruword2tags.tar.gz /home

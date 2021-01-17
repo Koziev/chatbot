@@ -8,6 +8,7 @@ import numpy as np
 import operator
 import random
 import requests
+import collections
 
 from ruchatbot.bot.base_answering_machine import BaseAnsweringMachine
 from ruchatbot.bot.simple_dialog_session_factory import SimpleDialogSessionFactory
@@ -1148,7 +1149,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         # Взвешиваем по контексту
                         p_discourse = self.calc_discourse_relevance(rtext, session)
 
-                        p_line = p_syntax * p_discourse
+                        # Составные предложения (несколько клауз) будем штрафовать
+                        t_chars = collections.defaultdict(int)
+                        for c in rtext[:-1]:
+                            t_chars[c] += 1
+                        nb_clauses = t_chars['.'] + t_chars['?'] + t_chars['!']
+                        p_clauses = math.exp(-nb_clauses)
+
+                        p_line = p_syntax * p_discourse * p_clauses
                         ranked_lines.append((rtext, p_line))
 
                     if ranked_lines:
