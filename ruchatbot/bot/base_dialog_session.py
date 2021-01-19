@@ -27,8 +27,8 @@ class BaseDialogSession(object):
         self.status = None  # экземпляр производного от RunningDialogStatus класса,
                             # если выполняется вербальная форма или сценарий
         self.deferred_running_items = deque()
-
         self.slots = dict()  # переменные состояния
+        self.started_scenarios = set()  # для отладки: какие сценарии запускались
 
     def get_interlocutor(self):
         return self.interlocutor
@@ -209,8 +209,10 @@ class BaseDialogSession(object):
                 self.status = None
         else:
             self.status = new_status
+            self.started_scenarios.add(new_status.get_name())
 
     def call_scenario(self, running_scenario):
+        self.started_scenarios.add(running_scenario.get_name())
         if self.status is None:
             self.status = running_scenario
         else:
@@ -265,6 +267,7 @@ class BaseDialogSession(object):
         self.activated_rules.clear()
         self.deferred_running_items.clear()
         self.output_b_index = -1
+        self.started_scenarios.clear()
 
     def set_causal_clause(self, interpreted_phrase):
         for item in self.conversation_history[::-1]:
@@ -273,3 +276,20 @@ class BaseDialogSession(object):
             else:
                 item.causal_interpretation_clause = interpreted_phrase
 
+    def purge_bot_phrases(self):
+        purged_phrases = []
+        for item in self.conversation_history[::-1]:
+            if item.causal_interpretation_clause is not None or not item.is_bot_phrase:
+                break
+            else:
+                purged_phrases.append(item)
+
+        if purged_phrases:
+            self.conversation_history = self.conversation_history[:-len(purged_phrases)]
+
+        return purged_phrases
+
+    def get_session_stat(self):
+        lines = []
+        lines.append('Scenarios: {}'.format(', '.join(self.started_scenarios)))
+        return lines

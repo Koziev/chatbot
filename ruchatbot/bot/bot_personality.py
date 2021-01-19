@@ -78,6 +78,9 @@ class BotPersonality:
     def reset_added_facts(self):
         self.facts.reset_added_facts()
 
+    def get_session_stat(self, user_id):
+        return self.engine.get_session(self, user_id).get_session_stat()
+
     def push_phrase(self, user_id, question, internal_issuer=False):
         self.engine.push_phrase(self, user_id, question, internal_issuer,
                                 force_question_answering=self.force_question_answering)

@@ -240,6 +240,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         :param interlocutor: строковый идентификатор собеседника.
         :return: строка реплики, которую скажет бот.
         """
+        self.logger.debug('Bot %s starts conversation with interlocutor %s', bot.get_bot_id(), interlocutor)
         session = self.get_session(bot, interlocutor)
         if bot.has_scripting():
             phrase = bot.scripting.start_conversation(self, session)
@@ -440,8 +441,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 else:
                     self.logger.error('Interpreter output clause "%s" is invalid p_valid=%f', clause, p_valid)
         else:
-            interpreted = self.interpret_phrase0(bot, session, raw_phrase, raw_phrase, internal_issuer)
-            interpretations.append(interpreted)
+            # Бьем текст входной реплики на клаузы.
+            for iclause, clause in enumerate(self.text_utils.slit_clauses(raw_phrase)):
+                interpreted = self.interpret_phrase0(bot, session, clause, clause, internal_issuer)
+                interpretations.append(interpreted)
 
         return interpretations
 
@@ -483,7 +486,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         return 0
 
     def say(self, bot, session, answer):
-        self.logger.info('Say "%s" user=%s', answer, session.get_interlocutor())
+        self.logger.info('bot %s says "%s" to interlocutor %s', bot.get_bot_id(), answer, session.get_interlocutor())
         if answer:
             new_is_question = answer.endswith('?')
             new_is_assertion = not answer.endswith('?')
@@ -494,16 +497,16 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             if new_is_question and last_is_question:
                 # Два вопроса подряд - плохо.
-                self.logger.error('Two consequent questions issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+                self.logger.error('Two consequent questions issued by bot %s: prev="%s", new="%s"', bot.get_bot_id(), last_phrase.raw_phrase, answer)
                 return
 
             if new_is_assertion and last_is_question:
                 # Утверждение после вопроса - плохо, так как вопрос экранируется
-                self.logger.error('Assertion after the question issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+                self.logger.error('Assertion after the question issued by bot %s: prev="%s", new="%s"', bot.get_bot_id(), last_phrase.raw_phrase, answer)
                 return
 
             if self.check_repetition_before_saying(bot, session, answer):
-                self.logger.error('SAY: repetition detected, phrase "%s" is muted', answer)
+                self.logger.error('SAY: repetition detected in bot %s, phrase "%s" is muted', bot.get_bot_id(), answer)
                 return
 
             # НАЧАЛО ОТЛАДКИ
@@ -524,10 +527,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             session.add_output_phrase(answer_interpretation)
             self.discourse.process_bot_phrase(bot, session, answer)
         else:
-            self.logger.error('Empty phrase in say()')
+            self.logger.error('Empty phrase in say() method of bot=%s', bot.get_bot_id())
 
     def say_before_b(self, bot, session, answer):
-        self.logger.info('Say before B: "%s" user=%s', answer, session.get_interlocutor())
+        self.logger.info('bot %s says before B: "%s" to interlocutor %s', bot.get_bot_id(), answer, session.get_interlocutor())
         new_is_question = answer.endswith('?')
         new_is_assertion = not answer.endswith('?')
 
@@ -537,12 +540,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         if new_is_question and last_is_question:
             # Два вопроса подряд - плохо.
-            self.logger.error('Two consequent questions issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            self.logger.error('Two consequent questions issued by bot %s: prev="%s", new="%s"', bot.get_bot_id(), last_phrase.raw_phrase, answer)
             return
 
         if new_is_assertion and last_is_question:
             # Утверждение после вопроса - плохо, так как вопрос экранируется
-            self.logger.error('Assertion after the question issued by bot: prev="%s", new="%s"', last_phrase.raw_phrase, answer)
+            self.logger.error('Assertion after the question issued by bot %s: prev="%s", new="%s"', bot.get_bot_id(), last_phrase.raw_phrase, answer)
             return
 
         if self.check_repetition_before_saying(bot, session, answer):
@@ -573,32 +576,36 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if scenario.get_name() == session.get_status().get_name():
                 # Новый сценарий - такой же, как уже запущенный (например, снова сработало
                 # тематическое правило, запускающие этот сценарий).
-                self.logger.warning('Could not re-start dialogue "%s"', scenario.get_name())
+                self.logger.warning('Could not re-start dialogue "%s"  bot=%s interlocutor=%s', scenario.get_name(), bot.get_bot_id(), interlocutor)
                 return
             elif scenario.get_priority() < session.get_status().get_priority():
                 # Текущий сценарий имеет приоритет выше, чем новый. Поэтому новый пока откладываем.
-                self.logger.warning('New status priority %d is lower than priority %d of running "%s"', scenario.get_priority(), session.get_status().get_priority(), session.get_status().get_name())
+                self.logger.warning('New status priority %d is lower than priority %d of running "%s"  bot=%s interlocutor=%s',
+                                    scenario.get_priority(), session.get_status().get_priority(),
+                                    session.get_status().get_name(), bot.get_bot_id(), interlocutor)
                 session.defer_status(scenario)
                 return
             elif scenario.get_priority() == session.get_status().get_priority():
                 # Тут могут быть разные нюансы, которые неплохо бы регулировать попарными свойствами.
                 # Но это будет слишком муторно для разработчика сценариев.
                 # Поэтому считаем, что новый сценарий вытесняет текущий в этом случае.
-                self.logger.debug('New scenario "%s" priority=%d is same as priority of currently running "%s"',
-                                  scenario.get_name(), scenario.get_priority(), session.get_status().get_name())
+                self.logger.debug('New scenario "%s" priority=%d is same as priority of currently running "%s"  bot=%s interlocutor=%s',
+                                  scenario.get_name(), scenario.get_priority(), session.get_status().get_name(),
+                                  bot.get_bot_id(), interlocutor)
             else:
-                self.logger.debug('New scenario priority=%d is higher than currently running=%d',
-                                  scenario.get_priority(), session.get_status().get_priority())
+                self.logger.debug('New scenario priority=%d is higher than currently running=%d  bot=%s interlocutor=%s',
+                                  scenario.get_priority(), session.get_status().get_priority(),
+                                  bot.get_bot_id(), interlocutor)
                 # Удаляем все отложенные сценарии...
                 session.cancel_all_running_items()
 
         else:
-            self.logger.debug('Start scenario "%s" user=%s', scenario.name, interlocutor)
+            self.logger.debug('bot %s starts scenario "%s" for interlocutor %s', bot.get_bot_id(), scenario.name, interlocutor)
 
         # Запускаем новый
         status = RunningScenario(scenario, current_step_index=-1)
         session.set_status(status)
-        self.logger.debug('Scenario stack depth now is %d:[ %s ]  user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
+        self.logger.debug('Scenario stack depth now is %d:[ %s ]  bot=%s user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), bot.get_bot_id(), interlocutor)
         scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
@@ -607,7 +614,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # 09-12-2020 если уже есть работающий экземпляр запускаемого сценария, то не будем запускать его снова.
         if session.get_status():
             if session.get_status().get_name() == scenario.get_name():
-                self.logger.debug('Scenario "%s" is already active. user=%s', scenario.get_name(), interlocutor)
+                self.logger.debug('Scenario "%s" is already active in bot=%s interlocutor=%s', scenario.get_name(), bot.get_bot_id(), interlocutor)
                 # TODO - надо вытащить этот сценарий в топ, удалив все сценарии перед ним.
                 return
 
@@ -618,9 +625,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
-        self.logger.debug('Exit scenario "%s" user=%s', session.get_status().get_name(), interlocutor)
+        self.logger.debug('Exit scenario "%s" in bot=%s interlocutor=%s', session.get_status().get_name(), bot.get_bot_id(), interlocutor)
         session.exit_scenario()
-        self.logger.debug('Scenario stack depth now is %d: %s  user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
+        self.logger.debug('Scenario stack depth now is %d: %s  bot=%s interlocutor=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), bot.get_bot_id(), interlocutor)
         if session.get_status():
             if isinstance(session.get_status(), RunningScenario):
                 self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
@@ -1120,25 +1127,31 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Если последняя фраза проинтерпретирована и есть пред. реплика бота - добавляем в контекст эту реплику бота
                 # Если последняя фраза проинтерпретирована и нет пред. реплики бота - берем результат интерпретации
                 context = last_phrase.raw_phrase
-                if Jaccard_SynonymyDetector.jaccard(last_phrase.interpretation, last_phrase.raw_phrase, 3) < 0.95:
+                if Jaccard_SynonymyDetector.jaccard(last_phrase.interpretation, last_phrase.raw_phrase, 3) < 0.95 or len(last_phrase.interpretation) < 10:
                     # фраза проинтерпретирована.
                     last_bot_phrase = session.get_last_bot_utterance()
                     if last_bot_phrase is not None:
                         context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
 
                 qurl = self.chitchat_config.build_query_url(context)
-                self.logger.debug('query_chitchat_service qurl="%s" user=%s', qurl, interlocutor)
+                self.logger.debug('query_chitchat_service qurl="%s"  bot=%s interlocutor=%s', qurl, bot.get_bot_id(), interlocutor)
                 response = requests.get(qurl)
                 # todo потом должен быть json
                 if response.ok:
                     generated_lines = response.text.split('\n')
-                    self.logger.debug('Chitchat returned %d lines for user=%s', len(generated_lines), interlocutor)
+                    self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(generated_lines), bot.get_bot_id(), interlocutor)
                     ranked_lines = []
                     all_session_phrases = session.get_all_phrases()
                     for rtext in generated_lines:
-                        # Проверим, что такая реплика еще не использовалась в этой сессии
-                        if rtext in all_session_phrases:
+                        # Проверим, что такая реплика еще не использовалась в этой сессии.
+                        if self.bot_replica_already_uttered(bot, session, rtext):
                             continue
+                        #if rtext in all_session_phrases:
+                        #    continue
+
+                        # Надо проверять, что утверждение, сгенерированное читчатом, не противоречит имеющейся в базе знаний
+                        # информации...
+                        # TODO ...
 
                         # Валидация синтаксиса языковой моделью
                         p_syntax = self.syntax_validator.is_valid(rtext, self.text_utils)
@@ -1184,7 +1197,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.paraphraser.reset_usage_stat()
 
     def push_phrase(self, bot, interlocutor, phrase, internal_issuer=False, force_question_answering=False):
-        self.logger.info('push_phrase interlocutor="%s" phrase="%s"', interlocutor, phrase)
+        self.logger.info('push_phrase "%s" to bot "%s" from interlocutor "%s"', phrase, bot.get_bot_id(), interlocutor)
+
         assert(isinstance(phrase, str))
         question = self.text_utils.canonize_text(phrase)
         if question == '#traceon':
@@ -1221,20 +1235,24 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if iclause >= 4:
                 # Входная фраза человека после сегментации содержит слишком много фрагментов
                 self.logger.error('Input phrase contains %d clauses, exiting loop on clause #%d', len(interpreted_phrases), iclause)
+                break
 
-            #if force_question_answering:
-                # В случае, если наш бот должен считать все входные фразы вопросами,
-                # на которые он должен отвечать.
-            #    interpreted_phrase.set_modality(ModalityDetector.question, interpreted_phrase.person)
+            # Только последняя клауза должна выдывать наружу какие-то ответные реплики.
+            # Все предыдущие клаузы обрабатываются молча - сохраняют факты в БД, например.
+            is_last_clause = iclause == len(interpreted_phrases)
+            if not is_last_clause:
+                # Удалим все накопившиеся реплики на выдачу.
+                purged_replies = session.purge_bot_phrases()
+                if purged_replies:
+                    self.logger.debug("Clearing out last %d bot %s phrase(s) for interlocutor %s:", len(purged_replies), bot.get_bot_id(), interlocutor)
+                    for r in purged_replies:
+                        self.logger.debug('Phrase "%s" is cleared out from session bot=%s interlocutor=%s', r.raw_phrase, bot.get_bot_id(), interlocutor)
+
 
             # Утверждения для 2го лица, то есть относящиеся к профилю чатбота, будем
             # рассматривать как вопросы. Таким образом, запрещаем прямой вербальный
             # доступ к профилю чатбота на запись.
             is_question2 = interpreted_phrase.is_assertion and interpreted_phrase.person == 2
-
-            # Интерпретация фраз и в общем случае реакция на них зависит и от истории
-            # общения, поэтому результат интерпретации сразу добавляем в историю.
-            #session.add_phrase_to_history(interpreted_phrase)
 
             if not bot.facts.find_tagged_fact(interlocutor, bot.facts.INTERCOLUTOR_GENDER_FACT):
                 # Пол собеседника пока неизвестен, будем пытаться определить его из лексического и синтаксического
@@ -1249,12 +1267,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         fact_text = None
 
                     if fact_text:
-                        self.logger.debug('Gender identification of interlocutor: %s', fact_text)
+                        self.logger.debug('Gender identification of interlocutor %s: %s  bot=%s', interlocutor, fact_text, bot.get_bot_id())
                         bot.facts.store_new_fact(interlocutor, (fact_text, '2', bot.facts.INTERCOLUTOR_GENDER_FACT), True)
 
             input_processed = False
             if interpreted_phrase.is_assertion and not is_question2:
-                self.logger.debug('Processing as assertion: "%s" user=%s', interpreted_phrase.interpretation, interlocutor)
+                self.logger.debug('Processing as assertion: "%s" bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
 
                 # Обработка прочих фраз. Обычно это просто утверждения (новые факты, болтовня).
                 # Пробуем применить общие правила, которые опираются в том числе на
@@ -1276,36 +1294,38 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     # то выдадим что-то вроде "и я тоже ... !"
                     # H: я люблю компьютеры!
                     # B: и я люблю компьютеры!
-                    s1 = self.interpreter.denormalize_person(interpreted_phrase.interpretation, self.text_utils)
-                    similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
-                    if similar_fact:
-                        self.logger.debug('similar fact="%s" for phrase="%s", resulting in style="same_for_me". user=%s', similar_fact, s1, interlocutor)
-                        s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['same_for_me'], self.text_utils)
-                        self.say(bot, session, s2)
-                    # если для факта, сообщенного собесом, есть оппозитный для бота, то выдадим "а я нет"
-                    contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
-                    if contradictory_fact:
-                        self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me". user=%s', contradictory_fact, s1, interlocutor)
-                        s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
-                        self.say(bot, session, s2)
-                        #input_processed = True
+                    if is_last_clause:
+                        s1 = self.interpreter.denormalize_person(interpreted_phrase.interpretation, self.text_utils)
+                        similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
+                        if similar_fact:
+                            self.logger.debug('similar fact="%s" for phrase="%s", resulting in style="same_for_me". bot=%s interlocutor=%s', similar_fact, s1, bot.get_bot_id(), interlocutor)
+                            s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['same_for_me'], self.text_utils)
+                            self.say(bot, session, s2)
+                        # если для факта, сообщенного собесом, есть оппозитный для бота, то выдадим "а я нет"
+                        contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
+                        if contradictory_fact:
+                            self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me". bot=%s interlocutor=%s', contradictory_fact, s1, bot.get_bot_id(), interlocutor)
+                            s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
+                            self.say(bot, session, s2)
+                            #input_processed = True
 
                 elif interpreted_phrase.person not in (1, 2):
                     # Если собес сообщает факт о третьем лице, и синонимичный факт уже есть в БД,
                     # то выдадим что-то типа "я уже знаю, что ..."
-                    s1 = interpreted_phrase.interpretation
-                    similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
-                    if similar_fact:
-                        self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known". user=%s', similar_fact, s1, interlocutor)
-                        s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['already_known'], self.text_utils)
-                        self.say(bot, session, s2)
-                        input_processed = True  # не будем сохранять синонимичный факт в БД
-                    # если для факта, сообщенного собесом, есть оппозитный для 3-го лица, то выдадим "а я нет"
-                    #contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
-                    #if contradictory_fact:
-                    #    self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me"', contradictory_fact, s1)
-                    #    s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
-                    #    self.say(bot, session, s2)
+                    if is_last_clause:
+                        s1 = interpreted_phrase.interpretation
+                        similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
+                        if similar_fact:
+                            self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known". bot=%s interlocutor=%s', similar_fact, s1, bot.get_bot_id(), interlocutor)
+                            s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['already_known'], self.text_utils)
+                            self.say(bot, session, s2)
+                            input_processed = True  # не будем сохранять синонимичный факт в БД
+                        # если для факта, сообщенного собесом, есть оппозитный для 3-го лица, то выдадим "а я нет"
+                        #contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
+                        #if contradictory_fact:
+                        #    self.logger.debug('contradictory fact="%s" for phrase="%s", resulting in style="opposite_for_me"', contradictory_fact, s1)
+                        #    s2 = self.paraphraser.conditional_paraphrase(contradictory_fact, ['opposite_for_me'], self.text_utils)
+                        #    self.say(bot, session, s2)
 
                 # TODO: в принципе возможны два варианта последствий срабатывания
                 # правил. 1) считаем, что правило полностью выполнило все действия для
@@ -1324,11 +1344,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     fact = interpreted_phrase.interpretation
 
                     if interpreted_phrase.is_abracadabra():
-                        self.logger.debug('Assertion "%s" is abracadabra, not saved to knowledge base. user=%s', fact, interlocutor)
+                        self.logger.debug('Assertion "%s" is abracadabra, not saved to knowledge base. bot=%s interlocutor=%s', fact, bot.get_bot_id(), interlocutor)
                     else:
                         fact_person = '3'
                         if self.trace_enabled:
-                            self.logger.info('Adding "%s" to knowledge base. user=%s', fact, interlocutor)
+                            self.logger.info('Bot %s adds "%s" to knowledge base of interlocutor %s', bot.get_bot_id(), fact, interlocutor)
                         bot.facts.store_new_fact(interlocutor, (fact, fact_person, '--from dialogue--'), False)
 
             insteadof_rule_result = None
@@ -1393,47 +1413,49 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                         replica = None
                         if not rule_applied:
-                            # генерируем smalltalk-реплику для текущего контекста
-                            if bot.enable_smalltalk:
-                                if session.get_status().get_smalltalk_rules():
-                                    replica = self.generate_smalltalk_replica(session.get_status().get_smalltalk_rules(),
-                                                                              bot, session, interlocutor)
-                                else:
-                                    replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(),
-                                                                              bot, session, interlocutor)
+                            if is_last_clause:
+                                # генерируем smalltalk-реплику для текущего контекста
+                                if bot.enable_smalltalk:
+                                    if session.get_status().get_smalltalk_rules():
+                                        replica = self.generate_smalltalk_replica(session.get_status().get_smalltalk_rules(),
+                                                                                  bot, session, interlocutor)
+                                    else:
+                                        replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(),
+                                                                                  bot, session, interlocutor)
 
-                            # 19.12.2020 если читчат сгенерировал вопрос, то вместо перехода на следующий шаг в сценарии
-                            #            можно просто выдать этот вопрос и дождаться реакции пользователя.
-                            if replica and replica.endswith('?'):
-                                x = session.get_status().get_remaining_chitchat_questions_per_step()
-                                if x > 0:
-                                    #session.add_to_buffer(replica)
-                                    self.say(bot, session, replica)
-                                    #do_next_step = False
-                                    #replica = None
-                                    return
+                                # 19.12.2020 если читчат сгенерировал вопрос, то вместо перехода на следующий шаг в сценарии
+                                #            можно просто выдать этот вопрос и дождаться реакции пользователя.
+                                if replica and replica.endswith('?'):
+                                    x = session.get_status().get_remaining_chitchat_questions_per_step()
+                                    if x > 0:
+                                        #session.add_to_buffer(replica)
+                                        self.say(bot, session, replica)
+                                        #do_next_step = False
+                                        #replica = None
+                                        return
 
                         # Отрабатывает шаг сценария
                         if do_next_step:
                             self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
                         if replica:
-                            if replica[-1] == '?':
-                                # Если smalltalk реплика является вопросом, то надо проверить,
-                                # что шаг сценария не сгенерировал тоже вопрос. Два вопроса подряд от бота
-                                # мы не будем выдавать, оставим только вопрос сценария.
-                                if session.get_output_buffer_phrase():
-                                    if session.get_output_buffer_phrase()[-1] != '?':
+                            if is_last_clause:
+                                if replica[-1] == '?':
+                                    # Если smalltalk реплика является вопросом, то надо проверить,
+                                    # что шаг сценария не сгенерировал тоже вопрос. Два вопроса подряд от бота
+                                    # мы не будем выдавать, оставим только вопрос сценария.
+                                    if session.get_output_buffer_phrase():
+                                        if session.get_output_buffer_phrase()[-1] != '?':
+                                            #session.add_to_buffer(replica)
+                                            self.say(bot, session, replica)
+                                    else:
                                         #session.add_to_buffer(replica)
                                         self.say(bot, session, replica)
                                 else:
-                                    #session.add_to_buffer(replica)
-                                    self.say(bot, session, replica)
-                            else:
-                                # Вставляем эту реплику перед фразой шага, чтобы вопрос сценария не был
-                                # экранирован smalltalk-репликой.
-                                #session.insert_into_buffer(replica)
-                                self.say_before_b(bot, session, replica)
+                                    # Вставляем эту реплику перед фразой шага, чтобы вопрос сценария не был
+                                    # экранирован smalltalk-репликой.
+                                    #session.insert_into_buffer(replica)
+                                    self.say_before_b(bot, session, replica)
 
                         if rule_applied:
                             return
@@ -1451,7 +1473,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
             self.discourse.process_interrogator_phrase(bot, session, interpreted_phrase)
             if interpreted_phrase.is_imperative:
-                self.logger.debug('Processing as imperative: "%s" user=%s', interpreted_phrase.interpretation, interlocutor)
+                self.logger.debug('Processing as imperative: "%s" bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
                 # Обработка приказов (императивов).
                 order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
                 if not order_processed:
@@ -1461,7 +1483,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     self.say(bot, session, answer)
                     order_processed = True
             elif interpreted_phrase.is_question or is_question2:
-                self.logger.debug('Processing as question: "%s" user=%s', interpreted_phrase.interpretation, interlocutor)
+                self.logger.debug('Processing as question: "%s" bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
 
                 replica = None
                 input_processed = False
@@ -1485,10 +1507,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         input_processed = insteadof_rule_result.is_any_applied()
 
                 if not input_processed:
-                    # Обрабатываем вопрос собеседника (либо результат трансляции императива).
-                    answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
-                    for answer in answers:
-                        self.say(bot, session, answer)
+                    if is_last_clause:
+                        # Обрабатываем вопрос собеседника (либо результат трансляции императива).
+                        answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)
+                        for answer in answers:
+                            self.say(bot, session, answer)
 
                     # В некоторых случаях генерация реплики после ответа может быть нежелательна,
                     # например для FAQ-бота. Поэтому используем флаг в конфиге бота.
@@ -1503,29 +1526,32 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                     interpreted_phrase,
                                                                                     answers[-1])
                             if additional_speech is not None:
-                                self.say(bot, session, additional_speech)
+                                if is_last_clause:
+                                    self.say(bot, session, additional_speech)
                                 replica_generated = True
 
                         if not replica_generated:
                             replica = self.generate_smalltalk_replica(bot, session, interlocutor)
                             if replica:
-                                self.say(bot, session, replica)
+                                if is_last_clause:
+                                    self.say(bot, session, replica)
                             replica = None
             elif interpreted_phrase.is_assertion:
-                # Теперь генерация реплики для случая, когда реплика собеседника - не-вопрос.
-                # 13.07.2019 если применено INSTEADOF-правило, но оно не сгенерировало никакую ответную реплику,
-                # то есть резон сказать что-то на базе common_phrases
-                answer_generated = False
-                answer = None
-                if not was_running_session:
-                    if not input_processed or (insteadof_rule_result and not insteadof_rule_result.replica_is_generated):
-                        replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
-                        if replica:
-                            answer = replica
-                            answer_generated = True
+                if is_last_clause:
+                    # Теперь генерация реплики для случая, когда реплика собеседника - не-вопрос.
+                    # 13.07.2019 если применено INSTEADOF-правило, но оно не сгенерировало никакую ответную реплику,
+                    # то есть резон сказать что-то на базе common_phrases
+                    answer_generated = False
+                    answer = None
+                    if not was_running_session:
+                        if not input_processed or (insteadof_rule_result and not insteadof_rule_result.replica_is_generated):
+                            replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
+                            if replica:
+                                answer = replica
+                                answer_generated = True
 
-                if answer_generated:
-                    self.say(bot, session, answer)
+                    if answer_generated:
+                        self.say(bot, session, answer)
 
             if bot.get_scripting().get_after_rules():
                 self.apply_after_rule(bot.get_scripting().get_after_rules(),
@@ -1547,7 +1573,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             session.set_causal_clause(interpreted_phrase)
 
     def process_order(self, bot, session, interlocutor, interpreted_phrase):
-        self.logger.debug('Processing order "%s"', interpreted_phrase.interpretation)
+        self.logger.debug('Processing order "%s" bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
 
         # Пробуем применить общие правила, которые опираются в том числе на
         # intent реплики или ее текст.
@@ -1570,7 +1596,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     self.synonymy_detector,
                     self.text_utils)
                 if best_faq_rel > self.synonymy_detector.get_threshold():
-                    self.logger.debug(u'Found FAQ rel=%g answer="%s"', best_faq_rel, best_faq_answer)
+                    self.logger.debug('Found FAQ rel=%g answer="%s"  bot=%s interlocutor=%s', best_faq_rel, best_faq_answer, bot.get_bot_id(), interlocutor)
                     bot.say(session, best_faq_answer)
                     return True
 
@@ -1590,6 +1616,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                           text_utils=self.text_utils)
                 if p_enough > 0.5:
                     # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
+                    self.logger.debug('Building answer without a premise for question="%s"  bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
                     answers00, answer_rels00 = self.answer_builder.build_answer_text([u''], [1.0],
                                                                                      interpreted_phrase.interpretation,
                                                                                      self.text_utils)
@@ -1623,9 +1650,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         memory_phrases,
                         self.text_utils,
                         nb_results=3)
-                    if self.trace_enabled:
-                        if best_rels[0] >= self.min_premise_relevancy:
-                            self.logger.info('Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
+                    #if self.trace_enabled:
+                    if best_rels[0] >= self.min_premise_relevancy:
+                        self.logger.info('Best premise for "%s" is "%s" with relevancy=%f  bot=%s interlocutor=%s', interpreted_phrase.interpretation, best_premises[0], best_rels[0], bot.get_bot_id(), interlocutor)
 
                     if len(answers) == 0:
                         if False:  #bot.premise_is_answer:
@@ -1723,7 +1750,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def build_answers0(self, session, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
-            self.logger.debug(u'Question to process="%s"', interpreted_phrase.interpretation)
+            self.logger.debug('build_answers0: question to process="%s"  bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
 
         # Проверяем базу FAQ, вдруг там есть развернутый ответ на вопрос.
         best_faq_answer = None
@@ -1746,11 +1773,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                   text_utils=self.text_utils)
         if p_enough > 0.5:
             # Единственный ответ можно построить без предпосылки, например для вопроса "Сколько будет 2 плюс 2?"
+            self.logger.debug('Building answer without a premise for question="%s"  bot=%s interlocutor=%s',
+                              interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
             answers00, answer_rels00 = self.answer_builder.build_answer_text([u''], [1.0],
                                                                          interpreted_phrase.interpretation,
                                                                          self.text_utils)
             if len(answers00) != 1:
-                self.logger.debug(u'Exactly 1 answer is expected for question={}, got {}'.format(interpreted_phrase.interpretation, len(answers00)))
+                self.logger.debug('Exactly 1 answer is expected for question=%s, got %d', interpreted_phrase.interpretation, len(answers00))
 
             for answer, rel in zip(answers00, answer_rels00):
                 # Если в качестве ответа сгенерирован мусор (абракадабра), то уберем такой ответ из выдачи.
@@ -1769,9 +1798,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                                  memory_phrases,
                                                                                  self.text_utils,
                                                                                  nb_results=3)
-            if self.trace_enabled:
-                if best_rels[0] >= self.min_premise_relevancy:
-                    self.logger.info('Best premise is "%s" with relevancy=%f', best_premises[0], best_rels[0])
+            #if self.trace_enabled:
+            if best_rels[0] >= self.min_premise_relevancy:
+                self.logger.info('Best premise for "%s" is "%s" with relevancy=%f  bot=%s interlocutor=%s', interpreted_phrase.interpretation, best_premises[0], best_rels[0], bot.get_bot_id(), interlocutor)
 
             if len(answers) == 0:
                 if False:
@@ -1843,8 +1872,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         question = interpreted_phrase.interpretation
                         rel = self.p2q_relevancy.calc_relevancy(premise1, premise2, question, self.text_utils)
                         if rel > self.min_premise_relevancy:
-                            self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s" rel=%g', premise1,
-                                              premise2, question, rel)
+                            self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s" rel=%g  bot=%s interlocutor=%s', premise1,
+                                              premise2, question, rel, bot.get_bot_id(), interlocutor)
                             best_rels = [rel]
                             premises2 = [[premise1, premise2]]
                             premise_rels2 = [rel]
@@ -1865,7 +1894,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # текст ответа из FAQ.
             answers = [best_faq_answer]
             answer_rels = [best_faq_rel]
-            self.logger.info(u'FAQ entry provides nearest question="%s" with rel=%e', best_faq_question, best_faq_rel)
+            self.logger.info(u'FAQ entry provides nearest question="%s" with rel=%e  bot=%s interlocutor=%s', best_faq_question, best_faq_rel, bot.get_bot_id(), interlocutor)
 
         if len(answers) == 0:
             # Не удалось найти предпосылку для формирования ответа.

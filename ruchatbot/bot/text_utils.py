@@ -23,6 +23,7 @@ import logging
 import pyconll
 from ufal.udpipe import Model, Pipeline, ProcessingError
 
+import rutokenizer
 import rupostagger
 import rulemma
 import ruchunker
@@ -30,7 +31,6 @@ import ruchunker
 import ruword2tags
 
 from ruchatbot.utils.tokenizer import Tokenizer
-from ruchatbot.bot.word2lemmas import Word2Lemmas
 from ruchatbot.bot.language_resources import LanguageResources
 from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarDictionaries
 from ruchatbot.bot.word_embeddings import WordEmbeddings
@@ -54,6 +54,7 @@ from ruchatbot.bot.phrase_token import PhraseToken
 
 class TextUtils(object):
     def __init__(self):
+        self.clause_splitter = rutokenizer.Segmenter()
         self.tokenizer = Tokenizer()
         self.tokenizer.load()
         #self.lexicon = Word2Lemmas()
@@ -172,6 +173,9 @@ class TextUtils(object):
 
     def words2str(self, words):
         return u' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))
+
+    def slit_clauses(self, s):
+        return list(self.clause_splitter.split(s))
 
     def tokenize(self, s):
         return self.tokenizer.tokenize(s)

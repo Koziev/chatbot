@@ -140,7 +140,7 @@ class ActorSay(ActorBase):
             utterance = self.prepare4saying(utterance0, condition_matching_results, text_utils)
 
             if '$' in utterance:
-                # удалось подставить значение в один из $-слотов, значит
+                # Не удалось подставить значение в один из $-слотов, значит
                 # надо исключить фразу.
                 continue
 
