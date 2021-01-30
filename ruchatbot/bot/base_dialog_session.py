@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import datetime
+
 from collections import deque
+from ruchatbot.bot.running_scenario import RunningDialogStatus
 
 
 class BaseDialogSession(object):
@@ -18,6 +21,8 @@ class BaseDialogSession(object):
         """
         self.bot_id = bot_id
         self.interlocutor = interlocutor
+        self.start_time = datetime.datetime.now() # datetime.datetime.now().timestamp()
+        self.last_activity_time = self.start_time
         self.facts_storage = facts_storage
         self.conversation_history = []  # все фразы беседы, экземпляры InterpretedPhrase
         self.output_b_index = -1  # индекс последней отданной наружу B-фразы в списке conversation_history
@@ -29,9 +34,29 @@ class BaseDialogSession(object):
         self.deferred_running_items = deque()
         self.slots = dict()  # переменные состояния
         self.started_scenarios = set()  # для отладки: какие сценарии запускались
+        self.premise_not_found_counter = 0  # для отладки: сколько раз не удалось ответить на вопрос
+        self.order_not_handled_counter = 0  # для отладки: сколько раз не удалось обработать императив
+
+        self.nb_commented_contradictions = 0  # сколько раз попали в ветку "а я ...."
 
     def get_interlocutor(self):
         return self.interlocutor
+
+    def get_bot_id(self):
+        return self.bot_id
+
+    def before_processing_new_input(self):
+        """
+        Вызывается всякий раз перед тем, как начинает обрабатываться новая входная реплика
+        собеседника.
+        """
+        self.last_activity_time = datetime.datetime.now()
+
+    def get_start_time(self):
+        return self.start_time
+
+    def get_last_activity_time(self):
+        return self.last_activity_time
 
     def add_phrase_to_history(self, interpreted_phrase):
         self.conversation_history.append(interpreted_phrase)
@@ -147,6 +172,13 @@ class BaseDialogSession(object):
                 res.append(item.interpretation)
         return res
 
+    def count_interlocutor_phrases(self):
+        n = 0
+        for item in self.conversation_history:
+            if not item.is_bot_phrase:
+                n += 1
+        return n
+
     def get_all_phrases(self):
         res = []
         for item in self.conversation_history:
@@ -190,7 +222,7 @@ class BaseDialogSession(object):
         return bs
 
     def count_prev_consequent_b(self):
-        """Количество подряд идущих справа B-фраз"""
+        """Количество подряд идущих справа (т.е. в конце сессии) B-фраз"""
         nb = 0
         for item in self.conversation_history[::-1]:
             if item.is_bot_phrase:
@@ -208,10 +240,12 @@ class BaseDialogSession(object):
             else:
                 self.status = None
         else:
+            assert isinstance(new_status, RunningDialogStatus)
             self.status = new_status
             self.started_scenarios.add(new_status.get_name())
 
     def call_scenario(self, running_scenario):
+        assert isinstance(running_scenario, RunningDialogStatus)
         self.started_scenarios.add(running_scenario.get_name())
         if self.status is None:
             self.status = running_scenario
@@ -226,6 +260,9 @@ class BaseDialogSession(object):
             self.status = None
 
     def defer_status(self, new_status):
+        if not isinstance(new_status, RunningDialogStatus):
+            raise AssertionError()
+
         self.deferred_running_items.append(new_status)
 
     def form_executed(self):
@@ -245,9 +282,9 @@ class BaseDialogSession(object):
     def list_scenario_stack(self):
         names = []
         if self.status:
-            names.append('0:{}'.format(self.status.get_name()))
+            names.append('0:{}@{}'.format(self.status.get_name(), self.status.get_current_step_name()))
             for depth, item in enumerate(self.deferred_running_items, start=1):
-                names.append('-{}:{}'.format(depth, item.get_name()))
+                names.append('-{}:{}@{}'.format(depth, item.get_name(), item.get_current_step_name()))
         return ' '.join(names)
 
     def cancel_all_running_items(self):
@@ -262,12 +299,14 @@ class BaseDialogSession(object):
 
     def reset_history(self):
         self.conversation_history = []
-        #self.answer_buffer.clear()
         self.slots.clear()
         self.activated_rules.clear()
         self.deferred_running_items.clear()
         self.output_b_index = -1
         self.started_scenarios.clear()
+        self.premise_not_found_counter = 0
+        self.order_not_handled_counter = 0
+        self.nb_commented_contradictions = 0
 
     def set_causal_clause(self, interpreted_phrase):
         for item in self.conversation_history[::-1]:
@@ -277,19 +316,29 @@ class BaseDialogSession(object):
                 item.causal_interpretation_clause = interpreted_phrase
 
     def purge_bot_phrases(self):
+        # Собираем все последние фразы бота
         purged_phrases = []
         for item in self.conversation_history[::-1]:
-            if item.causal_interpretation_clause is not None or not item.is_bot_phrase:
+            if not item.is_bot_phrase:
                 break
             else:
                 purged_phrases.append(item)
 
         if purged_phrases:
+            # Удаляем все собранные фраз бота из истории.
             self.conversation_history = self.conversation_history[:-len(purged_phrases)]
 
         return purged_phrases
 
+    def premise_not_found(self):
+        self.premise_not_found_counter += 1
+
+    def order_not_handled(self):
+        self.order_not_handled_counter += 1
+
     def get_session_stat(self):
         lines = []
         lines.append('Scenarios: {}'.format(', '.join(self.started_scenarios)))
+        lines.append('premise_not_found_counter={}'.format(self.premise_not_found_counter))
+        lines.append('order_not_handled_counter={}'.format(self.order_not_handled_counter))
         return lines

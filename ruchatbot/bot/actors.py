@@ -176,12 +176,13 @@ class ActorSay(ActorBase):
                 else:
                     # Начиная с этого момента данное правило будет повторно выдавать
                     # одну из фраз.
-                    for src_phrase in sorted(self.phrases, key=lambda z: random.random()):
-                        random_phrase = self.prepare4saying(src_phrase, condition_matching_results, text_utils)
-                        if '$' not in random_phrase:
-                            bot.say(session, random_phrase)
-                            uttered = True
-                            break
+                    #for src_phrase in sorted(self.phrases, key=lambda z: random.random()):
+                    #    random_phrase = self.prepare4saying(src_phrase, condition_matching_results, text_utils)
+                    #    if '$' not in random_phrase:
+                    #        bot.say(session, random_phrase)
+                    #        uttered = True
+                    #        break
+                    uttered = False
 
         return uttered
 

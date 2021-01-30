@@ -19,3 +19,7 @@ class BaseDialogSessionFactory(object):
         :return: класс, производный от BaseDialogSession
         """
         raise NotImplementedError()
+
+    def prune(self):
+        """ Удаляем сессии, в которых давно нет никакой активности """
+        raise NotImplementedError()

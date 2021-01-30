@@ -37,3 +37,9 @@ class RunningScenario(RunningDialogStatus):
             return remainder
 
         return 0
+
+    def get_current_step_name(self):
+        if self.current_step_index == -1:
+            return '-1'
+        else:
+            return self.scenario.get_step_name(self.current_step_index)

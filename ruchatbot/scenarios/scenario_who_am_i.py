@@ -224,3 +224,6 @@ class Scenario_WhoAmI(Scenario):
                 bot.say(session, self.choice(bot, session, text_utils, sx))
 
             bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+
+    def get_current_step_name(self):
+        return '<<<UNK>>>'

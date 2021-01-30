@@ -305,3 +305,14 @@ class TextUtils(object):
             return forms[0]
         else:
             return None
+
+    def is_premise_suitable_as_answer(self, premise_text):
+        # Можно ли текст предпосылки использовать в качестве ответа
+        tx = self.tokenize(premise_text)
+        if len(tx) > 5:
+            return False
+
+        if ',' in tx or 'и' in tx or 'или' in tx:
+            return False
+
+        return True

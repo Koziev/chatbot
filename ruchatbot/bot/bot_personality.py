@@ -32,6 +32,10 @@ class BotPersonality:
         self.event_handlers = dict()
         self.on_process_order = None
 
+        self.same_fact_comment_proba = 0.0
+        self.opposite_fact_comment_proba = 0.2
+        self.max_contradiction_comments = 2
+
     def get_bot_id(self):
         return self.bot_id
 
@@ -77,6 +81,9 @@ class BotPersonality:
 
     def reset_added_facts(self):
         self.facts.reset_added_facts()
+
+    def reset_all_facts(self):
+        self.facts.reset_all_facts()
 
     def get_session_stat(self, user_id):
         return self.engine.get_session(self, user_id).get_session_stat()
@@ -136,3 +143,6 @@ class BotPersonality:
 
     def does_bot_know_answer(self, question, session, interlocutor):
         return self.engine.does_bot_know_answer(question, self, session, interlocutor)
+
+    def prune_sessions(self):
+        self.engine.prune_sessions()

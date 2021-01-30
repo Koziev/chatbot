@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 
+"""
+21-01-2021 Добавлена загрузка правил в секции first_reply_rules
+"""
+
 import random
 import logging
 import yaml
 import io
-import pickle
 import os
 
 from ruchatbot.bot.smalltalk_rules import SmalltalkRules
-from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarEngine
 from ruchatbot.bot.comprehension_table import ComprehensionTable
 from ruchatbot.bot.scripting_rule import ScriptingRule
 from ruchatbot.bot.verbal_form import VerbalForm
@@ -61,6 +63,7 @@ class BotScripting(object):
         self.goodbyes = []
         self.confirmations = []
         self.negations = []
+        self.first_reply_rules = []  # правила, отрабатывающие на первой реплике собеседника в сессии
         self.insteadof_rules = []
         self.after_rules = []  # правила, срабатывающие после основной обработки реплики, например - активация дополнительного сценария
         self.forms = []  # список экземпляров VerbalForm
@@ -131,6 +134,25 @@ class BotScripting(object):
                     logging.error(ex)
                     raise ex
 
+    def load_first_reply_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
+        if 'first_reply_rules' in data:
+            for rule in data['first_reply_rules']:
+                try:
+                    if 'rule' in rule:
+                        rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
+                        self.first_reply_rules.append(rule)
+                    elif 'file' in rule:
+                        rules_fpath = os.path.join(rules_dir, rule['file'])
+                        with io.open(rules_fpath, 'r', encoding='utf-8') as f:
+                            data2 = yaml.safe_load(f)
+                            self.load_first_reply_rules(rules_dir, data2, compiled_grammars_path, constants, text_utils)
+                    else:
+                        logging.error('Unknown record "%s" in "first_reply_rules" section', str(rule))
+                        raise RuntimeError()
+                except Exception as ex:
+                    logging.error(ex)
+                    raise ex
+
     def load_after_rules(self, rules_dir, data, compiled_grammars_path, constants, text_utils):
         if 'after_rules' in data:
             for rule in data['after_rules']:
@@ -188,6 +210,10 @@ class BotScripting(object):
 
             if 'story_rules' in data:
                 self.load_story_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
+
+            # Правила, которые отрабатывают приоритетно на первой реплике собеседника в сессии
+            if 'first_reply_rules' in data:
+                self.load_first_reply_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
 
             # INSTEAD-OF правила
             if 'rules' in data:
@@ -269,6 +295,9 @@ class BotScripting(object):
         #     if nq < 3:  # Не будем спрашивать более 2х раз.
         #         return q
         return None
+
+    def get_first_reply_rules(self):
+        return self.first_reply_rules
 
     def get_insteadof_rules(self):
         return self.insteadof_rules

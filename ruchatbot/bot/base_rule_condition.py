@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+23-01-2021 Добавляем проверку модальности предложения в кондикторе "text": assertion | question | imperative
+"""
+
 
 import logging
 import re
@@ -12,7 +16,8 @@ from ruchatbot.bot.rule_condition_matching import RuleConditionMatching
 
 class BaseRuleCondition(object):
     def __init__(self, data_yaml):
-        self.key = u';'.join(k+'|'+str(v) for (k, v) in data_yaml.items())
+        self.key = ';'.join(k+'|'+str(v) for (k, v) in data_yaml.items())
+        self.modality = None
 
     def get_short_repr(self):
         return None
@@ -26,7 +31,7 @@ class BaseRuleCondition(object):
             return RuleCondition_Intent(condition_yaml)
         elif u'state' in condition_yaml:
             return RuleCondition_State(condition_yaml)
-        elif u'text' in condition_yaml:
+        elif 'text' in condition_yaml or 'assertion' in condition_yaml or 'question' in condition_yaml:
             return RuleCondition_Text(condition_yaml, constants, text_utils)
         elif u'raw_text' in condition_yaml:
             return RuleCondition_RawText(condition_yaml, constants, text_utils)
@@ -50,6 +55,18 @@ class BaseRuleCondition(object):
     def check_text(self, input_text, etalon_texts, bot, session, interlocutor, interpreted_phrase, answering_engine):
         if not input_text:
             return False
+
+        if self.modality:
+            if self.modality == 'assertion':
+                # Проверяем, что входной текст реализует утверждение, а не вопрос.
+                if input_text[-1] == '?' or not interpreted_phrase.is_assertion:
+                    return False
+            elif self.modality == 'question':
+                # Проверяем, что входной текст реализует утверждение, а не вопрос.
+                if input_text[-1] in '.!' or not interpreted_phrase.is_question:
+                    return False
+            else:
+                raise NotImplementedError()
 
         text_utils = answering_engine.get_text_utils()
         word_embeddings = answering_engine.get_word_embeddings()
@@ -122,8 +139,19 @@ class RuleCondition_Text(BaseRuleCondition):
         super().__init__(data_yaml)
         self.metric = 'synonymy'
         self.threshold = None
+        self.modality = None
 
-        y = data_yaml[u'text']
+        if 'text' in data_yaml:
+            y = data_yaml['text']
+        elif 'assertion' in data_yaml:
+            y = data_yaml['assertion']
+            self.modality = 'assertion'
+        elif 'question' in data_yaml:
+            y = data_yaml['question']
+            self.modality = 'question'
+        else:
+            raise NotImplementedError()
+
         if isinstance(y, dict):
             etalons = y['masks']
             self.metric = y.get('metric', 'synonymy')
@@ -131,7 +159,7 @@ class RuleCondition_Text(BaseRuleCondition):
         elif isinstance(y, list):
             etalons = y
         else:
-            etalons = [data_yaml[u'text']]
+            etalons = [y]
 
         self.etalons = []
         for e in etalons:

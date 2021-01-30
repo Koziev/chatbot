@@ -17,3 +17,6 @@ class RunningDialogStatus(object):
 
     def get_remaining_chitchat_questions_per_step(self):
         return 0
+
+    def get_current_step_name(self):
+        return ''

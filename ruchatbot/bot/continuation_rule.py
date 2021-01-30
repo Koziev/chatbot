@@ -115,16 +115,16 @@ class ContinuationRules:
         if 'default' in yaml_node:
             self.default_action = ContinuationAction.from_yaml(yaml_node['default'], constants, text_utils)
 
-    def generate_phrase(self, bot, session, asnwering_machine):
+    def generate_phrase(self, bot, session, answering_machine):
         for phrase, time_gap in session.get_interlocutor_phrases(questions=True, assertions=True, last_nb=10):
             for rule in self.rules:
-                rule_res = rule.execute(bot, session, session.get_interlocutor(), phrase, asnwering_machine)
+                rule_res = rule.execute(bot, session, session.get_interlocutor(), phrase, answering_machine)
                 if rule_res:
                     return rule_res
 
         if self.default_action:
             replica_generated = self.default_action.do_action(bot, session, session.get_interlocutor(),
-                                                              None, None, asnwering_machine.text_utils)
+                                                              None, None, answering_machine.text_utils)
             if replica_generated:
                 logging.debug('ContinuationRules::default_phrases --> %s', replica_generated)
                 return replica_generated

@@ -39,7 +39,7 @@ class ScenarioTransition:
     def load_yaml(yaml_node, constants, text_utils):
         t = ScenarioTransition()
         t.next_step = yaml_node['goto']
-        if 'keyword' in yaml_node or 'text' in yaml_node:
+        if 'keyword' in yaml_node or 'text' in yaml_node or 'raw_text' in yaml_node or 'match' in yaml_node:
             t.condition = BaseRuleCondition.from_yaml(yaml_node, constants, text_utils)
         else:
             raise RuntimeError()
@@ -113,57 +113,61 @@ class Scenario(object):
     def load_yaml(yaml_node, global_bot_scripting, smalltalk_rule2grammar, constants, text_utils):
         scenario = Scenario()
         scenario.name = yaml_node['name']
-        if 'priority' in yaml_node:
-            scenario.priority = int(yaml_node['priority'])
-        else:
-            scenario.priority = 10  # дефолтный уровень приоритета
-
-        if 'steps_policy' in yaml_node:
-            scenario.steps_policy = yaml_node['steps_policy']
-            if scenario.steps_policy not in 'sequential random graf'.split():
-                raise RuntimeError('Scenario "{}" loading error: unknown step_policy "{}"'.format(scenario.name, scenario.steps_policy))
-        else:
-            scenario.steps_policy = 'sequential'
-
-        if 'chitchat_questions_per_step_rate' in yaml_node:
-            scenario.chitchat_questions_per_step_rate = yaml_node['chitchat_questions_per_step_rate']
-        else:
-            scenario.chitchat_questions_per_step_rate = 0
-
-        if 'steps' in yaml_node:
-            if scenario.steps_policy == 'graf':
-                for step_node in yaml_node['steps']:
-                    step = ScenarioStep.load_yaml(step_node['step'], constants, text_utils)
-                    scenario.steps.append(step)
+        try:
+            if 'priority' in yaml_node:
+                scenario.priority = int(yaml_node['priority'])
             else:
-                for step_node in yaml_node['steps']:
-                    step = ScenarioStep.from_say_actor(len(scenario.steps), step_node, constants, text_utils)
-                    scenario.steps.append(step)
+                scenario.priority = 10  # дефолтный уровень приоритета
 
-        if 'on_start' in yaml_node:
-            scenario.on_start = ActorBase.from_yaml(yaml_node['on_start'], constants, text_utils)
+            if 'steps_policy' in yaml_node:
+                scenario.steps_policy = yaml_node['steps_policy']
+                if scenario.steps_policy not in 'sequential random graf'.split():
+                    raise RuntimeError('Scenario "{}" loading error: unknown step_policy "{}"'.format(scenario.name, scenario.steps_policy))
+            else:
+                scenario.steps_policy = 'sequential'
 
-        if 'termination_policy' in yaml_node:
-            scenario.termination_policy.load_yaml(yaml_node['termination_policy'], constants, text_utils)
+            if 'chitchat_questions_per_step_rate' in yaml_node:
+                scenario.chitchat_questions_per_step_rate = yaml_node['chitchat_questions_per_step_rate']
+            else:
+                scenario.chitchat_questions_per_step_rate = 0
 
-        if 'on_finish' in yaml_node:
-            scenario.on_finish = ActorBase.from_yaml(yaml_node['on_finish'], constants, text_utils)
+            if 'steps' in yaml_node:
+                if scenario.steps_policy == 'graf':
+                    for step_node in yaml_node['steps']:
+                        step = ScenarioStep.load_yaml(step_node['step'], constants, text_utils)
+                        scenario.steps.append(step)
+                else:
+                    for step_node in yaml_node['steps']:
+                        step = ScenarioStep.from_say_actor(len(scenario.steps), step_node, constants, text_utils)
+                        scenario.steps.append(step)
 
-        if 'smalltalk_rules' in yaml_node:
-            scenario.smalltalk_rules = SmalltalkRules()
-            scenario.smalltalk_rules.load_yaml(yaml_node['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
+            if 'on_start' in yaml_node:
+                scenario.on_start = ActorBase.from_yaml(yaml_node['on_start'], constants, text_utils)
 
-        scenario.insteadof_rules = []
-        if 'rules' in yaml_node:
-            for rule in yaml_node['rules']:
-                rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
-                scenario.insteadof_rules.append(rule)
+            if 'termination_policy' in yaml_node:
+                scenario.termination_policy.load_yaml(yaml_node['termination_policy'], constants, text_utils)
 
-        if 'insteadof_rule_import' in yaml_node:
-            insteadof_rule_import = yaml_node['insteadof_rule_import']
-            if insteadof_rule_import == 'from_global':
-                # добавляем в список глобальные insteadof-правила
-                scenario.insteadof_rules.extend(global_bot_scripting.insteadof_rules)
+            if 'on_finish' in yaml_node:
+                scenario.on_finish = ActorBase.from_yaml(yaml_node['on_finish'], constants, text_utils)
+
+            if 'smalltalk_rules' in yaml_node:
+                scenario.smalltalk_rules = SmalltalkRules()
+                scenario.smalltalk_rules.load_yaml(yaml_node['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
+
+            scenario.insteadof_rules = []
+            if 'rules' in yaml_node:
+                for rule in yaml_node['rules']:
+                    rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
+                    scenario.insteadof_rules.append(rule)
+
+            if 'insteadof_rule_import' in yaml_node:
+                insteadof_rule_import = yaml_node['insteadof_rule_import']
+                if insteadof_rule_import == 'from_global':
+                    # добавляем в список глобальные insteadof-правила
+                    scenario.insteadof_rules.extend(global_bot_scripting.insteadof_rules)
+        except Exception as ex:
+            print('Error occured in scenario "{}" body parsing:\n{}'.format(scenario.name, str(ex)))
+            raise
 
         return scenario
 
@@ -317,3 +321,9 @@ class Scenario(object):
 
     def get_insteadof_rules(self):
         return self.insteadof_rules
+
+    def get_step_name(self, step_index):
+        if 0 <= step_index < len(self.steps):
+            return self.steps[step_index].get_name()
+        else:
+            return "exhausted"

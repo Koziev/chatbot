@@ -7,6 +7,9 @@
 
 02.01.2020 Храним новые факты в привязке к идентификатору собеседника, чтобы нормально работал режим параллельного
            диалога с множеством собеседников.
+
+29.01.2021 Генерируемые факты - при чтении строки из профиля она разбивается по символу | и выбирается одна из
+           получившихся строк. Таким образом можно вводить вариативность в набор фактов.
 """
 
 import io
@@ -14,6 +17,7 @@ import itertools
 import os
 import re
 import logging
+import random
 import collections
 
 from ruchatbot.bot.simple_facts_storage import SimpleFactsStorage
@@ -65,7 +69,8 @@ class ProfileFactsReader(SimpleFactsStorage):
                                         for line in rdr2:
                                             line = line.strip()
                                             if line and not line.startswith('#'):
-                                                canonized_line = self.text_utils.canonize_text(line)
+                                                line1 = random.choice(line.split('|')).strip()
+                                                canonized_line = self.text_utils.canonize_text(line1)
                                                 canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
                                                 self.profile_facts.append((canonized_line, current_section, add_path))
 
@@ -74,13 +79,18 @@ class ProfileFactsReader(SimpleFactsStorage):
                                 continue
                         else:
                             assert(current_section)
-                            canonized_line = self.text_utils.canonize_text(line)
+                            line1 = random.choice(line.split('|')).strip()
+                            canonized_line = self.text_utils.canonize_text(line1)
                             canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
                             self.profile_facts.append((canonized_line, current_section, self.profile_path))
             logger.debug('%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
 
     def reset_added_facts(self):
-        self.new_facts = []
+        self.new_facts = collections.defaultdict(list)
+
+    def reset_all_facts(self):
+        self.reset_added_facts()
+        self.profile_facts = None
 
     def enumerate_facts(self, interlocutor):
         # Загрузим факты из профиля, если еще не загрузили.
