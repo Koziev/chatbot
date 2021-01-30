@@ -34,8 +34,9 @@ class BaseDialogSession(object):
         self.deferred_running_items = deque()
         self.slots = dict()  # переменные состояния
         self.started_scenarios = set()  # для отладки: какие сценарии запускались
-        self.premise_not_found_counter = 0  # для отладки: сколько раз не удалось ответить на вопрос
+        self.premise_not_found_counter = 0  # для отладки: сколько раз не удалось ответить на вопрос с помощью фактов в БЗ
         self.order_not_handled_counter = 0  # для отладки: сколько раз не удалось обработать императив
+        self.cannot_answer_counter = 0  # сколько раз не удалось выдать ответ, в том числе с помощью правил в no-info модели
 
         self.nb_commented_contradictions = 0  # сколько раз попали в ветку "а я ...."
 
@@ -306,6 +307,7 @@ class BaseDialogSession(object):
         self.started_scenarios.clear()
         self.premise_not_found_counter = 0
         self.order_not_handled_counter = 0
+        self.cannot_answer_counter = 0
         self.nb_commented_contradictions = 0
 
     def set_causal_clause(self, interpreted_phrase):

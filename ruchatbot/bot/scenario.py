@@ -92,6 +92,7 @@ class Scenario(object):
         self.steps_policy = None
         self.smalltalk_rules = None
         self.insteadof_rules = None
+        self.story_rules = None
         self.termination_policy = ScenarioTerminationPolicy()
         self.termination_check_count = 0
 
@@ -160,11 +161,18 @@ class Scenario(object):
                     rule = ScriptingRule.from_yaml(rule['rule'], constants, text_utils)
                     scenario.insteadof_rules.append(rule)
 
-            if 'insteadof_rule_import' in yaml_node:
-                insteadof_rule_import = yaml_node['insteadof_rule_import']
+            if 'insteadof_rules_import' in yaml_node:
+                insteadof_rule_import = yaml_node['insteadof_rules_import']
                 if insteadof_rule_import == 'from_global':
                     # добавляем в список глобальные insteadof-правила
                     scenario.insteadof_rules.extend(global_bot_scripting.insteadof_rules)
+
+            if 'story_rules_import' in yaml_node:
+                insteadof_rule_import = yaml_node['story_rules_import']
+                if insteadof_rule_import == 'from_global':
+                    # добавляем в список глобальные insteadof-правила
+                    scenario.story_rules.extend(global_bot_scripting.story_rules)
+
         except Exception as ex:
             print('Error occured in scenario "{}" body parsing:\n{}'.format(scenario.name, str(ex)))
             raise
@@ -321,6 +329,9 @@ class Scenario(object):
 
     def get_insteadof_rules(self):
         return self.insteadof_rules
+
+    def get_story_rules(self):
+        return self.story_rules
 
     def get_step_name(self, step_index):
         if 0 <= step_index < len(self.steps):

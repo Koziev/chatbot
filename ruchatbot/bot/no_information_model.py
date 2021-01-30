@@ -31,6 +31,8 @@ class NoInformationModel(ModelApplicator):
     def __init__(self):
         super(NoInformationModel, self).__init__()
         self.no_info_replicas = []
+        self.no_info_replicas2 = []
+        self.no_info_replicas3 = []
         self.unknown_order = []
         self.rules = []
 
@@ -41,16 +43,25 @@ class NoInformationModel(ModelApplicator):
             with io.open(yaml_path, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f)
                 if 'no_relevant_information' in data:
-                    for s in data['no_relevant_information']['phrases']:
-                        self.no_info_replicas.append(replace_constant(s, constants, text_utils))
+                    y = data['no_relevant_information']
+                    if 'phrases' in y:
+                        for s in y['phrases']:
+                            self.no_info_replicas.append(replace_constant(s, constants, text_utils))
 
-                if 'unknown_order' in data:
-                    for s in data['unknown_order']:
-                        self.unknown_order.append(replace_constant(s, constants, text_utils))
+                    if 'phrases2' in y:
+                        for s in y['phrases2']:
+                            self.no_info_replicas2.append(replace_constant(s, constants, text_utils))
 
-                if 'no_relevant_information' in data:
-                    if 'rules' in data['no_relevant_information']:
-                        for rule_yaml in data['no_relevant_information']['rules']:
+                    if 'phrases3' in y:
+                        for s in y['phrases3']:
+                            self.no_info_replicas3.append(replace_constant(s, constants, text_utils))
+
+                    if 'unknown_order' in y:
+                        for s in y['unknown_order']:
+                            self.unknown_order.append(replace_constant(s, constants, text_utils))
+
+                    if 'rules' in y:
+                        for rule_yaml in y['rules']:
                             rule = ScriptingRule.from_yaml(rule_yaml['rule'], constants, text_utils)
                             self.rules.append(rule)
 
@@ -59,17 +70,27 @@ class NoInformationModel(ModelApplicator):
     def get_noanswer_rules(self):
         return self.rules
 
-    def generate_answer(self, phrase, bot, text_utils):
-        if len(self.no_info_replicas) > 1:
-            return random.choice(self.no_info_replicas)
-        else:
-            return self.replicas[0]
+    def generate_answer(self, phrase, bot, session, text_utils):
+        a = None
+        if session.cannot_answer_counter == 1:
+            if len(self.no_info_replicas2) > 1:
+                a = random.choice(self.no_info_replicas2)
+        elif session.cannot_answer_counter == 2:
+            if len(self.no_info_replicas3) > 1:
+                a = random.choice(self.no_info_replicas3)
 
-    def order_not_understood(self, phrase, bot, text_utils):
+        if a is None:
+            if len(self.no_info_replicas) > 1:
+                a = random.choice(self.no_info_replicas)
+            else:
+                a = self.replicas[0]
+
+        session.cannot_answer_counter += 1
+        return a
+
+    def order_not_understood(self, phrase, bot, session, text_utils):
         s = None
-        if len(self.unknown_order) > 1:
+        if len(self.unknown_order) > 0:
             s = random.choice(self.unknown_order)
-        else:
-            s = self.unknown_order[0]
 
         return s

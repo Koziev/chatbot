@@ -12,6 +12,9 @@ class RunningDialogStatus(object):
     def get_smalltalk_rules(self):
         return None
 
+    def get_story_rules(self):
+        return None
+
     def get_name(self):
         raise NotImplementedError()
 

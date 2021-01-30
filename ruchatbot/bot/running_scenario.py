@@ -23,6 +23,9 @@ class RunningScenario(RunningDialogStatus):
     def get_smalltalk_rules(self):
         return self.scenario.smalltalk_rules
 
+    def get_story_rules(self):
+        return self.scenario.story_rules
+
     def get_name(self):
         return self.scenario.get_name()
 

@@ -107,7 +107,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.chitchat_config = None
 
         self.premise_not_found = None  # модель генерации реплик для вопросов, на которые бот не знает ответ
-        self.premise_not_found_count = 0  # сколько раз вызывалась модель premise_not_found
+        #self.premise_not_found_count = 0  # сколько раз вызывалась модель premise_not_found
 
         # Если релевантность факта к вопросу в БФ ниже этого порога, то факт не подойдет
         # для генерации ответа на основе факта.
@@ -1450,7 +1450,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         rules = session.get_status().get_insteadof_rules()
                         if rules:
                             insteadof_rule_result = self.apply_insteadof_rule(rules,
-                                                                              None,  # story_rules
+                                                                              session.get_status().get_story_rules(),
                                                                               bot,
                                                                               session,
                                                                               interlocutor,
@@ -1461,9 +1461,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                     if session.get_output_buffer_phrase()[-1] == '?':
                                         # insteadof-правило сгенерировано вопрос, поэтому следующий шаг сценария
                                         # пока не запускаем
-                                        self.logger.debug(
-                                            'Discourse retention by rule in scenario "%s" bot="%s" interlocutor="%s"',
-                                            session.get_status().get_name(), bot.get_bot_id(), interlocutor)
+                                        if session.get_status() is not None:
+                                            self.logger.debug('Discourse retention by rule in scenario "%s" bot="%s" interlocutor="%s"',
+                                                              session.get_status().get_name(), bot.get_bot_id(), interlocutor)
 
                                         do_next_step = False
 
@@ -1534,7 +1534,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
                 if not order_processed:
                     # Сообщим, что не знаем как обработать приказ.
-                    answer = self.premise_not_found.order_not_understood(phrase, bot, self.text_utils)
+                    answer = self.premise_not_found.order_not_understood(phrase, bot, session, self.text_utils)
                     self.logger.debug('"Order not processed" handler: "%s"', answer)
                     self.say(bot, session, answer)
                     order_processed = True
@@ -1805,8 +1805,8 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if phrase:
             bot.say(session, phrase)
 
-    def premise_not_found(self, phrase, bot, text_utils):
-        return self.premise_not_found.generate_answer(phrase, bot, text_utils)
+    #def premise_not_found(self, phrase, bot, session, text_utils):
+    #    return self.premise_not_found.generate_answer(phrase, bot, session, text_utils)
 
     def build_answers0(self, session, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
@@ -1977,7 +1977,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             if not res.is_any_applied():
                 # Правила не сработали, значит выдаем реплику "Информации нет"
                 # 12-10-2020 меняем тактику в случае доступности веб-сервиса читчата.
-                self.premise_not_found_count += 1
+                #self.premise_not_found_count += 1
                 answer = None
 
                 do_query_chitchat = False
@@ -2002,6 +2002,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 if answer is None:
                     answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
                                                                     bot,
+                                                                    session,
                                                                     self.text_utils)
 
                 answers.append(answer)
