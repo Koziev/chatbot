@@ -17,8 +17,8 @@ from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.frontend.bot_creator import create_chatbot, ChitchatConfig
 
 
-def start(bot, update):
-    user_id = update.message.chat.first_name + u' ' + update.message.chat.last_name
+def start(update, context):
+    user_id = str(update.message.chat_id)
     chatbot.start_conversation(user_id)
 
     while True:
@@ -26,15 +26,15 @@ def start(bot, update):
         if len(answer) == 0:
             break
 
-        bot.send_message(chat_id=update.message.chat_id, text=answer)
+        context.bot.send_message(chat_id=update.message.chat_id, text=answer)
 
 
-def echo(bot, update):
+def echo(update, context):
     # update.chat.first_name
     # update.chat.last_name
     try:
         # В качестве идентификатора сессии собеседника берем его имя и фамилию
-        user_id = update.message.chat.first_name+u' '+update.message.chat.last_name
+        user_id = str(update.message.chat_id)
         question = update.message.text
 
         logging.info('Answering to "%s"', question)
@@ -45,7 +45,7 @@ def echo(bot, update):
             if len(answer) == 0:
                 break
             else:
-                bot.send_message(chat_id=update.message.chat_id, text=answer)
+                contxt.bot.send_message(chat_id=update.message.chat_id, text=answer)
     except Exception as ex:
         logging.error(ex)  # sys.exc_info()[0]
 
