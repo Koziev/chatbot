@@ -164,11 +164,26 @@ class ActorSay(ActorBase):
             # Все фразы бот уже произнес
             # Если задан список фраз на случай исчерпания (типа "не знаю больше ничего про кошек"),
             # то выдадим одну из них.
-            if len(self.exhausted_phrases) == 1:
-                bot.say(session, self.exhausted_phrases[0])
-                uttered = True
-            elif len(self.exhausted_phrases) > 1:
-                bot.say(session, random.choice(self.exhausted_phrases))
+
+            new_utterances = []
+            for utterance0 in self.exhausted_phrases:
+                utterance = self.prepare4saying(utterance0, condition_matching_results, text_utils)
+
+                if '$' in utterance:
+                    # Не удалось подставить значение в один из $-слотов, значит
+                    # надо исключить фразу.
+                    continue
+
+                if session.count_bot_phrase(utterance) == 0:
+                    if self.known_answer_policy == 'skip' and utterance[-1] == '?':
+                        # Проверим, что бот еще не знает ответ на этот вопрос:
+                        if bot.does_bot_know_answer(utterance, session, interlocutor):
+                            continue
+
+                    new_utterances.append(utterance)
+
+            if new_utterances:
+                bot.say(session, random.choice(new_utterances))
                 uttered = True
             else:
                 if self.known_answer_policy == 'skip':

@@ -31,14 +31,16 @@ class SimpleDialogSessionFactory(BaseDialogSessionFactory):
         l = logging.getLogger('SimpleDialogSessionFactory')
         l.info('prune_session bot=%s interlocutor=%s started=%s last_activity=%s', session.get_bot_id(), session.get_interlocutor(), session.get_start_time(), session.get_last_activity_time())
 
-        self.logger.debug('============================= START OF PRUNING SESSION ============================')
+        # Сохраним в логе контент удаляемой сессии
+        logger = logging.getLogger('SimpleDialogSessionFactory')
+        logger.debug('============================= START OF PRUNING SESSION ============================')
         for i, item in enumerate(session.conversation_history):
             if item.is_bot_phrase:
                 label = 'B'
             else:
                 label = 'H'
-            self.logger.debug('%2d| %s: - %s', i, label, item.raw_phrase)
-        self.logger.debug('============================= END OF PRUNING SESSION ============================')
+            logger.debug('%2d| %s: - %s', i, label, item.raw_phrase)
+        logger.debug('============================= END OF PRUNING SESSION ============================')
 
         del session
 

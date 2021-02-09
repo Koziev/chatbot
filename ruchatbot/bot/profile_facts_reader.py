@@ -120,6 +120,9 @@ class ProfileFactsReader(SimpleFactsStorage):
         else:
             interlocutor_facts.append(fact)
 
+    def get_added_facts(self, interlocutor):
+        return self.new_facts[interlocutor]
+
     def find_tagged_fact(self, interlocutor, fact_tag):
         """Среди новых фактов ищем имеющий указанный тэг"""
         for fact, section, tag in self.new_facts[interlocutor]:

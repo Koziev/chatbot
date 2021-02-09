@@ -355,12 +355,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         interpretations = []
 
         # Бьем текст входной реплики на клаузы.
-        for iclause, clause_text in enumerate(self.text_utils.slit_clauses(raw_phrase)):
+        for iclause, clause_text in enumerate(self.text_utils.split_clauses(raw_phrase)):
             # Теперь интерпретируем каждую клаузу.
 
             # Так модель интерпретатора дает еще много ошибок, помогаем ей - определяем необходимость
             # выполнять интерпретацию текущей фразы, используя бинарный классификатор.
-            if self.req_interpretation.require_interpretation(clause_text, self.text_utils):
+            req_interpret = False
+            # Для простоты считаем, что самая первая реплика в диалоге не нуждается в интерпретации...
+            if len(session.conversation_history) == 0:
+                req_interpret = False
+            else:
+                req_interpret = self.req_interpretation.require_interpretation(clause_text, self.text_utils)
+
+            if req_interpret:
                 # Готовим контекст для интерпретации - предыдущие фразы. Собираем его в обратном порядке, от конца
                 # к началу диалога, потом перевернем
                 context_phrases = list()
@@ -577,6 +584,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def run_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
         """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
         будет полностью прекращен. При этом будут удалены и все отложенные диалоги в стеке."""
+
+        if session.scenario_already_run(scenario.get_name()):
+            # В рамках одной диалоговой сессии сценарии запускаем только по 1 разу.
+            self.logger.debug('Scenario "%s" already activated in this session, so skipping it', scenario.get_name())
+            return
+
         if session.get_status():
             if scenario.get_name() == session.get_status().get_name():
                 # Новый сценарий - такой же, как уже запущенный (например, снова сработало
@@ -621,13 +634,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # 09-12-2020 если уже есть работающий экземпляр запускаемого сценария, то не будем запускать его снова.
         if session.get_status():
             if session.get_status().get_name() == scenario.get_name():
+                # Этот сценарий и так активен, делать ничего не надо.
                 self.logger.debug('Scenario "%s" is already active in bot=%s interlocutor=%s', scenario.get_name(), bot.get_bot_id(), interlocutor)
-                # TODO - надо вытащить этот сценарий в топ, удалив все сценарии перед ним.
+                return
+            elif session.is_deferred_scenario(scenario.get_name()):
+                # надо вытащить этот сценарий в топ (??? удалив все сценарии перед ним ???)
+                self.logger.debug('Scenario "%s" is deferred, raising it to the top', scenario.get_name())
+                session.raise_deferred_scenario(scenario.get_name())
                 return
 
         status = RunningScenario(scenario, current_step_index=-1)
         session.call_scenario(status)
-        self.logger.debug('Scenario stack depth now is %d:[ %s ]  user=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
+        self.logger.debug('Call scenario "%s", scenario stack depth now is %d:[ %s ]  interlocutor=%s', scenario.get_name(), session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
         scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
@@ -1533,10 +1551,18 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Обработка приказов (императивов).
                 order_processed = self.process_order(bot, session, interlocutor, interpreted_phrase)
                 if not order_processed:
+                    # Пробуем применить правила.
+                    if self.premise_not_found.get_noanswer_rules():
+                        res = self.apply_insteadof_rule(self.premise_not_found.get_noanswer_rules(),
+                                                        None,  # bot.get_scripting().get_story_rules(),
+                                                        bot, session, interlocutor, interpreted_phrase)
+
                     # Сообщим, что не знаем как обработать приказ.
-                    answer = self.premise_not_found.order_not_understood(phrase, bot, session, self.text_utils)
-                    self.logger.debug('"Order not processed" handler: "%s"', answer)
-                    self.say(bot, session, answer)
+                    if not res.is_any_applied():
+                        answer = self.premise_not_found.order_not_understood(phrase, bot, session, self.text_utils)
+                        self.logger.debug('"Order not processed" handler: "%s"', answer)
+                        self.say(bot, session, answer)
+
                     order_processed = True
             elif interpreted_phrase.is_question or is_question2:
                 self.logger.debug('Processing as question: "%s" bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
@@ -1605,6 +1631,20 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             if replica:
                                 answer = replica
                                 answer_generated = True
+
+                    if not answer_generated and session.count_prev_consequent_b() == 0:
+                        # 31.01.2021 фраза-заглушка после сообщенного факта, чтобы заполнить диалоговую лакуну.
+                        if bot.get_scripting().common_assertion_replies:
+                            fx = list(bot.get_scripting().common_assertion_replies)
+
+                            # Длинные фразы-заглушки произносим один раз за сессию.
+                            for f in bot.get_scripting().say_once_assertion_replies:
+                                if session.count_bot_phrase(f) == 0:
+                                    fx.append(f)
+
+                            # Выбираем равновероятно одну из оставшихся фраз
+                            answer = random.choice(fx)
+                            answer_generated = True
 
                     if answer_generated:
                         self.say(bot, session, answer)

@@ -36,6 +36,9 @@ class BotPersonality:
         self.opposite_fact_comment_proba = 0.2
         self.max_contradiction_comments = 2
 
+    def __repr__(self):
+        return 'BotPersonality:{}'.format(self.get_bot_id())
+
     def get_bot_id(self):
         return self.bot_id
 
@@ -84,6 +87,9 @@ class BotPersonality:
 
     def reset_all_facts(self):
         self.facts.reset_all_facts()
+
+    def get_session(self, user_id):
+        return self.engine.get_session(self, user_id)
 
     def get_session_stat(self, user_id):
         return self.engine.get_session(self, user_id).get_session_stat()

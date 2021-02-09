@@ -174,7 +174,7 @@ class TextUtils(object):
     def words2str(self, words):
         return u' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))
 
-    def slit_clauses(self, s):
+    def split_clauses(self, s):
         return list(self.clause_splitter.split(s))
 
     def tokenize(self, s):

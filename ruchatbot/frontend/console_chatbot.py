@@ -71,6 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
     parser.add_argument('--tmp_folder', type=str, default='../../tmp', help='path to folder for logfile etc')
     parser.add_argument('--debugging', action='store_true')
+    parser.add_argument('--greeting', type=int, default=1)
     parser.add_argument('--chitchat_url', type=str, help='chit-chat service endpoint')
 
     args = parser.parse_args()
@@ -100,7 +101,9 @@ if __name__ == '__main__':
     bot.add_event_handler(u'alarm_clock', on_alarm_clock)
     bot.add_event_handler(u'buy_pizza', on_buy_pizza)
 
-    bot.start_conversation(user_id)
+    if args.greeting:
+        bot.start_conversation(user_id)
+
     flush_logging()
     print_tech_banner()
 

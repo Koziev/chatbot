@@ -33,7 +33,7 @@ class BaseDialogSession(object):
                             # если выполняется вербальная форма или сценарий
         self.deferred_running_items = deque()
         self.slots = dict()  # переменные состояния
-        self.started_scenarios = set()  # для отладки: какие сценарии запускались
+        self.started_scenarios = set()  # какие сценарии запускались в этой сессии
         self.premise_not_found_counter = 0  # для отладки: сколько раз не удалось ответить на вопрос с помощью фактов в БЗ
         self.order_not_handled_counter = 0  # для отладки: сколько раз не удалось обработать императив
         self.cannot_answer_counter = 0  # сколько раз не удалось выдать ответ, в том числе с помощью правил в no-info модели
@@ -266,11 +266,21 @@ class BaseDialogSession(object):
 
         self.deferred_running_items.append(new_status)
 
+    def raise_deferred_scenario(self, scenario_name):
+        i = [x.get_name() for x in self.deferred_running_items].index(scenario_name)
+        running_scenario = self.deferred_running_items[i]
+        del self.deferred_running_items[i]
+        self.deferred_running_items.insert(0, self.status)
+        self.status = running_scenario
+
     def form_executed(self):
         self.status = None
 
     def get_status(self):
         return self.status
+
+    def is_deferred_scenario(self, scenario_name):
+        return scenario_name in (x.get_name() for x in self.deferred_running_items)
 
     def get_scenario_stack_depth(self):
         """Вернет количество сценариев в сессии - один текущий и еще сколько-то в стеке отложенных"""
@@ -344,3 +354,6 @@ class BaseDialogSession(object):
         lines.append('premise_not_found_counter={}'.format(self.premise_not_found_counter))
         lines.append('order_not_handled_counter={}'.format(self.order_not_handled_counter))
         return lines
+
+    def scenario_already_run(self, scenario_name):
+        return scenario_name in self.started_scenarios

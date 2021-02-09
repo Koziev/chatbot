@@ -74,6 +74,8 @@ class BotScripting(object):
         self.rule_paths = []
         self.comprehension_rules = ComprehensionTable()
         self.common_phrases = []
+        self.common_assertion_replies = []
+        self.say_once_assertion_replies = []
 
     @staticmethod
     def __get_node_list(node):
@@ -210,6 +212,16 @@ class BotScripting(object):
 
             if 'story_rules' in data:
                 self.load_story_rules(os.path.dirname(yaml_path), data, compiled_grammars_path, constants, text_utils)
+
+            if 'assertion_replies' in data:
+                y = data['assertion_replies']
+                if 'common' in y:
+                    for s in y['common']:
+                        self.common_assertion_replies.append(replace_constant(s, constants, text_utils))
+
+                if 'say_once' in y:
+                    for s in y['say_once']:
+                        self.say_once_assertion_replies.append(replace_constant(s, constants, text_utils))
 
             # Правила, которые отрабатывают приоритетно на первой реплике собеседника в сессии
             if 'first_reply_rules' in data:

@@ -21,12 +21,15 @@ class ScenarioTerminationPolicy:
     def __init__(self):
         self.expiration = 0
         self.can_answer_question = None
+        self.exit_phrases = []
 
     def load_yaml(self, yaml_node, constants, text_utils):
         if 'expiration' in yaml_node:
             self.expiration = int(yaml_node['expiration'])
         if 'can_answer_question' in yaml_node:
             self.can_answer_question = replace_constant(yaml_node['can_answer_question'], constants, text_utils)
+        if 'exit_phrases' in yaml_node:
+            self.exit_phrases = list(yaml_node['exit_phrases'])
 
 
 class ScenarioTransition:
@@ -90,8 +93,8 @@ class Scenario(object):
         self.on_finish = None
         self.steps = []
         self.steps_policy = None
-        self.smalltalk_rules = None
-        self.insteadof_rules = None
+        self.smalltalk_rules = []
+        self.insteadof_rules = []
         self.story_rules = None
         self.termination_policy = ScenarioTerminationPolicy()
         self.termination_check_count = 0
@@ -171,7 +174,7 @@ class Scenario(object):
                 insteadof_rule_import = yaml_node['story_rules_import']
                 if insteadof_rule_import == 'from_global':
                     # добавляем в список глобальные insteadof-правила
-                    scenario.story_rules.extend(global_bot_scripting.story_rules)
+                    scenario.story_rules = global_bot_scripting.story_rules
 
         except Exception as ex:
             print('Error occured in scenario "{}" body parsing:\n{}'.format(scenario.name, str(ex)))
@@ -207,6 +210,16 @@ class Scenario(object):
         # Через running_scenario передается состояние выполняющегося сценария - номер текущего шага,
         # пометки о пройденных шагах и прочая информация, которая уже не будет нужна после завершения сценария.
         assert(isinstance(running_scenario, RunningScenario))
+
+        # Проверим, не пора ли выйти из сценария.
+        if self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
+            # Уберем инстанс сценария из списка активных
+            self.termination_check_count = 0
+            if running_scenario.scenario.on_finish:
+                running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None,
+                                                              text_utils)
+            bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+            return
 
         if self.is_graf():
             next_step_name = None
@@ -270,12 +283,11 @@ class Scenario(object):
                     # Сценарий исчерпан
                     logging.debug('Scenario "%s" is exhausted', self.get_name())
 
-                    if self.check_termination(bot, session, interlocutor, interpreted_phrase, text_utils):
-                        # Уберем инстанс сценария из списка активных
-                        self.termination_check_count = 0
-                        if running_scenario.scenario.on_finish:
-                            running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
-                        bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
+                    # Уберем инстанс сценария из списка активных
+                    self.termination_check_count = 0
+                    if running_scenario.scenario.on_finish:
+                        running_scenario.scenario.on_finish.do_action(bot, session, interlocutor, interpreted_phrase, None, text_utils)
+                    bot.get_engine().exit_scenario(bot, session, interlocutor, interpreted_phrase)
                     break
                 else:
                     running_scenario.current_step_index = new_step_index
@@ -317,12 +329,24 @@ class Scenario(object):
     def check_termination(self, bot, session, interlocutor, interpreted_phrase, text_utils):
         """Вернет True, если сценарий надо выключать"""
         self.termination_check_count += 1
-        if self.termination_check_count >= self.termination_policy.expiration:
+        if self.termination_policy.expiration > 0 and self.termination_check_count >= self.termination_policy.expiration:
             return True
 
         if self.termination_policy.can_answer_question:
             f = bot.does_bot_know_answer(self.termination_policy.can_answer_question, session, interlocutor)
             if f:
+                return True
+
+        if self.termination_policy.exit_phrases:
+            # Не сказал ли собеседник фразу, по которой мы должны сразу выйти из диалога?
+            det = bot.get_engine().synonymy_detector
+            best_phrase, best_sim = det.get_most_similar(interpreted_phrase.interpretation,
+                                                        [(s, '', '') for s in self.termination_policy.exit_phrases],
+                                                        text_utils,
+                                                        nb_results=1)
+            if best_sim >= 0.7:
+                logging.debug('Scenario "%s" terminated by phrase "%s" with is similar to exit-phrase="%s" with rel=%f',
+                              self.get_name(), interpreted_phrase.interpretation, best_phrase, best_sim)
                 return True
 
         return False
