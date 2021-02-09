@@ -45,7 +45,7 @@ def echo(update, context):
             if len(answer) == 0:
                 break
             else:
-                contxt.bot.send_message(chat_id=update.message.chat_id, text=answer)
+                context.bot.send_message(chat_id=update.message.chat_id, text=answer)
     except Exception as ex:
         logging.error(ex)  # sys.exc_info()[0]
 
