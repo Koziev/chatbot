@@ -650,12 +650,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
-        self.logger.debug('Exit scenario "%s" in bot=%s interlocutor=%s', session.get_status().get_name(), bot.get_bot_id(), interlocutor)
-        session.exit_scenario()
-        self.logger.debug('Scenario stack depth now is %d: %s  bot=%s interlocutor=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), bot.get_bot_id(), interlocutor)
-        if session.get_status():
-            if isinstance(session.get_status(), RunningScenario):
-                self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+        if session.get_status() is not None:
+            self.logger.debug('Exit scenario "%s" in bot=%s interlocutor=%s', session.get_status().get_name(), bot.get_bot_id(), interlocutor)
+            session.exit_scenario()
+            self.logger.debug('Scenario stack depth now is %d: %s  bot=%s interlocutor=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), bot.get_bot_id(), interlocutor)
+            if session.get_status():
+                if isinstance(session.get_status(), RunningScenario):
+                    self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
 
     def run_scenario_step(self, bot, session, interlocutor, interpreted_phrase):
         running_scenario = session.get_status()
