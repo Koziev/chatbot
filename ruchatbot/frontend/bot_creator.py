@@ -6,6 +6,7 @@
 10.01.2021 кроме урла сервиса читчата теперь используется структура с доп. конфигурационными полями (температура etc)
 """
 
+import logging
 import requests
 
 from ruchatbot.bot.bot_profile import BotProfile
@@ -34,6 +35,7 @@ class ChitchatConfig:
 
     def __repr__(self):
         return '{} temperature={} num_return_sequences={}'.format(self.service_endpoint, self.temperature, self.num_return_sequences)
+
 
 def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot',
                    chitchat_config=None,
@@ -70,12 +72,13 @@ def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debuggi
     if chitchat_config is not None and chitchat_config.service_endpoint:
         probe_chitchat_url = chitchat_config.service_endpoint
         try:
+            logging.debug('Trying to connect to chit-chat service "%s"...', probe_chitchat_url)
             chitchat_response = requests.get(probe_chitchat_url + '/')
             if chitchat_response.ok:
                 machine.chitchat_config = chitchat_config
         except Exception as ex:
             # веб-сервис чит-чата недоступен...
-            pass
+            logging.error('Chit-chat service error: %s', ex)
 
     # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
     profile_facts = ProfileFactsReader(text_utils=text_utils,
