@@ -32,6 +32,8 @@ class ChitchatConfig:
 
         return s
 
+    def __repr__(self):
+        return '{} temperature={} num_return_sequences={}'.format(self.service_endpoint, self.temperature, self.num_return_sequences)
 
 def create_chatbot(profile_path, models_folder, w2v_folder, data_folder, debugging, bot_id='test_bot',
                    chitchat_config=None,

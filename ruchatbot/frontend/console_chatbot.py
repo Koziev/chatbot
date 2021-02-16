@@ -88,8 +88,10 @@ if __name__ == '__main__':
         rugpt_chitchat_config.service_endpoint = args.chitchat_url
         # rugpt_chitchat_config.temperature = 0.9
         rugpt_chitchat_config.num_return_sequences = 2
+        logging.info('Chit-chat service to use: %s', str(rugpt_chitchat_config))
     else:
         rugpt_chitchat_config = None
+        logging.info('No chit-chat service!')
 
     logging.debug('Bot loading...')
     bot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, args.debugging, chitchat_config=rugpt_chitchat_config)
