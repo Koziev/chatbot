@@ -357,3 +357,6 @@ class BaseDialogSession(object):
 
     def scenario_already_run(self, scenario_name):
         return scenario_name in self.started_scenarios
+
+    def is_empty(self):
+        return len(self.conversation_history) == 0

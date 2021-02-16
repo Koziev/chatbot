@@ -1267,7 +1267,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         if not internal_issuer and (question in ('', '?')):
             # Пустая фраза или одиночный ? имитирует ситуацию таймаута - пользователь долгое время ничего не отвечает...
-            self.continue_dialogue(bot, session, self.text_utils)
+            # Но если это первая реплика в сессии - запустим приветствие.
+            if session.is_empty():
+                self.logger.debug('Empty session - start conversation for bot="%s" interlocutor="%s"', bot.get_bot_id(), interlocutor)
+                bot.start_conversation(interlocutor)
+            else:
+                self.continue_dialogue(bot, session, self.text_utils)
+
             return
 
         # Выполняем интерпретацию фразы с учетом ранее полученных фраз,
