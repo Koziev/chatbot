@@ -79,6 +79,9 @@ class GB_BaseDetector(object):
         # КОНЕЦ ОТЛАДКИ
 
         nb_answers = len(phrases)
+        if nb_answers == 0:
+            return None, 0.0
+
         X_data = lil_matrix((nb_answers, self.xgb_relevancy_nb_features), dtype=self.x_matrix_type)
 
         # Единственный вопрос готовим заранее
