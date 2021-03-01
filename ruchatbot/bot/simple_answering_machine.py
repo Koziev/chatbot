@@ -1797,7 +1797,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                             p_valid = self.syntax_validator.is_valid(answer, self.text_utils)
                                             if p_valid < 0.5:
                                                 self.logger.debug('Answer "%s" has invalid syntax p_valid=%f', answer, p_valid)
-                                                answers.append(premise_str)
+                                                answers.append(premises2[0][0])
                                                 answer_rels.append(rel * 0.99)
                                             else:
                                                 answers.append(answer)
