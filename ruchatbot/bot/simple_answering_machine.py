@@ -15,6 +15,7 @@ from ruchatbot.bot.simple_dialog_session_factory import SimpleDialogSessionFacto
 # from xgb_relevancy_detector import XGB_RelevancyDetector
 from ruchatbot.bot.lgb_relevancy_detector import LGB_RelevancyDetector
 #from ruchatbot.bot.nn_pq_relevancy_detector import NN_RelevancyDetector
+#from ruchatbot.bot.nn_pq_relevancy6_detector import NN_Relevancy6Detector
 
 #from nn_relevancy_tripleloss import NN_RelevancyTripleLoss
 #from xgb_person_classifier_model import XGB_PersonClassifierModel
@@ -47,6 +48,13 @@ from ruchatbot.bot.paraphraser import Paraphraser
 from ruchatbot.bot.actors import substitute_bound_variables, SayingPhrase
 from ruchatbot.bot.discourse import Discourse
 from ruchatbot.bot.interlocutor_gender_detector import InterlocutorGenderDetector
+
+
+def join_session_phrase(s1, s2):
+    if s1[-1] not in '.?!;':
+        return s1 + '. ' + s2
+    else:
+        return s1 + ' ' + s2
 
 
 class InsteadofRuleResult(object):
@@ -153,6 +161,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # Определение релевантности предпосылки и вопроса на основе XGB модели
         # self.relevancy_detector = XGB_RelevancyDetector()
         self.relevancy_detector = LGB_RelevancyDetector()
+        #self.relevancy_detector = NN_Relevancy6Detector()
         #self.relevancy_detector = NN_RelevancyDetector()
         # self.relevancy_detector = NN_RelevancyTripleLoss()
         self.relevancy_detector.load(models_folder)
@@ -1180,13 +1189,51 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 qurl = self.chitchat_config.build_query_url(context)
                 self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
+
+                generated_lines = []
+
                 response = requests.get(qurl)
                 # todo потом должен быть json
                 if response.ok:
-                    generated_lines = response.text.split('\n')
                     self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(generated_lines), bot.get_bot_id(), interlocutor)
+                    generated_lines.extend(response.text.split('\n'))
+
+                if use_session_history:
+                    # 06-03-2021 Эксперимент с полным контекстом сессии
+                    hlines = []
+                    for i, item in enumerate(session.conversation_history):
+                        if item.is_bot_phrase:
+                            label = 'B'
+                        else:
+                            label = 'H'
+                        if len(hlines) == 0:
+                            hlines.append([label, item.raw_phrase])
+                        else:
+                            last_label = hlines[-1][0]
+                            if last_label == label:
+                                hlines[-1][1] = join_session_phrase(hlines[-1][1], item.raw_phrase)
+                            else:
+                                hlines.append([label, item.raw_phrase])
+
+                    if len(hlines) > 2:
+                        # Берем последние несколько реплик
+                        nlast = 10
+                        if len(hlines) > nlast:
+                            hlines = hlines[-nlast:]
+
+                        context = ' | '.join(z[1] for z in hlines)
+                        qurl = self.chitchat_config.build_query_url(context)
+                        self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
+
+                        response = requests.get(qurl)
+                        # todo потом должен быть json
+                        if response.ok:
+                            self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(generated_lines), bot.get_bot_id(), interlocutor)
+                            generated_lines.extend(response.text.split('\n'))
+
+                if generated_lines:
                     ranked_lines = []
-                    all_session_phrases = session.get_all_phrases()
+                    #all_session_phrases = session.get_all_phrases()
                     for rtext in generated_lines:
                         # Проверим, что такая реплика еще не использовалась в этой сессии.
                         if self.bot_replica_already_uttered(bot, session, rtext):
