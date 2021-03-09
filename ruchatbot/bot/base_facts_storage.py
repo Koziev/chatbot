@@ -39,5 +39,5 @@ class BaseFactsStorage(object):
         :param interlocutor: уникальный строковый идентификатор пользователя
         :param fact: строковое представление добавляемого факта
         """
-        assert(len(unicode(fact)) > 0)
+        assert(len(fact) > 0)
         raise NotImplementedError()

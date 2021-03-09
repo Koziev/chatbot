@@ -41,11 +41,11 @@ class ProfileFactsReader(SimpleFactsStorage):
         self.profile_facts = None
         self.constants = constants
         self.new_facts = collections.defaultdict(list)  # списки новых фактов в привязке к id собеса
+        self.logger = logging.getLogger('ProfileFactsReader')
 
     def load_profile(self):
-        logger = logging.getLogger('ProfileFactsReader')
         if self.profile_facts is None:
-            logger.info('Loading profile facts from "%s"', self.profile_path)
+            self.logger.info('Loading profile facts from "%s"', self.profile_path)
             self.profile_facts = []
             with io.open(self.profile_path, 'r', encoding='utf=8') as rdr:
                 current_section = None
@@ -64,7 +64,7 @@ class ProfileFactsReader(SimpleFactsStorage):
                                     # Читаем факты из дополнительного файла
                                     fn = re.search('import "(.+)"', line).group(1).strip()
                                     add_path = os.path.join(os.path.dirname(self.profile_path), fn)
-                                    logger.debug('Loading facts from file "%s"...', add_path)
+                                    self.logger.debug('Loading facts from file "%s"...', add_path)
                                     with io.open(add_path, 'rt', encoding='utf-8') as rdr2:
                                         for line in rdr2:
                                             line = line.strip()
@@ -83,7 +83,7 @@ class ProfileFactsReader(SimpleFactsStorage):
                             canonized_line = self.text_utils.canonize_text(line1)
                             canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
                             self.profile_facts.append((canonized_line, current_section, self.profile_path))
-            logger.debug('%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
+            self.logger.debug('%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
 
     def reset_added_facts(self):
         self.new_facts = collections.defaultdict(list)
@@ -103,6 +103,10 @@ class ProfileFactsReader(SimpleFactsStorage):
             yield f
 
     def store_new_fact(self, interlocutor, fact, unique):
+        if fact[0].count(' ') == 0:
+            self.logger.error('1-word facts are not valid!: interlocutor=%s fact=%s', interlocutor, fact[0])
+            return
+
         # Новые факты, добавляемые собеседником в ходе диалога, сохраняем только в оперативке,
         # в других реализациях хранилища будет персистентность.
         interlocutor_facts = self.new_facts[interlocutor]
