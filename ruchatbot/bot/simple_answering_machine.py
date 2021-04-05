@@ -48,6 +48,7 @@ from ruchatbot.bot.paraphraser import Paraphraser
 from ruchatbot.bot.actors import substitute_bound_variables, SayingPhrase
 from ruchatbot.bot.discourse import Discourse
 from ruchatbot.bot.interlocutor_gender_detector import InterlocutorGenderDetector
+from ruchatbot.bot.rugpt_premise_confabulator import RugptPremiseConfabulator
 
 
 def join_session_phrase(s1, s2):
@@ -136,6 +137,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def load_models(self, rule_paths, data_folder, models_folder, constants, enable_verbal_forms):
         self.logger.info('Loading models from "%s"', models_folder)
         self.models_folder = models_folder
+
+        # 03-04-2021 Модель генерации предпосылок для заданного вопроса
+        self.premise_confabulator = RugptPremiseConfabulator()
+        self.premise_confabulator.load(os.path.join(models_folder, 'rugpt_premise4question'))
 
         self.premise_not_found = NoInformationModel()
         self.premise_not_found.load(rule_paths, models_folder, data_folder, constants, self.text_utils)
@@ -1195,8 +1200,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 response = requests.get(qurl)
                 # todo потом должен быть json
                 if response.ok:
-                    self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(generated_lines), bot.get_bot_id(), interlocutor)
-                    generated_lines.extend(response.text.split('\n'))
+                    rx1 = response.text.split('\n')
+                    self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(rx1), bot.get_bot_id(), interlocutor)
+                    generated_lines.extend(rx1)
 
                 if use_session_history:
                     # 06-03-2021 Эксперимент с полным контекстом сессии
@@ -1228,8 +1234,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         response = requests.get(qurl)
                         # todo потом должен быть json
                         if response.ok:
-                            self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(generated_lines), bot.get_bot_id(), interlocutor)
-                            generated_lines.extend(response.text.split('\n'))
+                            rx2 = response.text.split('\n')
+                            self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(rx2), bot.get_bot_id(), interlocutor)
+                            generated_lines.extend(rx2)
 
                 if generated_lines:
                     ranked_lines = []
@@ -1899,9 +1906,6 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         if phrase:
             bot.say(session, phrase)
 
-    #def premise_not_found(self, phrase, bot, session, text_utils):
-    #    return self.premise_not_found.generate_answer(phrase, bot, session, text_utils)
-
     def build_answers0(self, session, bot, interlocutor, interpreted_phrase):
         if self.trace_enabled:
             self.logger.debug('build_answers0: question to process="%s"  bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
@@ -2049,7 +2053,62 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # текст ответа из FAQ.
             answers = [best_faq_answer]
             answer_rels = [best_faq_rel]
-            self.logger.info(u'FAQ entry provides nearest question="%s" with rel=%e  bot=%s interlocutor=%s', best_faq_question, best_faq_rel, bot.get_bot_id(), interlocutor)
+            self.logger.info('FAQ entry provides nearest question="%s" with rel=%e  bot=%s interlocutor=%s', best_faq_question, best_faq_rel, bot.get_bot_id(), interlocutor)
+
+        if len(answers) == 0:
+            # Пробуем сгенерировать факт, если доступна модель
+            if self.premise_confabulator is not None:
+                conf_question = interpreted_phrase.interpretation
+                possible_premises = self.premise_confabulator.generate_output(conf_question)
+                if possible_premises:
+                    # Отфильтруем нерелевантные
+                    conf_premises, conf_rels = self.relevancy_detector.get_most_relevant(conf_question,
+                                                                                         [(s, None, None) for s in possible_premises if s],
+                                                                                         self.text_utils,
+                                                                                         nb_results=len(possible_premises))
+                    conf_premises2 = []
+                    conf_rels2 = []
+                    conf_threshold = 0.6
+                    if isinstance(conf_rels, list):
+                        for p, rel in zip(conf_premises, conf_rels):
+                            if rel > conf_threshold:  # TODO вынести в конфиг?
+                                conf_premises2.append(p)
+                                conf_rels2.append(rel)
+                    else:
+                        assert(isinstance(conf_premises, str))
+                        assert(isinstance(conf_rels, float))
+                        if conf_rels > conf_threshold:
+                            conf_premises2.append(conf_premises)
+                            conf_rels2.append(conf_rels)
+
+                    if conf_premises2:
+                        # Случайно выбираем один факт из релевантных сгенерированных
+                        conf_premise_group = random.choices(population=conf_premises2, weights=conf_rels2, k=1)
+                        conf_premise = conf_premise_group[0]
+
+                        self.logger.info('Confabulated fact "%s"', conf_premise)
+
+                        # Добавляем его в сессионную базу знаний
+                        bot.facts.store_new_fact(interlocutor, (conf_premise, 'x', None), False)
+
+                        # Теперь выполним генерацию ответа с помощью выбранного факта и заданного вопроса.
+                        premises3 = [[conf_premise]]
+                        premise_rels3 = [1.0]
+                        answers00, answer_rels00 = self.answer_builder.build_answer_text(premises3, premise_rels3,
+                                                                                         conf_question,
+                                                                                         self.text_utils)
+                        for answer, rel in zip(answers00, answer_rels00):
+                            self.logger.debug('Using confabulation premise "%s" to answer the question "%s". Answer is "%s"', conf_premise, conf_question, answer)
+                            if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                                answers.append(answer)
+                                answer_rels.append(rel)
+                            else:
+                                # если модель генерации ответа выдала мусор, то в качестве ответа отдадим предпосылку.
+                                premise_str = premises3[0][0]
+                                self.logger.debug('Answer "%s" is recognized as abracadabra, so returning premise "%s" as an answer',
+                                                  answer, premise_str)
+                                answers.append(premise_str)
+                                answer_rels.append(rel * 0.99)
 
         if len(answers) == 0:
             # Не удалось найти предпосылку для формирования ответа.
