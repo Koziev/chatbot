@@ -1,6 +1,7 @@
 # coding: utf-8
 
 import random
+import logging
 
 from ruchatbot.bot.running_form_status import RunningFormStatus
 from ruchatbot.bot.interpreted_phrase import InterpretedPhrase
@@ -340,7 +341,11 @@ class ActorScenario(ActorBase):
         return actor
 
     def do_action(self, bot, session, interlocutor, interpreted_phrase, condition_matching_results, text_utils):
-        bot.run_scenario(self, session, interlocutor, interpreted_phrase)
+        if bot.scenarios_enabled:
+            bot.run_scenario(self, session, interlocutor, interpreted_phrase)
+        else:
+            logging.getLogger('ActorScenario').warning('Scenarios are not enabled, can not run scenario "%s"', self.scenario_name)
+
         return True
 
 

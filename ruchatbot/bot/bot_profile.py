@@ -1,3 +1,9 @@
+"""
+Конфигурация бота - флаги, настроечные константы.
+
+13-04-2021 добавлен параметр "scenarios_enabled" для (раз)блокировки сценариев
+"""
+
 import json
 
 
@@ -45,6 +51,19 @@ class BotProfile(object):
     @property
     def replica_after_answering(self):
         return self.profile.get('replica_after_answering', True)
+
+    @property
+    def scenarios_enabled(self):
+        return self.profile.get('scenarios_enabled', True)
+
+    @property
+    def opposite_fact_comment_proba(self):
+        return self.profile.get('opposite_fact_comment_proba', 0.2)
+
+
+    @property
+    def max_contradiction_comments(self):
+        return self.profile.get('max_contradiction_comments', 2)
 
     # Политика формирования ответов в ответ на вопросы к боту ("как тебя зовут?")
     PERSONAL_QUESTIONS_ANSWERING__GENERAL = 'general'  # используется общий пайплайн с генерацией ответа

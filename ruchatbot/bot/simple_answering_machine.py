@@ -1423,7 +1423,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     if is_last_clause:
                         s1 = self.interpreter.denormalize_person(interpreted_phrase.interpretation, self.text_utils)
 
-                        if bot.same_fact_comment_proba < random.random():
+                        if bot.same_fact_comment_proba > random.random():
                             similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
                             if similar_fact:
                                 self.logger.debug('similar fact="%s" for phrase="%s", resulting in style="same_for_me". bot=%s interlocutor=%s', similar_fact, s1, bot.get_bot_id(), interlocutor)

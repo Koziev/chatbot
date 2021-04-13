@@ -23,6 +23,7 @@ class BotPersonality:
         self.enable_scripting = profile.rules_enabled
         self.enable_smalltalk = profile.smalltalk_enabled
         self.force_question_answering = profile.force_question_answering
+        self.scenarios_enabled = profile.scenarios_enabled
 
         self.personal_question_answering_policy = profile.personal_question_answering_policy
 
@@ -33,8 +34,8 @@ class BotPersonality:
         self.on_process_order = None
 
         self.same_fact_comment_proba = 0.0
-        self.opposite_fact_comment_proba = 0.2
-        self.max_contradiction_comments = 2
+        self.opposite_fact_comment_proba = profile.opposite_fact_comment_proba
+        self.max_contradiction_comments = profile.max_contradiction_comments
 
     def __repr__(self):
         return 'BotPersonality:{}'.format(self.get_bot_id())
