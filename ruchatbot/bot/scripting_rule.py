@@ -3,7 +3,7 @@
 import logging
 
 from abc import abstractmethod
-from ruchatbot.bot.actors import ActorBase
+from ruchatbot.bot.actors import ActorBase, ScenarioNotAvailableException
 from ruchatbot.bot.base_rule_condition import BaseRuleCondition
 
 
@@ -71,9 +71,14 @@ class ScriptingRuleIf(ScriptingRule):
         if condition_check.success:
             logging.debug('ScriptingRuleIf "%s"', self.rule_name)
             session.rule_activated(self)
-            replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase,
-                                                               condition_check, answering_engine.text_utils)
-            return ScriptingRuleResult.matched(replica_generated)
+            try:
+                replica_generated = self.compiled_action.do_action(bot, session, interlocutor, interpreted_phrase,
+                                                                   condition_check, answering_engine.text_utils)
+                return ScriptingRuleResult.matched(replica_generated)
+            except ScenarioNotAvailableException:
+                # Сработал актор запуска сценариев, а в текущем профиле сценарии запрещены.
+                # Считаем, что правило не сработало вообще.
+                return ScriptingRuleResult.unmatched()
         else:
             return ScriptingRuleResult.unmatched()
 

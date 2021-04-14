@@ -319,6 +319,10 @@ class ActorForm(ActorBase):
         return True
 
 
+class ScenarioNotAvailableException(Exception):
+    pass
+
+
 class ActorScenario(ActorBase):
     def __init__(self):
         super(ActorScenario, self).__init__('scenario')
@@ -343,10 +347,10 @@ class ActorScenario(ActorBase):
     def do_action(self, bot, session, interlocutor, interpreted_phrase, condition_matching_results, text_utils):
         if bot.scenarios_enabled:
             bot.run_scenario(self, session, interlocutor, interpreted_phrase)
+            return True
         else:
             logging.getLogger('ActorScenario').warning('Scenarios are not enabled, can not run scenario "%s"', self.scenario_name)
-
-        return True
+            raise ScenarioNotAvailableException()
 
 
 class ActorGenerate(ActorBase):
