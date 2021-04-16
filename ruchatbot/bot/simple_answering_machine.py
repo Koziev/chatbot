@@ -1431,7 +1431,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 if session.count_bot_phrase(s2) == 0:
                                     self.say(bot, session, s2)
 
-                        if bot.opposite_fact_comment_proba < random.random():
+                        if bot.opposite_fact_comment_proba > random.random():
                             # если для факта, сообщенного собесом, есть оппозитный для бота, то выдадим "а я нет"
                             if session.nb_commented_contradictions < bot.max_contradiction_comments:
                                 contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
@@ -1452,10 +1452,12 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         s1 = interpreted_phrase.interpretation
                         similar_fact = self.find_similar_fact(s1, bot, session, interlocutor)
                         if similar_fact:
-                            self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known". bot=%s interlocutor=%s', similar_fact, s1, bot.get_bot_id(), interlocutor)
-                            s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['already_known'], self.text_utils)
-                            self.say(bot, session, s2)
-                            input_processed = True  # не будем сохранять синонимичный факт в БД
+                            if bot.already_known_fact_comment_proba > random.random():
+                                self.logger.debug('Found similar fact="%s" for phrase="%s", resulting in style "already_known". bot=%s interlocutor=%s', similar_fact, s1, bot.get_bot_id(), interlocutor)
+                                s2 = self.paraphraser.conditional_paraphrase(similar_fact, ['already_known'], self.text_utils)
+                                self.say(bot, session, s2)
+                                input_processed = True  # не будем сохранять синонимичный факт в БД
+
                         # если для факта, сообщенного собесом, есть оппозитный для 3-го лица, то выдадим "а я нет"
                         #contradictory_fact = self.find_contradictory_fact(s1, bot, session, interlocutor)
                         #if contradictory_fact:

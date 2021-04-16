@@ -60,6 +60,9 @@ class BotProfile(object):
     def opposite_fact_comment_proba(self):
         return self.profile.get('opposite_fact_comment_proba', 0.2)
 
+    @property
+    def already_known_fact_comment_proba(self):
+        return self.profile.get('already_known_fact_comment_proba', 0.2)
 
     @property
     def max_contradiction_comments(self):

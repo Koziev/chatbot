@@ -9,7 +9,10 @@
 	"force_question_answering": false,
 	"replica_after_answering": false,
 	"personal_questions_answering_policy": "random",
-	
+	"scenarios_enabled": true,
+    "opposite_fact_comment_proba": 0.2,
+    "max_contradiction_comments": 2,
+    "already_known_fact_comment_proba": 0.2,
 	
 	"constants": {
 		"gender": "ЖЕН",
