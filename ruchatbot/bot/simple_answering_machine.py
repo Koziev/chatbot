@@ -49,6 +49,7 @@ from ruchatbot.bot.actors import substitute_bound_variables, SayingPhrase
 from ruchatbot.bot.discourse import Discourse
 from ruchatbot.bot.interlocutor_gender_detector import InterlocutorGenderDetector
 from ruchatbot.bot.rugpt_premise_confabulator import RugptPremiseConfabulator
+from ruchatbot.bot.rugpt_chitchat import RugptChitChat
 
 
 def join_session_phrase(s1, s2):
@@ -141,6 +142,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # 03-04-2021 Модель генерации предпосылок для заданного вопроса
         self.premise_confabulator = RugptPremiseConfabulator()
         self.premise_confabulator.load(os.path.join(models_folder, 'rugpt_premise4question'))
+
+        # 14-04-2021 Модель читчата inprocess
+        self.chitchat = RugptChitChat()
+        self.chitchat.load(os.path.join(models_folder, 'rugpt_checkpoints'))
 
         self.premise_not_found = NoInformationModel()
         self.premise_not_found.load(rule_paths, models_folder, data_folder, constants, self.text_utils)
@@ -1166,7 +1171,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
     def query_chitchat_service(self, bot, session, interlocutor, last_phrase, use_session_history=True):
         res = []
 
-        if self.chitchat_config:
+        if self.chitchat_config or self.chitchat:
             try:
                 # 16-10-2020
                 # Собираем контекст.
@@ -1192,17 +1197,20 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if last_bot_phrase is not None:
                             context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
 
-                qurl = self.chitchat_config.build_query_url(context)
-                self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
-
                 generated_lines = []
 
-                response = requests.get(qurl)
-                # todo потом должен быть json
-                if response.ok:
-                    rx1 = response.text.split('\n')
-                    self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(rx1), bot.get_bot_id(), interlocutor)
+                if self.chitchat is not None:
+                    rx1 = self.chitchat.generate_output(context, num_return_sequences=10)
                     generated_lines.extend(rx1)
+                elif self.chitchat_config is not None:
+                    qurl = self.chitchat_config.build_query_url(context)
+                    self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
+                    response = requests.get(qurl)
+                    # todo потом должен быть json
+                    if response.ok:
+                        rx1 = response.text.split('\n')
+                        self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(rx1), bot.get_bot_id(), interlocutor)
+                        generated_lines.extend(rx1)
 
                 if use_session_history:
                     # 06-03-2021 Эксперимент с полным контекстом сессии
@@ -1228,15 +1236,19 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             hlines = hlines[-nlast:]
 
                         context = ' | '.join(z[1] for z in hlines)
-                        qurl = self.chitchat_config.build_query_url(context)
-                        self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
 
-                        response = requests.get(qurl)
-                        # todo потом должен быть json
-                        if response.ok:
-                            rx2 = response.text.split('\n')
-                            self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(rx2), bot.get_bot_id(), interlocutor)
+                        if self.chitchat is not None:
+                            rx2 = self.chitchat.generate_output(context, num_return_sequences=10)
                             generated_lines.extend(rx2)
+                        elif self.chitchat_config is not None:
+                            qurl = self.chitchat_config.build_query_url(context)
+                            self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
+                            response = requests.get(qurl)
+                            # todo потом должен быть json
+                            if response.ok:
+                                rx2 = response.text.split('\n')
+                                self.logger.debug('Chitchat returned %d lines for bot=%s interlocutor=%s', len(rx2), bot.get_bot_id(), interlocutor)
+                                generated_lines.extend(rx2)
 
                 if generated_lines:
                     ranked_lines = []
