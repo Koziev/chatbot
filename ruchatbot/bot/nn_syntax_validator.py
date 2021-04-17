@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 04-01-2021 первая версия модели с использованием BPE токенизации
+17-04-2021 добавлена проверка на повтор слов, чтобы детектировать типовую проблему генеративной seq2seq модели нтерпретатора
 """
 
 
 import os
 import json
 import logging
+import collections
 
 import numpy as np
 from keras.models import model_from_json
@@ -58,7 +60,16 @@ class NN_SyntaxValidator(ModelApplicator):
 
     def is_valid(self, text0, text_utils):
         # препроцессинг текста должен быть идентичен тому, который используется при обучении модели
-        text = text_utils.remove_terminators(text_utils.wordize_text(text0))
+        words = text_utils.tokenize(text0)
+        if len(words) < 1:
+            return 0.0
+
+        word2count = collections.Counter(words)
+        if word2count.most_common(1)[1] >=4:
+            # Есть слово, которое повторено 4 и более раз
+            return 0.0
+
+        text = text_utils.remove_terminators(' '.join(words))
 
         # Очищаем содержимое входных тензоров от результатов предыдущего расчета
         self.X_probe.fill(0)

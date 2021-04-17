@@ -48,6 +48,9 @@ class P2Q_Relevancy_LGB:
         words = text_utils.tokenizer.tokenize(question)
         question = u' '.join(words)
 
+        return self.calc_relevancy0(premise1, premise2, question)
+
+    def calc_relevancy0(self, premise1, premise2, question):
         X1 = self.vectorizer.transform([premise1])
         X2 = self.vectorizer.transform([premise2])
         X3 = self.vectorizer.transform([question])
