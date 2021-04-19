@@ -13,6 +13,7 @@
     "opposite_fact_comment_proba": 0.2,
     "max_contradiction_comments": 2,
     "already_known_fact_comment_proba": 0.2,
+    "faq_enabled": false,
 	
 	"constants": {
 		"gender": "ЖЕН",

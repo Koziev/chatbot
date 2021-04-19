@@ -37,6 +37,7 @@ class BotPersonality:
         self.opposite_fact_comment_proba = profile.opposite_fact_comment_proba
         self.max_contradiction_comments = profile.max_contradiction_comments
         self.already_known_fact_comment_proba = profile.already_known_fact_comment_proba
+        self.faq_enabled = profile.faq_enabled
 
     def __repr__(self):
         return 'BotPersonality:{}'.format(self.get_bot_id())

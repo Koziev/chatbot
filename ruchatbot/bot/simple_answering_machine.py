@@ -1928,7 +1928,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         best_faq_answer = None
         best_faq_rel = 0.0
         best_faq_question = None
-        if bot.faq:
+        if bot.faq_enabled and bot.faq:
             best_faq_answer, best_faq_rel, best_faq_question = bot.faq.get_most_similar(interpreted_phrase.interpretation,
                                                                                         self.synonymy_detector,
                                                                                         self.text_utils)
