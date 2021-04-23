@@ -38,6 +38,7 @@ class BotPersonality:
         self.max_contradiction_comments = profile.max_contradiction_comments
         self.already_known_fact_comment_proba = profile.already_known_fact_comment_proba
         self.faq_enabled = profile.faq_enabled
+        self.confabulator_enabled = profile.confabulator_enabled
 
     def __repr__(self):
         return 'BotPersonality:{}'.format(self.get_bot_id())

@@ -61,6 +61,10 @@ class BotProfile(object):
         return self.profile.get('faq_enabled', True)
 
     @property
+    def confabulator_enabled(self):
+        return self.profile.get('confabulator_enabled', True)
+
+    @property
     def opposite_fact_comment_proba(self):
         return self.profile.get('opposite_fact_comment_proba', 0.2)
 

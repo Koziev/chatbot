@@ -1688,7 +1688,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 replica_generated = True
 
                         if not replica_generated:
-                            replica = self.generate_smalltalk_replica(bot, session, interlocutor)
+                            replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
                             if replica:
                                 if is_last_clause:
                                     self.say(bot, session, replica)
@@ -2071,7 +2071,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         if len(answers) == 0:
             # Пробуем сгенерировать факт, если доступна модель
-            if self.premise_confabulator is not None:
+            if self.premise_confabulator is not None and bot.confabulator_enabled:
                 conf_question = interpreted_phrase.interpretation
                 possible_premises = self.premise_confabulator.generate_output(conf_question)
                 if possible_premises:
@@ -2105,24 +2105,33 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         # Добавляем его в сессионную базу знаний
                         bot.facts.store_new_fact(interlocutor, (conf_premise, 'x', None), False)
 
-                        # Теперь выполним генерацию ответа с помощью выбранного факта и заданного вопроса.
-                        premises3 = [[conf_premise]]
-                        premise_rels3 = [1.0]
-                        answers00, answer_rels00 = self.answer_builder.build_answer_text(premises3, premise_rels3,
-                                                                                         conf_question,
-                                                                                         self.text_utils)
-                        for answer, rel in zip(answers00, answer_rels00):
-                            self.logger.debug('Using confabulation premise "%s" to answer the question "%s". Answer is "%s"', conf_premise, conf_question, answer)
-                            if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
-                                answers.append(answer)
-                                answer_rels.append(rel)
-                            else:
-                                # если модель генерации ответа выдала мусор, то в качестве ответа отдадим предпосылку.
-                                premise_str = premises3[0][0]
-                                self.logger.debug('Answer "%s" is recognized as abracadabra, so returning premise "%s" as an answer',
-                                                  answer, premise_str)
-                                answers.append(premise_str)
-                                answer_rels.append(rel * 0.99)
+                        # Так как сейчас модель генерации ответа PQA дает много мусора на сгенерированных фактах,
+                        # будем выдавать полный текст предпосылки в качестве ответа. Когда качество модели PQA вырастет,
+                        # этот флаг переключим на False.
+                        use_whole_confabulated_premise = True
+
+                        if use_whole_confabulated_premise:
+                            answers.append(conf_premise)
+                            answer_rels.append(0.99)
+                        else:
+                            # Теперь выполним генерацию ответа с помощью выбранного факта и заданного вопроса.
+                            premises3 = [[conf_premise]]
+                            premise_rels3 = [1.0]
+                            answers00, answer_rels00 = self.answer_builder.build_answer_text(premises3, premise_rels3,
+                                                                                             conf_question,
+                                                                                             self.text_utils)
+                            for answer, rel in zip(answers00, answer_rels00):
+                                self.logger.debug('Using confabulation premise "%s" to answer the question "%s". Answer is "%s"', conf_premise, conf_question, answer)
+                                if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                                    answers.append(answer)
+                                    answer_rels.append(rel)
+                                else:
+                                    # если модель генерации ответа выдала мусор, то в качестве ответа отдадим предпосылку.
+                                    premise_str = premises3[0][0]
+                                    self.logger.debug('Answer "%s" is recognized as abracadabra, so returning premise "%s" as an answer',
+                                                      answer, premise_str)
+                                    answers.append(premise_str)
+                                    answer_rels.append(rel * 0.99)
 
         if len(answers) == 0:
             # Не удалось найти предпосылку для формирования ответа.
