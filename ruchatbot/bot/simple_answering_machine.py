@@ -1664,6 +1664,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         input_processed = insteadof_rule_result.is_any_applied()
 
                 if not input_processed:
+                    answers = []
                     if is_last_clause:
                         # Обрабатываем вопрос собеседника (либо результат трансляции императива).
                         answers = self.build_answers(session, bot, interlocutor, interpreted_phrase)

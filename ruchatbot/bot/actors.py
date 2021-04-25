@@ -60,6 +60,8 @@ class ActorSay(ActorBase):
         self.exhausted_phrases = []
         self.known_answer_policy = 'utter'
         self.np_sources = dict()
+        self.on_repeat = []
+        self.on_repeat_again = []
 
     @staticmethod
     def from_yaml(yaml_node, constants, text_utils):
@@ -80,6 +82,14 @@ class ActorSay(ActorBase):
                     for utterance in yaml_node['exhausted']:
                         s = replace_constant(utterance, constants, text_utils)
                         actor.exhausted_phrases.append(SayingPhrase(s))
+                elif 'on_repeat' == inner_keyword:
+                    for utterance in yaml_node['on_repeat']:
+                        s = replace_constant(utterance, constants, text_utils)
+                        actor.on_repeat.append(SayingPhrase(s))
+                elif 'on_repeat_again' == inner_keyword:
+                    for utterance in yaml_node['on_repeat_again']:
+                        s = replace_constant(utterance, constants, text_utils)
+                        actor.on_repeat_again.append(SayingPhrase(s))
                 elif 'known_answer' == inner_keyword:
                     actor.known_answer_policy = yaml_node[inner_keyword]
                     # TODO - проверить значение флага: 'skip' | 'utter'
@@ -134,6 +144,25 @@ class ActorSay(ActorBase):
                             condition_matching_results.add_group(np, tokens, phrase_tokens)
                         else:
                             return None
+
+        session.actor_say_hit(id(self))
+        if session.get_actor_say_hits(id(self)) > 1:
+            # Выдадим реплику из отдельного списка, так как в текущей сессии это повторный вопрос
+            new_utterances = []
+            if self.on_repeat_again and session.get_actor_say_hits(id(self)) > 2:
+                for utterance0 in self.on_repeat_again:
+                    utterance = self.prepare4saying(utterance0, condition_matching_results, text_utils)
+                    new_utterances.append(utterance)
+
+            if len(new_utterances) == 0 and self.on_repeat:
+                new_utterances = []
+                for utterance0 in self.on_repeat:
+                    utterance = self.prepare4saying(utterance0, condition_matching_results, text_utils)
+                    new_utterances.append(utterance)
+
+            if new_utterances:
+                bot.say(session, random.choice(new_utterances))
+                return True
 
         # Сначала попробуем убрать из списка те реплики, которые мы уже произносили.
         new_utterances = []

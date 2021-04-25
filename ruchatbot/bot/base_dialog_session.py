@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import collections
 
 from collections import deque
 from ruchatbot.bot.running_scenario import RunningDialogStatus
@@ -37,8 +38,8 @@ class BaseDialogSession(object):
         self.premise_not_found_counter = 0  # для отладки: сколько раз не удалось ответить на вопрос с помощью фактов в БЗ
         self.order_not_handled_counter = 0  # для отладки: сколько раз не удалось обработать императив
         self.cannot_answer_counter = 0  # сколько раз не удалось выдать ответ, в том числе с помощью правил в no-info модели
-
         self.nb_commented_contradictions = 0  # сколько раз попали в ветку "а я ...."
+        self.actor_say_hits = collections.Counter()  # счетчики срабатывания акторов say в привязке к id
 
     def get_interlocutor(self):
         return self.interlocutor
@@ -360,3 +361,9 @@ class BaseDialogSession(object):
 
     def is_empty(self):
         return len(self.conversation_history) == 0
+
+    def get_actor_say_hits(self, actor_say_id):
+        return self.actor_say_hits[actor_say_id]
+
+    def actor_say_hit(self, actor_say_id):
+        self.actor_say_hits[actor_say_id] += 1
