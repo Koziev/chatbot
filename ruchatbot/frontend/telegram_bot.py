@@ -37,7 +37,7 @@ def echo(update, context):
         user_id = str(update.message.chat_id)
         question = update.message.text
 
-        logging.info('Answering to "%s"', question)
+        logging.info('Answering to "%s" for user_id="%s"', question, user_id)
 
         chatbot.push_phrase(user_id, question)
         while True:
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     # Разбор параметров запуска бота, указанных в командной строке
     parser = argparse.ArgumentParser(description='Telegram chatbot')
     parser.add_argument('--token', type=str, default='', help='Telegram token for bot')
-    parser.add_argument('--profile', type=str, default='../../data/profile_1.json', help='path to profile file')
+    parser.add_argument('--profile', type=str, help='path to profile file')
     parser.add_argument('--data_folder', type=str, default='../../data')
     parser.add_argument('--w2v_folder', type=str, default='../../tmp')
     parser.add_argument('--models_folder', type=str, default='../../tmp', help='path to folder with pretrained models')
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    profile_path = os.path.expanduser(args.profile)
+    profile_path = os.path.expanduser(args.profile) if args.profile is not None else None
     models_folder = os.path.expanduser(args.models_folder)
     data_folder = os.path.expanduser(args.data_folder)
     w2v_folder = os.path.expanduser(args.w2v_folder)
@@ -72,9 +72,21 @@ if __name__ == '__main__':
     #logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
     init_trainer_logging(os.path.join(tmp_folder, 'telegram_bot.log'), True)
 
+    # Для работы с сервером телеграмма нужен зарегистрированный бот.
+    # Результатом регистрации является токен - уникальная строка символов.
+    # Вот эту строку надо сейчас ввести с консоли.
+    # Возможно, следует предусмотреть передачу токена через опцию ком. строки.
     telegram_token = args.token
     if len(telegram_token) == 0:
         telegram_token = input('Enter Telegram token:> ').strip()
+
+    # Задать используемый профиль можно с консоли.
+    while not profile_path:
+        profile = input('Choose profile [1, 2]:> ').strip()
+        if profile == '1':
+            profile_path = os.path.join(data_folder, 'profile_1.json')
+        elif profile == '2':
+            profile_path = os.path.join(data_folder, 'profile_2.json')
 
     tg_bot = telegram.Bot(token=telegram_token)
     logging.info('Telegram bot: %s', tg_bot.getMe())
@@ -99,6 +111,8 @@ if __name__ == '__main__':
 
     echo_handler = MessageHandler(Filters.text, echo)
     dispatcher.add_handler(echo_handler)
+
+    logging.getLogger('telegram.bot').setLevel(logging.INFO)
 
     logging.info('Start polling messages for bot {}...'.format(tg_bot.getMe()))
     updater.start_polling()
