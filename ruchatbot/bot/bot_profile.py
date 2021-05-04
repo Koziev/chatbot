@@ -50,7 +50,7 @@ class BotProfile(object):
 
     @property
     def replica_after_answering(self):
-        return self.profile.get('replica_after_answering', True)
+        return self.profile.get('replica_after_answering', False)
 
     @property
     def scenarios_enabled(self):

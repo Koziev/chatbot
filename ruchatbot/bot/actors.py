@@ -122,28 +122,28 @@ class ActorSay(ActorBase):
                 condition_matching_results = RuleConditionMatching.create(True)
 
             for np, question in self.np_sources.items():
-                    if bot.get_engine().does_bot_know_answer(question, bot, session, interlocutor):
-                        interpreted_phrase2 = InterpretedPhrase(question)
-                        answers = bot.get_engine().build_answers(session, bot, interlocutor, interpreted_phrase2)
-                        if answers:
-                            answer = answers[0]
-                            tokens = text_utils.tokenize(answer)
-                            tagsets = list(text_utils.postagger.tag(tokens))
-                            lemmas = text_utils.lemmatizer.lemmatize(tagsets)
+                if bot.get_engine().does_bot_know_answer(question, bot, session, interlocutor):
+                    interpreted_phrase2 = InterpretedPhrase(question)
+                    answers = bot.get_engine().build_answers(session, bot, interlocutor, interpreted_phrase2)
+                    if answers:
+                        answer = answers[0]
+                        tokens = text_utils.tokenize(answer)
+                        tagsets = list(text_utils.postagger.tag(tokens))
+                        lemmas = text_utils.lemmatizer.lemmatize(tagsets)
 
-                            phrase_tokens = []
-                            for word_index, (token, tagset, lemma) in enumerate(zip(tokens, tagsets, lemmas)):
-                                t = PhraseToken()
-                                t.word = token
-                                t.norm_word = token.lower()
-                                t.lemma = lemma[2]
-                                t.tagset = tagset[1]
-                                t.word_index = word_index
-                                phrase_tokens.append(t)
+                        phrase_tokens = []
+                        for word_index, (token, tagset, lemma) in enumerate(zip(tokens, tagsets, lemmas)):
+                            t = PhraseToken()
+                            t.word = token
+                            t.norm_word = token.lower()
+                            t.lemma = lemma[2]
+                            t.tagset = tagset[1]
+                            t.word_index = word_index
+                            phrase_tokens.append(t)
 
-                            condition_matching_results.add_group(np, tokens, phrase_tokens)
-                        else:
-                            return None
+                        condition_matching_results.add_group(np, tokens, phrase_tokens)
+                    else:
+                        return None
 
         session.actor_say_hit(id(self))
         if session.get_actor_say_hits(id(self)) > 1:

@@ -225,6 +225,12 @@ class NN_InterpreterNew6(BaseUtteranceInterpreter2):
 
                 res_words.append(form)
 
+        # 26-04-2021 Склонятор иногда выдает неупотребляющиеся формы слов. Чтобы не выдавать
+        # такие кривые реплики, отключаем knn-1 в этом случае.
+        broken_forms = ['человеки', 'годов']
+        if any((w in res_words) for w in broken_forms):
+            return None
+
         return ' '.join(res_words)
 
     def interpret(self, phrases, text_utils):
@@ -241,7 +247,9 @@ class NN_InterpreterNew6(BaseUtteranceInterpreter2):
                 if matching:
                     # теперь собираем выходную строку, используя сопоставленные ключевые слова и шаблон
                     expanded_phrase = self.generate_output_by_template(template[1], matching, text_utils)
-                    self.logger.debug('NN_InterpreterNew2 knn-1 generated "%s"', expanded_phrase)
+                    if expanded_phrase:
+                        self.logger.debug('NN_InterpreterNew2 knn-1 generated "%s"', expanded_phrase)
+
                     break
 
         if not expanded_phrase:
@@ -253,6 +261,6 @@ class NN_InterpreterNew6(BaseUtteranceInterpreter2):
             #    expanded_phrase = self.predict_output(context_str)
             expanded_phrase = self.predict_output(context_str)
 
-            self.logger.debug('NN_InterpreterNew6 seq2seq generated "%s"', expanded_phrase)
+            self.logger.debug('NN_InterpreterNew6 seq2seq context="%s" output="%s"', context_str, expanded_phrase)
 
         return expanded_phrase

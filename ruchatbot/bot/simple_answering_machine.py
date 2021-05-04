@@ -956,9 +956,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         for rule in insteadof_rules:
             if rule.priority <= 1.0:
                 if not session.is_rule_activated(rule):
-                    rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
-                    if rule_result.condition_success:
-                        return InsteadofRuleResult.GetTrueInsteadof(rule_result.replica_is_generated)
+                    try:
+                        rule_result = rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                        if rule_result.condition_success:
+                            return InsteadofRuleResult.GetTrueInsteadof(rule_result.replica_is_generated)
+                    except:
+                        logging.error('Error on rule %s execution', str(rule))
+                        raise
 
         # Ни одно из правил в insteadof_rules не подошло.
         return InsteadofRuleResult.GetFalse()
@@ -1038,7 +1042,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return generated_replicas
 
-    def generate_smalltalk_replica(self, smalltalk_rules, bot, session, interlocutor, interlocutor_phrase=None):
+    def generate_smalltalk_replica(self, smalltalk_rules, bot, session, interlocutor, interlocutor_phrase=None, phrase_types=None):
         generated_replicas = []  # список кортежей (подобранная_реплика_бота, вес_реплики)
 
         if bot.enable_smalltalk and bot.has_scripting():
@@ -1147,7 +1151,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Используем внешний веб-сервис чит-чата.
             # Если timegap=0, то мы обрабатываем последнюю реплику собеседника.
             self.logger.debug('Before calling query_chitchat_service from generate_smalltalk_replica with "%s"  bot=%s interlocutor=%s', phrase, bot.get_bot_id(), interlocutor)
-            chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, phrase, use_session_history=False)
+            chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, phrase, use_session_history=False, phrase_types=phrase_types)
             if chitchat_replicas:
                 generated_replicas.extend(chitchat_replicas)
 
@@ -1168,7 +1172,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return None
 
-    def query_chitchat_service(self, bot, session, interlocutor, last_phrase, use_session_history=True):
+    def query_chitchat_service(self, bot, session, interlocutor, last_phrase, use_session_history=True, phrase_types=None):
         res = []
 
         if self.chitchat_config or self.chitchat:
@@ -1200,8 +1204,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 generated_lines = []
 
                 if self.chitchat is not None:
-                    rx1 = self.chitchat.generate_output(context, num_return_sequences=10)
-                    generated_lines.extend(rx1)
+                    rx1 = self.chitchat.generate_output(context, num_return_sequences=20)
+                    if phrase_types is None:
+                        generated_lines.extend(rx1)
+                    else:
+                        if phrase_types == 'q':
+                            for r in rx1:
+                                if not any((c not in r) for c in '.;,?'):
+                                    generated_lines.append(r)
+                        else:
+                            raise NotImplementedError()
+
                 elif self.chitchat_config is not None:
                     qurl = self.chitchat_config.build_query_url(context)
                     self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
@@ -1689,7 +1702,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 replica_generated = True
 
                         if not replica_generated:
-                            replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(), bot, session, interlocutor)
+                            replica = self.generate_smalltalk_replica(bot.get_scripting().get_smalltalk_rules(),
+                                                                      bot,
+                                                                      session,
+                                                                      interlocutor,
+                                                                      phrase_types='q')
                             if replica:
                                 if is_last_clause:
                                     self.say(bot, session, replica)
@@ -2208,6 +2225,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
     def get_synonymy_detector(self):
         return self.synonymy_detector
+
+    def get_jaccard_detector(self):
+        return self.jsyndet
 
     def get_text_utils(self):
         return self.text_utils
