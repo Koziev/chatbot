@@ -74,11 +74,18 @@ class BaseRuleCondition(object):
         input_text = text_utils.wordize_text(input_text)
         etalons = list((text_utils.wordize_text(etalon), None, None) for etalon in etalon_texts)
 
-        syn = answering_engine.get_synonymy_detector()
-        best_etalon, best_sim = syn.get_most_similar(input_text,
-                                                     etalons,
-                                                     text_utils,
-                                                     nb_results=1)
+        if self.metric == 'jaccard':
+            syn = answering_engine.get_jaccard_detector()
+            best_etalon, best_sim = syn.get_most_similar(input_text,
+                                                         etalons,
+                                                         text_utils,
+                                                         nb_results=1)
+        else:
+            syn = answering_engine.get_synonymy_detector()
+            best_etalon, best_sim = syn.get_most_similar(input_text,
+                                                         etalons,
+                                                         text_utils,
+                                                         nb_results=1)
 
         # НАЧАЛО ОТЛАДКИ
         if best_sim >= syn.get_threshold():
@@ -192,10 +199,23 @@ class RuleCondition_Text(BaseRuleCondition):
 class RuleCondition_RawText(BaseRuleCondition):
     def __init__(self, data_yaml, constants, text_utils):
         super().__init__(data_yaml)
-        if isinstance(data_yaml[u'raw_text'], list):
-            etalons = data_yaml[u'raw_text']
+        self.metric = 'synonymy'
+        self.threshold = None
+        self.modality = None
+
+        #if isinstance(data_yaml[u'raw_text'], list):
+        #    etalons = data_yaml[u'raw_text']
+        #else:
+        #    etalons = [data_yaml[u'raw_text']]
+        y = data_yaml['raw_text']
+        if isinstance(y, dict):
+            etalons = y['masks']
+            self.metric = y.get('metric', 'synonymy')
+            self.threshold = y.get('threshold')
+        elif isinstance(y, list):
+            etalons = y
         else:
-            etalons = [data_yaml[u'raw_text']]
+            etalons = [y]
 
         self.etalons = []
         for e in etalons:
@@ -223,6 +243,8 @@ class RuleCondition_PrevBotText(BaseRuleCondition):
         self.etalons = []
         for e in etalons:
             self.etalons.append(replace_constant(e, constants, text_utils))
+
+        self.metric = 'synonymy'
 
     def get_short_repr(self):
         return 'prev_bot_text etalons[1/{}]="{}"'.format(len(self.etalons), self.etalons[0])
