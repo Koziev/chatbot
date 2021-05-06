@@ -5,20 +5,20 @@
 """
 
 import logging
-import platform
-import sys
 import argparse
 import os
 
 import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.frontend.bot_creator import create_chatbot, ChitchatConfig
 
 
-def start(update, context):
+def start(update, context) -> None:
     user_id = str(update.message.chat_id)
+    logging.debug('Entering START callback with user_id=%s', user_id)
     chatbot.start_conversation(user_id)
 
     while True:
@@ -27,6 +27,7 @@ def start(update, context):
             break
 
         context.bot.send_message(chat_id=update.message.chat_id, text=answer)
+    logging.debug('Leaving START callback with user_id=%s', user_id)
 
 
 def echo(update, context):
@@ -82,11 +83,13 @@ if __name__ == '__main__':
 
     # Задать используемый профиль можно с консоли.
     while not profile_path:
-        profile = input('Choose profile [1, 2]:> ').strip()
+        profile = input('Choose profile [1, 2, 3]:> ').strip()
         if profile == '1':
             profile_path = os.path.join(data_folder, 'profile_1.json')
         elif profile == '2':
             profile_path = os.path.join(data_folder, 'profile_2.json')
+        elif profile == '3':
+            profile_path = os.path.join(data_folder, 'profile_3.json')
 
     tg_bot = telegram.Bot(token=telegram_token)
     logging.info('Telegram bot: %s', tg_bot.getMe())
@@ -99,7 +102,7 @@ if __name__ == '__main__':
     else:
         rugpt_chitchat_config = None
 
-    logging.debug('Bot loading...')
+    logging.debug('Bot loading: profile=%s...', profile_path)
     chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, True, bot_id='telegram_bot',
                              chitchat_config=rugpt_chitchat_config)
 
@@ -113,6 +116,8 @@ if __name__ == '__main__':
     dispatcher.add_handler(echo_handler)
 
     logging.getLogger('telegram.bot').setLevel(logging.INFO)
+    logging.getLogger('telegram.vendor.ptb_urllib3.urllib3.connectionpool').setLevel(logging.INFO)
 
-    logging.info('Start polling messages for bot {}...'.format(tg_bot.getMe()))
+    logging.info('Start polling messages for bot %s...', tg_bot.getMe())
     updater.start_polling()
+    updater.idle()
