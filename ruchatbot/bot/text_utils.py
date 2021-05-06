@@ -11,6 +11,7 @@ NLP Pipeline чатбота
 
 01.12.2021 Добавляем UDPipe в пайплайн для реализации детектора гендерной самоидентификации собеседника
            и для задач аугментации.
+05.05.2021 Грузим список имен, чтобы фильтровать результаты генерации читчата
 """
 
 import itertools
@@ -19,6 +20,7 @@ import os
 import io
 import yaml
 import logging
+import pickle
 
 import pyconll
 from ufal.udpipe import Model, Pipeline, ProcessingError
@@ -69,6 +71,7 @@ class TextUtils(object):
         #self.lemmatizer = Mystem()
         self.lemmatizer = rulemma.Lemmatizer()
         self.word_embeddings = None
+        self.names = None
 
     def load_embeddings(self, w2v_dir, wc2v_dir):
         # Загрузка векторных словарей
@@ -122,6 +125,9 @@ class TextUtils(object):
         #    for line in rdr:
         #        word = line.strip()
         #        self.known_words.add(word)
+
+        with open(os.path.join(models_folder, 'names.pkl'), 'rb') as f:
+            self.names = set(pickle.load(f).keys())
 
     def apply_word_function(self, func, constants, words):
         part_of_speech = None
@@ -316,3 +322,11 @@ class TextUtils(object):
             return False
 
         return True
+
+    def contains_name(self, text_str) -> bool:
+        parsed_data = self.parse_syntax(text_str)
+
+        up_words = [z.form.lower().replace('ё', 'е') for z in parsed_data]
+        up_lemmas = [z.lemma.lower().replace('ё', 'е') for z in parsed_data]
+
+        return any((w in self.names) for w in up_words) or any((l in self.names) for l in up_lemmas)

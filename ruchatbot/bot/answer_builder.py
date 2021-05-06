@@ -175,6 +175,12 @@ class AnswerBuilder(object):
 
                 res_words.append(form)
 
+        # 26-04-2021 Склонятор иногда выдает неупотребляющиеся формы слов. Чтобы не выдавать
+        # такие кривые реплики, отключаем knn-1 в этом случае.
+        broken_forms = ['человеки', 'годов']
+        if any((w in res_words) for w in broken_forms):
+            return None
+
         return ' '.join(res_words)
 
     def build_using_knn1(self, premises, question, text_utils):

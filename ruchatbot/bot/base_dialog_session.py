@@ -158,6 +158,23 @@ class BaseDialogSession(object):
                     reslist.append((item, timegap))
         return reslist[:last_nb]
 
+    def extract_last_chitchat_context_pair(self):
+        """Возвращает самую последнюю реплику собеседника и предыдущую реплику бота"""
+        i = len(self.conversation_history)-1
+        while i >= 0:
+            if not self.conversation_history[i].is_bot_phrase:
+                h_phrase = self.conversation_history[i]
+                b_phrase = None
+                if i > 0:
+                    if self.conversation_history[i-1].is_bot_phrase:
+                        b_phrase = self.conversation_history[i-1]
+
+                return b_phrase, h_phrase
+
+            i -= 1
+
+        return None, None
+
     def count_bot_phrase(self, phrase_str):
         """Вернет, сколько раз бот уже произносил фразу phrase_str"""
         n = 0

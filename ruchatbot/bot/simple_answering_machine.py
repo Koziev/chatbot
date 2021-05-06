@@ -1053,78 +1053,84 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             complex_rules = smalltalk_rules.enumerate_complex_rules()
 
             if interlocutor_phrase is None:
-                interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=True)
+                # Если берем контекст из текущей сессии.
+                prev_phrase, phrase = session.extract_last_chitchat_context_pair()
+                # Ищем самую последнюю реплику собеседника.
+                #interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=True)
             else:
-                interlocutor_phrases = [(interlocutor_phrase, 0)]
+                # Если контекстом будет единственная заданная фраза
+                #interlocutor_phrases = [(interlocutor_phrase, 0)]
+                phrase = interlocutor_phrase
+                prev_phrase = None
 
-            for phrase, timegap in interlocutor_phrases[:1]:  # 05.06.2019 берем одну последнюю фразу собеседника
-                time_decay = math.exp(-timegap)  # штрафуем фразы, найденные для более старых реплик
-                # Проверяем условия для сложных правил.
-                for rule in complex_rules:
-                    matching = rule.check_condition(bot, session, interlocutor, phrase, self)
-                    if matching.success:
-                        rx = self.run_smalltalk_action(rule, matching, bot, session, interlocutor, phrase.interpretation, time_decay)
+            time_decay = 1.0
+
+            # Проверяем условия для сложных правил.
+            for rule in complex_rules:
+                matching = rule.check_condition(bot, session, interlocutor, phrase, self)
+                if matching.success:
+                    rx = self.run_smalltalk_action(rule, matching, bot, session, interlocutor, phrase.interpretation, time_decay)
+                    generated_replicas.extend(rx)
+
+                    for output_phrase in rx:
+                        self.logger.debug('generate_smalltalk_replica::1 rule="%s" input="%s" output="%s"', rule.get_name(), phrase, output_phrase)
+
+                    break
+
+            # Правила с кондиктором text проверяем все сразу для эффективности.
+            cx = [(item.get_condition_text(), -1, -1) for item in text_rules]
+            if cx:
+                best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase.interpretation, cx, self.text_utils)
+            else:
+                best_premise = None
+                best_rel = 0.0
+
+            if best_rel > 0.7:  # TODO - брать из конфига бота
+                for rule in text_rules:
+                    if rule.get_condition_text() == best_premise:
+                        # Используем это правило для генерации реплики.
+                        # Правило может быть простым, с явно указанной фразой, либо
+                        # содержать набор шаблонов генерации.
+                        rx = self.run_smalltalk_action(rule, None, bot, session, interlocutor, phrase.interpretation, best_rel * time_decay)
                         generated_replicas.extend(rx)
 
                         for output_phrase in rx:
-                            self.logger.debug('generate_smalltalk_replica::1 rule="%s" input="%s" output="%s"', rule.get_name(), phrase, output_phrase)
+                            self.logger.debug('generate_smalltalk_replica::2 rule="%s" input="%s" output="%s"',
+                                              rule.get_name(),
+                                              phrase.interpretation,
+                                              output_phrase)
 
                         break
-
-                # Правила с кондиктором text проверяем все сразу для эффективности.
-                cx = [(item.get_condition_text(), -1, -1) for item in text_rules]
-                if cx:
-                    best_premise, best_rel = self.synonymy_detector.get_most_similar(phrase.interpretation, cx, self.text_utils)
-                else:
-                    best_premise = None
-                    best_rel = 0.0
-
-                if best_rel > 0.7:  # TODO - брать из конфига бота
-                    for rule in text_rules:
-                        if rule.get_condition_text() == best_premise:
-                            # Используем это правило для генерации реплики.
-                            # Правило может быть простым, с явно указанной фразой, либо
-                            # содержать набор шаблонов генерации.
-                            rx = self.run_smalltalk_action(rule, None, bot, session, interlocutor, phrase.interpretation, best_rel * time_decay)
-                            generated_replicas.extend(rx)
-
-                            for output_phrase in rx:
-                                self.logger.debug('generate_smalltalk_replica::2 rule="%s" input="%s" output="%s"',
-                                                  rule.get_name(),
-                                                  phrase.interpretation,
-                                                  output_phrase)
-
-                            break
-                else:
-                    # Проверяем smalltalk-правила, использующие intent фразы или другие условия
-                    intent_rule_applied = False
-                    last_interlocutor_utterance = session.get_last_interlocutor_utterance()
-                    for rule in complex_rules:
-                        matching = rule.check_condition(bot, session, interlocutor, last_interlocutor_utterance, self)
-                        if matching.success:
-                            intent_rule_applied = True
-                            rx = self.run_smalltalk_action(rule, matching, bot, session, interlocutor, phrase.interpretation, time_decay)
-                            generated_replicas.extend(rx)
-                            for output_phrase in rx:
-                                self.logger.debug('generate_smalltalk_replica::3 rule="%s" input="%s" output="%s"',
-                                                  rule.get_name(),
-                                                  phrase.interpretation,
-                                                  output_phrase)
+            else:
+                # Проверяем smalltalk-правила, использующие intent фразы или другие условия
+                intent_rule_applied = False
+                last_interlocutor_utterance = session.get_last_interlocutor_utterance()
+                for rule in complex_rules:
+                    matching = rule.check_condition(bot, session, interlocutor, last_interlocutor_utterance, self)
+                    if matching.success:
+                        intent_rule_applied = True
+                        rx = self.run_smalltalk_action(rule, matching, bot, session, interlocutor, phrase.interpretation, time_decay)
+                        generated_replicas.extend(rx)
+                        for output_phrase in rx:
+                            self.logger.debug('generate_smalltalk_replica::3 rule="%s" input="%s" output="%s"',
+                                              rule.get_name(),
+                                              phrase.interpretation,
+                                              output_phrase)
 
 
-                    if not intent_rule_applied:
-                        list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase.interpretation, time_decay)
-                        generated_replicas.extend(list2)
+                if not intent_rule_applied:
+                    list2 = self.generate_with_common_phrases(bot, session, interlocutor, phrase.interpretation, time_decay)
+                    generated_replicas.extend(list2)
 
-                        if len(list2) == 0:
-                            # Используем генеративную грамматику для получения возможных реплик
-                            list3 = self.generate_with_generative_grammar(bot, session, interlocutor, phrase.interpretation,
-                                                                          time_decay)
-                            generated_replicas.extend(list3)
-                            for output_phrase in list3:
-                                self.logger.debug('generate_smalltalk_replica::4 input="%s" output="%s"',
-                                                  phrase.interpretation,
-                                                  output_phrase)
+                    if len(list2) == 0:
+                        # Используем генеративную грамматику для получения возможных реплик
+                        list3 = self.generate_with_generative_grammar(bot, session, interlocutor, phrase.interpretation,
+                                                                      time_decay)
+                        generated_replicas.extend(list3)
+                        for output_phrase in list3:
+                            self.logger.debug('generate_smalltalk_replica::4 input="%s" output="%s"',
+                                              phrase.interpretation,
+                                              output_phrase)
 
 
             # пробуем найти среди вопросов, которые задавал человек-собеседник недавно,
@@ -1151,7 +1157,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
             # Используем внешний веб-сервис чит-чата.
             # Если timegap=0, то мы обрабатываем последнюю реплику собеседника.
             self.logger.debug('Before calling query_chitchat_service from generate_smalltalk_replica with "%s"  bot=%s interlocutor=%s', phrase, bot.get_bot_id(), interlocutor)
-            chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, phrase, use_session_history=False, phrase_types=phrase_types)
+            chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor,
+                                                            last_phrase=phrase, prev_phrase=prev_phrase,
+                                                            use_session_history=False, phrase_types=phrase_types)
             if chitchat_replicas:
                 generated_replicas.extend(chitchat_replicas)
 
@@ -1172,7 +1180,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         return None
 
-    def query_chitchat_service(self, bot, session, interlocutor, last_phrase, use_session_history=True, phrase_types=None):
+    def query_chitchat_service(self, bot, session, interlocutor,
+                               last_phrase,
+                               prev_phrase=None,
+                               use_session_history=True,
+                               phrase_types=None):
         res = []
 
         if self.chitchat_config or self.chitchat:
@@ -1194,12 +1206,21 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 # Если последняя фраза проинтерпретирована и есть пред. реплика бота - добавляем в контекст эту реплику бота
                 # Если последняя фраза проинтерпретирована и нет пред. реплики бота - берем результат интерпретации
                 context = last_phrase.raw_phrase
-                if use_session_history:
-                    if Jaccard_SynonymyDetector.jaccard(last_phrase.interpretation, last_phrase.raw_phrase, 3) < 0.95 or len(last_phrase.interpretation) < 10:
-                        # фраза проинтерпретирована.
+                if Jaccard_SynonymyDetector.jaccard(last_phrase.interpretation, last_phrase.raw_phrase,
+                                                    3) < 0.95 or len(last_phrase.interpretation) < 10:
+                    # фраза проинтерпретирована.
+                    if use_session_history:
                         last_bot_phrase = session.get_last_bot_utterance()
                         if last_bot_phrase is not None:
                             context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
+                    else:
+                        # История недоступна, поэтому берем результат интерпретации фразы и денормализуем грам. лицо
+                        context = []
+                        if prev_phrase is not None:
+                            context.append(prev_phrase.raw_phrase)
+
+                        context.append(self.interpreter.denormalize_person(last_phrase.interpretation, self.text_utils))
+                        context = ' | '.join(context)
 
                 generated_lines = []
 
@@ -1283,6 +1304,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if p_syntax < 0.5:
                             self.logger.debug('query_chitchat_service produced invalid response text="%s" p_syntax=%f', rtext, p_syntax)
 
+                        if self.text_utils.contains_name(rtext):
+                            self.logger.debug('query_chitchat_service produced response with name text="%s"', rtext)
+                            continue
+
                         # Взвешиваем по контексту
                         p_discourse = self.calc_discourse_relevance(rtext, session)
 
@@ -1363,7 +1388,10 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         # 08.01.2021 Добавляем в историю полную входную фразу собеседника. После интерпретации она может
         # оказаться разбита на несколько сегментов (клауз), и каждый из сегментов породит несколько ответных
         # реплик бота.
-        input_phrase = self.interpret_phrase0(bot, session, question, question, internal_issuer)
+        if len(interpreted_phrases) == 1:
+            input_phrase = interpreted_phrases[0]
+        else:
+            input_phrase = self.interpret_phrase0(bot, session, question, question, internal_issuer)
         session.add_phrase_to_history(input_phrase)
 
         if session.count_interlocutor_phrases() == 1:
