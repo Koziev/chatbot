@@ -16,8 +16,17 @@ from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.frontend.bot_creator import create_chatbot, ChitchatConfig
 
 
+def get_interlocutor_id(update: Update) -> str:
+    # В качестве идентификатора сессии собеседника можно брать id чата (update.message.chat_id)
+    # или id пользователя (update.from_user.id). Чтобы бот узнавал пользователя в разных чатах,
+    # будем использовать id пользователя.
+    # user_id = str(update.message.chat_id)
+    user_id = str(update.message.from_user.id)
+    return user_id
+
+
 def start(update, context) -> None:
-    user_id = str(update.message.chat_id)
+    user_id = get_interlocutor_id(update)
     logging.debug('Entering START callback with user_id=%s', user_id)
     chatbot.start_conversation(user_id)
 
@@ -34,11 +43,15 @@ def echo(update, context):
     # update.chat.first_name
     # update.chat.last_name
     try:
-        # В качестве идентификатора сессии собеседника берем его имя и фамилию
-        user_id = str(update.message.chat_id)
+        # В качестве идентификатора сессии собеседника можно брать id чата (update.message.chat_id)
+        # или id пользователя (update.from_user.id). Чтобы бот узнавал пользователя в разных чатах,
+        # будем использовать id пользователя.
+        #user_id = str(update.message.chat_id)
+        user_id = get_interlocutor_id(update)
+
         question = update.message.text
 
-        logging.info('Answering to "%s" for user_id="%s"', question, user_id)
+        logging.info('Answering to "%s" for user=%s id="%s" in chat=%s', question, update.message.from_user.name, user_id, str(update.message.chat_id))
 
         chatbot.push_phrase(user_id, question)
         while True:
@@ -91,8 +104,9 @@ if __name__ == '__main__':
         elif profile == '3':
             profile_path = os.path.join(data_folder, 'profile_3.json')
 
-    tg_bot = telegram.Bot(token=telegram_token)
-    logging.info('Telegram bot: %s', tg_bot.getMe())
+    tg_bot = telegram.Bot(token=telegram_token).getMe()
+    bot_id = tg_bot.name
+    logging.info('Telegram bot "%s" id=%s', tg_bot.name, tg_bot.id)
 
     if args.chitchat_url:
         rugpt_chitchat_config = ChitchatConfig()
@@ -102,8 +116,8 @@ if __name__ == '__main__':
     else:
         rugpt_chitchat_config = None
 
-    logging.debug('Bot loading: profile=%s...', profile_path)
-    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, True, bot_id='telegram_bot',
+    logging.debug('Bot loading: profile="%s"', profile_path)
+    chatbot = create_chatbot(profile_path, models_folder, w2v_folder, data_folder, True, bot_id=bot_id,
                              chitchat_config=rugpt_chitchat_config)
 
     updater = Updater(token=telegram_token)
@@ -118,6 +132,6 @@ if __name__ == '__main__':
     logging.getLogger('telegram.bot').setLevel(logging.INFO)
     logging.getLogger('telegram.vendor.ptb_urllib3.urllib3.connectionpool').setLevel(logging.INFO)
 
-    logging.info('Start polling messages for bot %s...', tg_bot.getMe())
+    logging.info('Start polling messages for bot %s', tg_bot.name)
     updater.start_polling()
     updater.idle()
