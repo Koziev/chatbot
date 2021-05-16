@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Необучаемая реализация модели определения похожести двух фраз через
-вычисление коэффициента Жаккара.
+вычисление коэффициента Жаккара. Используется как сверхбыстрая замена
+ML-метрики близости.
 """
 
 import numpy as np
@@ -20,7 +21,6 @@ class Jaccard_SynonymyDetector(SynonymyDetector):
 
     @staticmethod
     def ngrams(s, n):
-        #return set(u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)]))
         return set(u''.join(z) for z in zip(*[s[i:] for i in range(n)]))
 
     @staticmethod
@@ -50,3 +50,6 @@ class Jaccard_SynonymyDetector(SynonymyDetector):
             phrases2 = [(phrases[i][0], sim[i]) for i in range(len(sim))]
             phrases2 = sorted(phrases2, key=lambda z: -z[1])
             return phrases2[:nb_results]
+
+    def calc_synonymy2(self, phrase1, phrase2, text_utils):
+        return Jaccard_SynonymyDetector.jaccard(phrase1, phrase2, shingle_len=3)

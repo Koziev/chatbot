@@ -323,7 +323,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
         interpreted = InterpretedPhrase(raw_phrase)
         phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(expanded_phrase, self.text_utils)
 
-        interpreted.raw_phrase = ' '.join(raw_tokens)
+        #interpreted.raw_phrase = ' '.join(raw_tokens)
         interpreted.raw_tokens = raw_tokens
 
         if not internal_issuer:
@@ -1291,6 +1291,23 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         # Проверим, что такая реплика еще не использовалась в этой сессии.
                         if self.bot_replica_already_uttered(bot, session, rtext):
                             continue
+
+                        # 16-05-2021 Проверим, что пользователь не говорил недавно такую реплику с поправкой на грамматическое лицо.
+                        rtext_u = self.interpreter.normalize_person(rtext, self.text_utils)
+                        last_h_u = session.get_last_interlocutor_utterance()
+                        is_too_similar_2_h = False
+                        if last_h_u is not None:
+                            for s1 in [rtext_u, rtext]:
+                                for s2 in [last_h_u.raw_phrase, last_h_u.interpretation]:
+                                    if s2 is not None:
+                                        if self.jsyndet.calc_synonymy2(s1, s2, self.text_utils) > 0.85:
+                                            self.logger.debug('Chitchat phrase "%s" is rejected due to similarity to interlocutor phrase "%s"', rtext, s2)
+                                            is_too_similar_2_h = True
+                                            break
+
+                        if is_too_similar_2_h:
+                            continue
+
                         #if rtext in all_session_phrases:
                         #    continue
 
@@ -1362,7 +1379,13 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     label = 'B'
                 else:
                     label = 'H'
-                self.logger.debug('%2d| %s: - %s', i, label, item.raw_phrase)
+                if item.interpretation is None or item.raw_phrase.lower() != item.interpretation.lower():
+                    txt = item.raw_phrase.ljust(60, ' ') + ' '
+                    txt += ' 〚 {} 〛'.format(item.interpretation)
+                else:
+                    txt = item.raw_phrase
+                self.logger.debug('%2d| %s: - %s', i, label, txt)
+
             self.logger.debug('='*10 + ' END OF SESSION ' + '='*10)
             ss = session.list_scenario_stack()
             if ss:
@@ -2088,24 +2111,24 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         last_h_phrases = [z[0] for z in last_h_entries]
                         premise1 = last_h_phrases[0].interpretation
                         premise2 = last_h_phrases[1].interpretation
-                        question = interpreted_phrase.interpretation
-                        rel = self.p2q_relevancy.calc_relevancy(premise1, premise2, question, self.text_utils)
-                        if rel > self.min_premise_relevancy:
-                            self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s" rel=%g  bot=%s interlocutor=%s', premise1,
-                                              premise2, question, rel, bot.get_bot_id(), interlocutor)
-                            best_rels = [rel]
-                            premises2 = [[premise1, premise2]]
-                            premise_rels2 = [rel]
-                            answers00, answer_rels00 = self.answer_builder.build_answer_text(premises2, premise_rels2,
-                                                                                             interpreted_phrase.interpretation,
-                                                                                             self.text_utils)
-                            for answer, rel in zip(answers00, answer_rels00):
-                                if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
-                                    answers.append(answer)
-                                    answer_rels.append(rel)
-                                else:
-                                    self.logger.debug('Answer "%s" is recognized as abracadabra, so removing it', answer)
-
+                        if premise1 != premise2:
+                            question = interpreted_phrase.interpretation
+                            rel = self.p2q_relevancy.calc_relevancy(premise1, premise2, question, self.text_utils)
+                            if rel > self.min_premise_relevancy:
+                                self.logger.debug('P(2)Q with premise1="%s" premise2="%s" question="%s" rel=%g  bot=%s interlocutor=%s', premise1,
+                                                  premise2, question, rel, bot.get_bot_id(), interlocutor)
+                                best_rels = [rel]
+                                premises2 = [[premise1, premise2]]
+                                premise_rels2 = [rel]
+                                answers00, answer_rels00 = self.answer_builder.build_answer_text(premises2, premise_rels2,
+                                                                                                 interpreted_phrase.interpretation,
+                                                                                                 self.text_utils)
+                                for answer, rel in zip(answers00, answer_rels00):
+                                    if not self.intent_detector.detect_abracadabra(answer, self.text_utils):
+                                        answers.append(answer)
+                                        answer_rels.append(rel)
+                                    else:
+                                        self.logger.debug('Answer "%s" is recognized as abracadabra, so removing it', answer)
 
         if len(best_rels) == 0 or (best_faq_rel > best_rels[0] and best_faq_rel > self.min_faq_relevancy):
             # Если FAQ выдал более достоверный ответ, чем генератор ответа, или если
@@ -2146,7 +2169,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         conf_premise_group = random.choices(population=conf_premises2, weights=conf_rels2, k=1)
                         conf_premise = conf_premise_group[0]
 
-                        self.logger.info('Confabulated fact "%s"', conf_premise)
+                        self.logger.info('Confabulated fact "%s" for question="%s"', conf_premise, conf_question)
 
                         # Добавляем его в сессионную базу знаний
                         bot.facts.store_new_fact(interlocutor, (conf_premise, 'x', None), False)
