@@ -1288,6 +1288,15 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     ranked_lines = []
                     #all_session_phrases = session.get_all_phrases()
                     for rtext in generated_lines:
+                        # 10.06.2021 подавляем реплики с формами местомения "вы"
+                        rwords = self.text_utils.tokenize(rtext)
+                        if any((w in rwords) for w in 'вы вам вами вас ваш ваша ваше вашу вашей вашего ваших вашими'.split()):
+                            continue
+
+                        # 10.06.2021 подавим не всегда нормальные реплики с "а ты"
+                        if 'а ты?' in rtext or 'а ты ?' in rtext:
+                            continue
+
                         # Проверим, что такая реплика еще не использовалась в этой сессии.
                         if self.bot_replica_already_uttered(bot, session, rtext):
                             continue
@@ -1301,22 +1310,41 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                 for s2 in [last_h_u.raw_phrase, last_h_u.interpretation]:
                                     if s2 is not None:
                                         if self.jsyndet.calc_synonymy2(s1, s2, self.text_utils) > 0.85:
-                                            self.logger.debug('Chitchat phrase "%s" is rejected due to similarity to interlocutor phrase "%s"', rtext, s2)
+                                            self.logger.debug('Chitchat phrase "%s" is rejected due to similarity to interlocutor phrase "%s", bot=%s interlocutor=%s', rtext, s2, bot.get_bot_id(), interlocutor)
                                             is_too_similar_2_h = True
                                             break
 
                         if is_too_similar_2_h:
                             continue
 
-                        #if rtext in all_session_phrases:
-                        #    continue
+                        # Прежде чем проверять реплику, сгенерированную читчатом, надо ее раскрыть до полной клаузы.
+                        rtext_expanded = rtext
+                        req_interpret = self.req_interpretation.require_interpretation(rtext, self.text_utils)
+                        if req_interpret:
+                            context_phrases = []
 
-                        # Надо проверять, что утверждение, сгенерированное читчатом, не противоречит имеющейся в базе знаний
-                        # информации...
-                        # TODO ...
+                            context_phrases.append(context.split('|')[-1].strip())
+                            context_phrases.append(rtext)
+                            rtext_expanded = self.interpreter.interpret(context_phrases, self.text_utils)
+
+                        if not rtext.endswith('?'):
+                            # Надо проверять, что утверждение, сгенерированное читчатом, не противоречит имеющейся в базе
+                            # знаний информации
+                            contradictory_fact = self.find_contradictory_fact(rtext_expanded, bot, session, interlocutor)
+                            if contradictory_fact:
+                                self.logger.debug(
+                                    'Chitchat phrase "%s" is rejected due to contradiction with KB fact "%s", bot=%s interlocutor=%s', rtext,
+                                    contradictory_fact, bot.get_bot_id(), interlocutor)
+                                continue
+                        else:
+                            # для вопроса, сгенерированного чит-чатом, надо проверить, что мы еще не знаем ответа
+                            # на этот вопрос
+                            if self.does_bot_know_answer(rtext_expanded, bot, session, interlocutor):
+                                self.logger.debug('Chitchat phrase "%s" is rejected because bot knows the answer', rtext_expanded)
+                                continue
 
                         # Валидация синтаксиса языковой моделью
-                        p_syntax = self.syntax_validator.is_valid(rtext, self.text_utils)
+                        p_syntax = self.syntax_validator.is_valid(rtext_expanded, self.text_utils)
 
                         if p_syntax < 0.5:
                             self.logger.debug('query_chitchat_service produced invalid response text="%s" p_syntax=%f', rtext, p_syntax)
