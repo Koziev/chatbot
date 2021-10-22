@@ -28,6 +28,11 @@ def get_interlocutor_id(update: Update) -> str:
 def start(update, context) -> None:
     user_id = get_interlocutor_id(update)
     logging.debug('Entering START callback with user_id=%s', user_id)
+
+    # Сбрасываем сессию, удаляем историю диалога
+    chatbot.reset_session(user_id)
+
+    # Выполняем стартовый сценарий
     chatbot.start_conversation(user_id)
 
     while True:

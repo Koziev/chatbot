@@ -265,17 +265,15 @@ class AnswerBuilder(object):
         return pred_right
 
     def build_answer_text(self, premise_groups, premise_rels, question, text_utils):
-        # Определяем способ генерации ответа
         answers = []
         answer_rels = []
 
-        #X = np.zeros((1, self.seq_len), dtype=np.int32)
         qtx = list(text_utils.tokenize(question))
         if qtx[-1] in ['.', '!']:
             qtx = qtx[:-1]
         if qtx[-1] != '?':
             qtx.append('?')
-        question_str = ' '.join(qtx)
+        question_str = text_utils.normalize_delimiters(' '.join(qtx))
 
         for premises, group_rel in zip(premise_groups, premise_rels):
             # Сначала попробуем точную knn-1 модель
@@ -289,7 +287,7 @@ class AnswerBuilder(object):
                 for premise in premises:
                     s = ' '.join(text_utils.tokenize(premise))
                     if s[-1] not in '.?!':
-                        s = s + ' .'
+                        s = s + '.'
                     left_parts.append(s)
 
                 left_parts.append(question_str)

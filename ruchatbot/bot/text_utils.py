@@ -168,17 +168,20 @@ class TextUtils(object):
 
     def remove_terminators(self, s):
         """ Убираем финальные пунктуаторы ! ? ."""
-        return s[:-1].strip() if s[-1] in u'?!.' else s
+        return s[:-1].strip() if s[-1] in '?!.' else s
+
+    def normalize_delimiters(self, s):
+        return s.replace(' ?', '?').replace(' ,', ',').replace(' .', '.').replace(' !', '!')
 
     def wordize_text(self, s):
-        return u' '.join(self.tokenize(s))
+        return self.normalize_delimiters(' '.join(self.tokenize(s)))
 
     def ngrams(self, s, n):
         #return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)])]
-        return [u''.join(z) for z in zip(*[s[i:] for i in range(n)])]
+        return [''.join(z) for z in zip(*[s[i:] for i in range(n)])]
 
     def words2str(self, words):
-        return u' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))
+        return ' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))
 
     def split_clauses(self, s):
         return list(self.clause_splitter.split(s))

@@ -8,12 +8,16 @@ import json
 
 
 class BotProfile(object):
-    def __init__(self):
+    def __init__(self, bot_id=''):
+        self.bot_id = bot_id
         self.profile = None
         self.premises_path = None
         self.faq_path = None
         self.smalltalk_generative_rules = None
         self.constants = dict()
+
+    def get_id(self):
+        return self.bot_id
 
     def _replace(self, path_str, data_dir, models_dir):
         return path_str.replace('$DATA', data_dir).replace('$MODELS', models_dir)

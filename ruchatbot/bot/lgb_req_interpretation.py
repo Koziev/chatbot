@@ -41,10 +41,9 @@ class LGB_ReqInterpretation(BaseUtteranceInterpreter):
         self.no_expansion_phrases = set(self.model_config['no_expansion_phrases'])
 
     def require_interpretation(self, phrase0, text_utils):
-        # НАЧАЛО ОТЛАДКИ
-        #logging.error('DEBUG@45 МОДЕЛЬ REQ_INTERPRETATION ОТКЛЮЧЕНА!')
-        #return True
-        # КОНЕЦ ОТЛАДКИ
+        return self.require_interpretation_proba(phrase0, text_utils) > 0.5
+
+    def require_interpretation_proba(self, phrase0, text_utils):
         if not phrase0:
             return 0
 
@@ -58,4 +57,4 @@ class LGB_ReqInterpretation(BaseUtteranceInterpreter):
         X = self.vectorizer.transform([phrase_str])
         y_pred = self.model.predict(X)
         y_pred = y_pred[0]
-        return y_pred > 0.5
+        return y_pred

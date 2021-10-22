@@ -5,7 +5,6 @@ SHELL ["/bin/bash", "-c"]
 # Default to UTF-8 file.encoding
 ENV LANG C.UTF-8
 
-
 RUN apt-get update
 RUN apt-get install -y python python-pip
 RUN apt-get -y install git-core
@@ -18,14 +17,17 @@ RUN pip install git+https://github.com/Koziev/rulemma
 RUN pip uninstall -y numpy
 RUN yes | apt-get install python-numpy
 
+RUN pip install torch==1.7.1
+RUN pip install tensorflow==2.4.0
+RUN pip install transformers==4.1.1
+RUN pip install keras==2.4.3
 RUN pip install sentencepiece
 RUN pip install lightgbm
-RUN pip install keras==2.4.3
 RUN pip install scikit-learn==0.24.0
+RUN pip install python-Levenshtein
 RUN pip install gensim
 RUN pip install pathlib
 RUN pip install python-crfsuite
-RUN pip install tensorflow==2.3.1
 RUN pip install colorama
 RUN pip install coloredlogs
 RUN pip install git+https://www.github.com/keras-team/keras-contrib.git
@@ -86,12 +88,17 @@ COPY ./ruchatbot/qa_machine.py ./
 WORKDIR /chatbot/data
 COPY ./data/*.* ./
 
+WORKDIR /chatbot/tmp/rugpt_chitchat
+COPY ./tmp/rugpt_chitchat/*.* ./
+
+WORKDIR /chatbot/tmp/rugpt_premise4question
+COPY ./tmp/rugpt_premise4question/*.* ./
+
 WORKDIR /chatbot/tmp
 COPY ./tmp/*.* ./
 
 WORKDIR /chatbot/scripts
 COPY ./scripts/console_bot.sh ./
-COPY ./scripts/test_console.sh ./
 COPY ./scripts/flask_bot.sh ./
 COPY ./scripts/tg_bot.sh ./
 
@@ -101,4 +108,3 @@ COPY CHANGELOG.txt ./
 EXPOSE 9001
 WORKDIR /chatbot/scripts
 CMD "./console_bot.sh"
-#CMD "./test_console.sh"

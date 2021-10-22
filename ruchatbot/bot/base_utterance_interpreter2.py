@@ -3,6 +3,7 @@
 Реализация методов нормализации и денормализации лица для интерпретатора.
 
 12.01.2021 Добавляем работу с репликами в уважительной форме 2л мн.ч "как Вас зовут?"
+03.10.2021 Удаляем пробелы перед некоторыми знаками пунктуации
 """
 
 import os
@@ -98,7 +99,7 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
                     else:
                         outwords.append(word)
 
-        return u' '.join(outwords)
+        return self.normalize_delimiters(' '.join(outwords))
 
     def postprocess_prepositions(self, s):
         s = re.sub(r'\bко тебе\b', 'к тебе', s)
@@ -112,8 +113,11 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
         s = re.sub(r'\bв мне\b', 'во мне', s)
         return s
 
+    def normalize_delimiters(self, s):
+        return s.replace(' ?', '?').replace(' ,', ',').replace(' .', '.').replace(' !', '!')
+
     def normalize_person(self, raw_phrase, text_utils):
-        return self.postprocess_prepositions(self.flip_person(raw_phrase, text_utils))
+        return self.normalize_delimiters(self.postprocess_prepositions(self.flip_person(raw_phrase, text_utils)))
 
     def denormalize_person(self, normal_phrase, text_utils):
-        return self.postprocess_prepositions(self.flip_person(normal_phrase, text_utils))
+        return self.normalize_delimiters(self.postprocess_prepositions(self.flip_person(normal_phrase, text_utils)))

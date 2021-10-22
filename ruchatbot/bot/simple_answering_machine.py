@@ -145,7 +145,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
         # 14-04-2021 Модель читчата inprocess
         self.chitchat = RugptChitChat()
-        self.chitchat.load(os.path.join(models_folder, 'rugpt_checkpoints'))
+        self.chitchat.load(os.path.join(models_folder, 'rugpt_chitchat'))
 
         self.premise_not_found = NoInformationModel()
         self.premise_not_found.load(rule_paths, models_folder, data_folder, constants, self.text_utils)
@@ -1141,9 +1141,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                     smalltalk_utterances.update(item.answers)
 
                 interlocutor_phrases = session.get_interlocutor_phrases(questions=True, assertions=False)
-                for phrase, timegap in interlocutor_phrases:
+                for phrase3, timegap in interlocutor_phrases:
                     # Ищем ближайшие реплики для данной реплики человека phrase
-                    similar_items = self.synonymy_detector.get_most_similar(phrase,
+                    similar_items = self.synonymy_detector.get_most_similar(phrase3,
                                                                             [(s, -1, -1) for s in smalltalk_utterances],
                                                                             self.text_utils,
                                                                             nb_results=5
@@ -1205,14 +1205,14 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 # Если последняя фраза проинтерпретирована и есть пред. реплика бота - добавляем в контекст эту реплику бота
                 # Если последняя фраза проинтерпретирована и нет пред. реплики бота - берем результат интерпретации
-                context = last_phrase.raw_phrase
+                context = [last_phrase.raw_phrase]
                 if Jaccard_SynonymyDetector.jaccard(last_phrase.interpretation, last_phrase.raw_phrase,
                                                     3) < 0.95 or len(last_phrase.interpretation) < 10:
                     # фраза проинтерпретирована.
                     if use_session_history:
                         last_bot_phrase = session.get_last_bot_utterance()
                         if last_bot_phrase is not None:
-                            context = last_bot_phrase.raw_phrase + ' | ' + last_phrase.raw_phrase
+                            context = [last_bot_phrase.raw_phrase, last_phrase.raw_phrase]
                     else:
                         # История недоступна, поэтому берем результат интерпретации фразы и денормализуем грам. лицо
                         context = []
@@ -1220,7 +1220,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             context.append(prev_phrase.raw_phrase)
 
                         context.append(self.interpreter.denormalize_person(last_phrase.interpretation, self.text_utils))
-                        context = ' | '.join(context)
+
+                context = [('- ' + x) for x in context]
+                context = '\n'.join(context)
 
                 generated_lines = []
 
@@ -1238,7 +1240,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 elif self.chitchat_config is not None:
                     qurl = self.chitchat_config.build_query_url(context)
-                    self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context, qurl, bot.get_bot_id(), interlocutor)
+                    self.logger.debug('query_chitchat_service context="%s"  qurl="%s"  bot=%s interlocutor=%s', context.replace('\n', ' | '), qurl, bot.get_bot_id(), interlocutor)
                     response = requests.get(qurl)
                     # todo потом должен быть json
                     if response.ok:
@@ -1269,7 +1271,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if len(hlines) > nlast:
                             hlines = hlines[-nlast:]
 
-                        context = ' | '.join(z[1] for z in hlines)
+                        context = '\n'.join(z[1] for z in hlines)
 
                         if self.chitchat is not None:
                             rx2 = self.chitchat.generate_output(context, num_return_sequences=10)
@@ -1294,8 +1296,9 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                             continue
 
                         # 10.06.2021 подавим не всегда нормальные реплики с "а ты"
-                        if 'а ты?' in rtext or 'а ты ?' in rtext:
-                            continue
+                        for bad in ['а ты', 'а у тебя']:
+                            if bad+'?' in rtext or bad+' ?' in rtext:
+                                continue
 
                         # Проверим, что такая реплика еще не использовалась в этой сессии.
                         if self.bot_replica_already_uttered(bot, session, rtext):
