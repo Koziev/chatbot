@@ -81,11 +81,10 @@ B:> Артур
 
 ## Запуск
 
-Самый простой способ запуска чатбота - выкачать и запустить [docker-образ] (https://drive.google.com/file/d/1NLTumG5Ufe4k2BktF3_ZDhnr1J8RrwTs/view?usp=sharing).
-Для запуска консольной версии нужно выполнить команды:
+Самый простой способ запуска чатбота - запустить докер-контейнер с образом inkoziev/chatbot:
 
 ```
-docker image load -i chatbot.tar.gz
+docker pull inkoziev/chatbot:latest
 docker run -ti -e PYTHONIOENCODING=utf-8 chatbot
 ```
 
