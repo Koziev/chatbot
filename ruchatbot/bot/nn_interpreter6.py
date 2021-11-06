@@ -253,7 +253,13 @@ class NN_InterpreterNew6(BaseUtteranceInterpreter2):
                     break
 
         if not expanded_phrase:
-            left_phrases = [text_utils.wordize_text(s) for s in context_phrases]
+            left_phrases = []
+            for s in context_phrases:
+                s2 = text_utils.wordize_text(s)
+                if s2[-1] not in '.?!':
+                    s2 += '.'
+                left_phrases.append(s2)
+
             left_phrases.append(text_utils.wordize_text(short_phrase))
             context_str = ' | '.join(left_phrases)
 

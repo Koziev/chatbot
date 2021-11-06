@@ -923,16 +923,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
 
                 # Выбираем рандомно один из вариантов. Рандомность обеспечим
                 # подмешиванием небольшого шума к полученным оценкам близости.
-                rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
-                if len(rx) > 0:
-                    rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
-                    best_keyphrase = rx[0][1]
-                    best_rules = story_rules.get_rules3_by_keyphrase(best_keyphrase)
-                    best_rule = random.choice(best_rules)
+                if best_phrases:
+                    rx = list(filter(lambda z: z[0]>=threshold, zip(best_rels, best_phrases)))
+                    if len(rx) > 0:
+                        rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
+                        best_keyphrase = rx[0][1]
+                        best_rules = story_rules.get_rules3_by_keyphrase(best_keyphrase)
+                        best_rule = random.choice(best_rules)
 
-                    rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
-                    if rule_result.condition_success:
-                        return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
+                        rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                        if rule_result.condition_success:
+                            return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
 
             # Пробуем правила A -> B
             srt = ' '.join(interpreted_phrase.raw_tokens) if interpreted_phrase.raw_tokens else ''
@@ -941,16 +942,17 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                                                                               self.text_utils,
                                                                               nb_results=10)
 
-            rx = list(filter(lambda z: z[0] >= threshold, zip(best_rels, best_phrases)))
-            if len(rx) > 0:
-                rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
-                best_keyphrase = rx[0][1]
-                best_rules = story_rules.get_rules2_by_keyphrase(best_keyphrase)
-                best_rule = random.choice(best_rules)
+            if best_phrases:
+                rx = list(filter(lambda z: z[0] >= threshold, zip(best_rels, best_phrases)))
+                if len(rx) > 0:
+                    rx = sorted(rx, key=lambda z: -z[0]+random.random()*0.02)
+                    best_keyphrase = rx[0][1]
+                    best_rules = story_rules.get_rules2_by_keyphrase(best_keyphrase)
+                    best_rule = random.choice(best_rules)
 
-                rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
-                if rule_result.condition_success:
-                    return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
+                    rule_result = best_rule.execute(bot, session, interlocutor, interpreted_phrase, self)
+                    if rule_result.condition_success:
+                        return InsteadofRuleResult.GetTrueOther(rule_result.replica_is_generated)
 
         # Теперь остальные правила, с приоритетом 1 и ниже
         for rule in insteadof_rules:
@@ -1271,7 +1273,7 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if len(hlines) > nlast:
                             hlines = hlines[-nlast:]
 
-                        context = '\n'.join(z[1] for z in hlines)
+                        context = '\n'.join(('- '+z[1]) for z in hlines)
 
                         if self.chitchat is not None:
                             rx2 = self.chitchat.generate_output(context, num_return_sequences=10)
@@ -1326,7 +1328,11 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                         if req_interpret:
                             context_phrases = []
 
-                            context_phrases.append(context.split('|')[-1].strip())
+                            x = context.split('\n')[-1].strip()
+                            if x.startswith('-'):
+                                x = x[1:].strip()
+                            context_phrases.append(x)
+
                             context_phrases.append(rtext)
                             rtext_expanded = self.interpreter.interpret(context_phrases, self.text_utils)
 
@@ -2256,33 +2262,30 @@ class SimpleAnsweringMachine(BaseAnsweringMachine):
                 #self.premise_not_found_count += 1
                 answer = None
 
-                do_query_chitchat = False
+                answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
+                                                                bot,
+                                                                session,
+                                                                self.text_utils)
 
-                # Стратегия №1: всегда предпочитаем вызывать сервис читчата, если он доступен,
-                # так как он дает более разнообразные и контекстные ответы, чем правила.
-                if self.chitchat_config is not None:
-                    do_query_chitchat = True
+                if answer is None:
+                    # Стратегия №1: всегда предпочитаем вызывать сервис читчата, если он доступен,
+                    # так как он дает более разнообразные и контекстные ответы, чем правила.
 
-                # Стратегия №2: после первой реплики "не знаю" начинаем использовать веб-сервис чит-чата
-                # с некоторой частотой.
-                #if self.premise_not_found_count > 1:
-                #    if random.random() > math.exp(-self.premise_not_found_count):
-                #        do_query_chitchat = True
+                    # Стратегия №2: после первой реплики "не знаю" начинаем использовать веб-сервис чит-чата
+                    # с некоторой частотой.
+                    # if self.premise_not_found_count > 1:
+                    #    if random.random() > math.exp(-self.premise_not_found_count):
+                    #        do_query_chitchat = True
 
-                if do_query_chitchat:
-                    self.logger.debug('Before calling query_chitchat_service from build_answers0 with "%s"  bot=%s interlocutor=%s', interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
+                    self.logger.debug('Before querying chitchat from build_answers0 with "%s"  bot=%s interlocutor=%s',
+                        interpreted_phrase.interpretation, bot.get_bot_id(), interlocutor)
                     chitchat_replicas = self.query_chitchat_service(bot, session, interlocutor, interpreted_phrase)
                     if chitchat_replicas:
                         answer = chitchat_replicas[0][0]
 
-                if answer is None:
-                    answer = self.premise_not_found.generate_answer(interpreted_phrase.interpretation,
-                                                                    bot,
-                                                                    session,
-                                                                    self.text_utils)
-
-                answers.append(answer)
-                answer_rels.append(1.0)
+                if answer is not None:
+                    answers.append(answer)
+                    answer_rels.append(1.0)
 
         return answers, answer_rels
 
