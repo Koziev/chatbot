@@ -82,8 +82,8 @@ class NoInformationModel(ModelApplicator):
         if a is None:
             if len(self.no_info_replicas) > 1:
                 a = random.choice(self.no_info_replicas)
-            else:
-                a = self.replicas[0]
+            elif len(self.no_info_replicas) == 1:
+                a = self.no_info_replicas[0]
 
         session.cannot_answer_counter += 1
         return a

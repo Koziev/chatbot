@@ -175,6 +175,9 @@ class BotScripting(object):
                     raise ex
 
     def load_rules(self, yaml_path, compiled_grammars_path, constants, text_utils):
+        if yaml_path is None:
+            return
+
         logging.debug('Loading rules from "%s"...', yaml_path)
         self.rule_paths.append(yaml_path)
         with io.open(yaml_path, 'r', encoding='utf-8') as f:

@@ -26,14 +26,10 @@ class BotProfile(object):
         with open(profile_path, 'r') as f:
             self.profile = json.load(f)
 
-        # Файлы с фактами (База Знаний)
-        self.premises_path = self._replace(self.profile['premises'], data_dir, models_dir)
-        self.faq_path = self._replace(self.profile['faq'], data_dir, models_dir)
-        self.rules_path = self._replace(self.profile['rules'], data_dir, models_dir)
-
-        #self.smalltalk_generative_rules = self._replace(self.profile['smalltalk_generative_rules'],
-        #                                                data_dir,
-        #                                                models_dir)
+        # Файлы с фактами (База Знаний), правилами и так далее
+        self.premises_path = self._replace(self.profile['premises'], data_dir, models_dir) if 'premises' in self.profile else None
+        self.faq_path = self._replace(self.profile['faq'], data_dir, models_dir) if 'faq' in self.profile else None
+        self.rules_path = self._replace(self.profile['rules'], data_dir, models_dir) if 'rules' in self.profile else None
         self.constants = self.profile['constants']
 
     @property

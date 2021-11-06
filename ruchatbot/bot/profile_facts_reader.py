@@ -47,42 +47,43 @@ class ProfileFactsReader(SimpleFactsStorage):
         if self.profile_facts is None:
             self.logger.info('Loading profile facts from "%s"', self.profile_path)
             self.profile_facts = []
-            with io.open(self.profile_path, 'r', encoding='utf=8') as rdr:
-                current_section = None
-                for line in rdr:
-                    line = line.strip()
-                    if line:
-                        if line.startswith('#'):
-                            if line.startswith('##'):
-                                if 'profile_section:' in line:
-                                    # Задается раздел баз знаний
-                                    current_section = line[line.index(':')+1:].strip()
-                                    if current_section not in ('1s', '2s', '3'):
-                                        msg = 'Unknown profile section {}'.format(current_section)
-                                        raise RuntimeError(msg)
-                                elif 'import' in line:
-                                    # Читаем факты из дополнительного файла
-                                    fn = re.search('import "(.+)"', line).group(1).strip()
-                                    add_path = os.path.join(os.path.dirname(self.profile_path), fn)
-                                    self.logger.debug('Loading facts from file "%s"...', add_path)
-                                    with io.open(add_path, 'rt', encoding='utf-8') as rdr2:
-                                        for line in rdr2:
-                                            line = line.strip()
-                                            if line and not line.startswith('#'):
-                                                line1 = random.choice(line.split('|')).strip()
-                                                canonized_line = self.text_utils.canonize_text(line1)
-                                                canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
-                                                self.profile_facts.append((canonized_line, current_section, add_path))
+            if self.profile_path is not None:
+                with io.open(self.profile_path, 'r', encoding='utf=8') as rdr:
+                    current_section = None
+                    for line in rdr:
+                        line = line.strip()
+                        if line:
+                            if line.startswith('#'):
+                                if line.startswith('##'):
+                                    if 'profile_section:' in line:
+                                        # Задается раздел баз знаний
+                                        current_section = line[line.index(':')+1:].strip()
+                                        if current_section not in ('1s', '2s', '3'):
+                                            msg = 'Unknown profile section {}'.format(current_section)
+                                            raise RuntimeError(msg)
+                                    elif 'import' in line:
+                                        # Читаем факты из дополнительного файла
+                                        fn = re.search('import "(.+)"', line).group(1).strip()
+                                        add_path = os.path.join(os.path.dirname(self.profile_path), fn)
+                                        self.logger.debug('Loading facts from file "%s"...', add_path)
+                                        with io.open(add_path, 'rt', encoding='utf-8') as rdr2:
+                                            for line in rdr2:
+                                                line = line.strip()
+                                                if line and not line.startswith('#'):
+                                                    line1 = random.choice(line.split('|')).strip()
+                                                    canonized_line = self.text_utils.canonize_text(line1)
+                                                    canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
+                                                    self.profile_facts.append((canonized_line, current_section, add_path))
 
+                                else:
+                                    # Строки с одним # считаем комментариями.
+                                    continue
                             else:
-                                # Строки с одним # считаем комментариями.
-                                continue
-                        else:
-                            assert(current_section)
-                            line1 = random.choice(line.split('|')).strip()
-                            canonized_line = self.text_utils.canonize_text(line1)
-                            canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
-                            self.profile_facts.append((canonized_line, current_section, self.profile_path))
+                                assert(current_section)
+                                line1 = random.choice(line.split('|')).strip()
+                                canonized_line = self.text_utils.canonize_text(line1)
+                                canonized_line = replace_constant(canonized_line, self.constants, self.text_utils)
+                                self.profile_facts.append((canonized_line, current_section, self.profile_path))
             self.logger.debug('%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
 
     def reset_added_facts(self):
