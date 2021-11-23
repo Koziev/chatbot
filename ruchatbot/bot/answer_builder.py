@@ -184,6 +184,10 @@ class AnswerBuilder(object):
         return ' '.join(res_words)
 
     def build_using_knn1(self, premises, question, text_utils):
+        # НАЧАЛО ОТЛАДКИ
+        return None, None
+        # КОНЕЦ ОТЛАДКИ
+
         if len(premises) == 1:
             # Пробуем сопоставить с опорным сэмплом в knn-1
             premise = premises[0]
@@ -264,6 +268,10 @@ class AnswerBuilder(object):
         pred_right = result.replace('▁', ' ').strip()
         return pred_right
 
+    def build_answer_text1(self, premise, query, text_utils):
+        answers, answer_rels = self.build_answer_text([[premise]], [1.0], query, text_utils)
+        return answers
+
     def build_answer_text(self, premise_groups, premise_rels, question, text_utils):
         answers = []
         answer_rels = []
@@ -285,7 +293,8 @@ class AnswerBuilder(object):
                 # Предпосылки и вопрос объединяем в одну строку.
                 left_parts = []
                 for premise in premises:
-                    s = ' '.join(text_utils.tokenize(premise))
+                    #s = ' '.join(text_utils.tokenize(premise))
+                    s = premise
                     if s[-1] not in '.?!':
                         s = s + '.'
                     left_parts.append(s)

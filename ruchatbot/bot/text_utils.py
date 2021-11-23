@@ -258,7 +258,7 @@ class TextUtils(object):
         return chunks
 
     def word_similarity(self, word1, word2):
-        return self.word_embeddings.word_similarity(word1, word2)
+        return self.word_embeddings.word_similarity(word1, word2) if self.word_embeddings is not None else 0.0
 
     def parse_syntax(self, text_str):
         processed = self.udpipe_pipeline.process(text_str, self.udpipe_error)
