@@ -14,7 +14,7 @@ class RugptBase:
         self.model = GPT2LMHeadModel.from_pretrained(model_path)
         self.model.to(self.device)
 
-    def generate_output_from_prompt(self, prompt_text, num_return_sequences, temperature = 0.9):
+    def generate_output_from_prompt(self, prompt_text, num_return_sequences, temperature=0.9):
         beam_k = 10
         beam_p = 0.9
         repetition_penalty = 1.0

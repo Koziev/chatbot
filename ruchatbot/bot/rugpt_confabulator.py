@@ -14,8 +14,8 @@ class RugptConfabulator(RugptBase):
         self.load_from_path(p)
 
     def generate_output(self, context, num_return_sequences):
-        prompt_text = '<s>' + context + ' # '
-        return self.generate_output_from_prompt(prompt_text, num_return_sequences)
+        prompt_text = '<s>' + context + ' #'
+        return self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=1.0)
 
 
 if __name__ == '__main__':
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     while True:
         q = input(':> ').strip()
         if q:
-            ox = model.generate_output(q, num_return_sequences=2)
+            ox = model.generate_output(q, num_return_sequences=25)
             for i, o in enumerate(ox, start=1):
                 print('[{}] {}'.format(i, o))
             print('='*60)
