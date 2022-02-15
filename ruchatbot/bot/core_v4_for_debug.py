@@ -8,6 +8,8 @@ import logging.handlers
 import os
 import argparse
 import logging.handlers
+import random
+import traceback
 
 import terminaltables
 
@@ -15,10 +17,15 @@ import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, Update
 
+from flask import Flask, request, Response
+from flask import jsonify
+
+
 from ruchatbot.bot.entailment_model import EntailmentModel
 from ruchatbot.bot.base_utterance_interpreter2 import BaseUtteranceInterpreter2
 from ruchatbot.bot.nn_interpreter6 import NN_InterpreterNew6
 
+from ruchatbot.bot.bot_scripting import BotScripting
 from ruchatbot.bot.text_utils import TextUtils
 from ruchatbot.bot.lgb_req_interpretation import LGB_ReqInterpretation
 from ruchatbot.bot.nn_syntax_validator import NN_SyntaxValidator
@@ -34,6 +41,7 @@ from ruchatbot.bot.rugpt_base import RugptBase
 from ruchatbot.bot.rugpt_chitchat2 import RugptChitchat
 from ruchatbot.bot.answer_builder import AnswerBuilder
 from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
+from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
 
 
 
@@ -57,9 +65,21 @@ class DialogHistory:
     def __init__(self, user_id):
         self.user_id = user_id
         self.messages = []
+        self.replies_queue = []
 
     def get_interlocutor(self):
         return self.user_id
+
+    def enqueue_replies(self, replies):
+        self.replies_queue.extend(replies)
+
+    def pop_reply(self):
+        if len(self.replies_queue) == 0:
+            return ''
+        else:
+            reply = self.replies_queue[0]
+            self.replies_queue = self.replies_queue[1:]
+            return reply
 
     def add_human_message(self, text):
         self.messages.append(Utterance('H', text))
@@ -163,12 +183,12 @@ class DialogHistory:
 
 
 class GeneratedResponse:
-    def __init__(self, algo, prev_utterance_interpretation, text, p, confabulated_fact=None):
-        self.algo = algo
+    def __init__(self, algo, prev_utterance_interpretation, text, p, confabulated_facts=None):
+        self.algo = algo  # текстовое описание, как получен текст ответа
         self.text = text
         self.prev_utterance_interpretation = prev_utterance_interpretation
         self.p = p
-        self.confabulated_fact = confabulated_fact
+        self.confabulated_facts = confabulated_facts
 
     def get_text(self):
         return self.text
@@ -179,8 +199,11 @@ class GeneratedResponse:
     def get_proba(self):
         return self.p
 
-    def get_confabulated_fact(self):
-        return self.confabulated_fact
+    def get_confabulated_facts(self):
+        return self.confabulated_facts
+
+    def get_algo(self):
+        return self.algo
 
 
 def format_outputs(outputs):
@@ -195,6 +218,8 @@ class BotCore:
         self.logger = logging.getLogger('BotCore')
 
     def load(self, models_dir, text_utils):
+        self.text_utils = text_utils
+
         # =============================
         # Грузим модели.
         # =============================
@@ -223,8 +248,8 @@ class BotCore:
         self.confabulator = RugptConfabulator()
         self.confabulator.load(models_dir)
 
-        #self.interpreter = RugptInterpreter()
-        self.interpreter = NN_InterpreterNew6()
+        self.interpreter = RugptInterpreter()
+        #self.interpreter = NN_InterpreterNew6()
         self.interpreter.load(models_dir)
 
         #self.pqa = RugptPQA()
@@ -256,13 +281,15 @@ class BotCore:
                      dialog.get_last_message().get_text(), interlocutor, profile.get_id())
         self.print_dialog(dialog)
 
+        min_nonsense_threshold = 0.50  # мин. значение синтаксической валидности сгенерированной моделями фразы, чтобы использовать ее дальше
+        pqa_rel_threshold = 0.80  # порог отсечения нерелевантных предпосылок
+
         # Здесь будем накапливать варианты ответной реплики с различной служебной информацией
         responses = []  # [GeneratedResponse]
 
         memory_phrases = list(facts.enumerate_facts(interlocutor))
 
-        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(dialog.get_last_message().get_text(),
-                                                                                 text_utils)
+        phrase_modality, phrase_person, raw_tokens = self.modality_model.get_modality(dialog.get_last_message().get_text(), self.text_utils)
         must_answer_question = False
         if phrase_modality == ModalityDetector.question:
             must_answer_question = True
@@ -271,10 +298,10 @@ class BotCore:
 
         # Интерпретация последней реплики
         # проверяем необходимость интерпретации
-        req_interpretation = self.req_interpretation.require_interpretation_proba(dialog.get_last_message().get_text(), text_utils)
-        self.logger.debug('req_interpretation: text="%s" p=%5.3f', dialog.get_last_message().get_text(), req_interpretation)
+        req_interpretation = self.req_interpretation.require_interpretation_proba(dialog.get_last_message().get_text(), self.text_utils)
+        self.logger.debug('req_interpretation@297: text="%s" p=%5.3f', dialog.get_last_message().get_text(), req_interpretation)
 
-        all_interpretations = []
+        all_interpretations = []  # здесь накопим все варианты интерпретации фразы человека, включая исходную введенную реплику.
 
         # добавляем нулевую интерпретацию как вариант
         all_interpretations.append((dialog.get_last_message().get_text(), (1.0 - req_interpretation)))
@@ -282,16 +309,22 @@ class BotCore:
         if req_interpretation > 0.5:
             interpreter_contexts = dialog.constuct_interpreter_contexts()
             for interpreter_context in interpreter_contexts:
-                #interpretations = self.interpreter.generate_output(interpreter_context, num_return_sequences=2)
-                #self.logger.debug('Interpretation: context="%s" outputs=%s', interpreter_context, format_outputs(interpretations))
-                interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], text_utils)
+                interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], self.text_utils)
                 interpretations = [interpretation]
+
+                self.logger.debug('Interpretation@315: context="%s" output="%s"', interpreter_context, interpretation)
 
                 # Оцениваем "разумность" получившейся интерпретации, чтобы отсеять заведомо поломанные результаты
                 for interpretation in interpretations:
-                    p_valid = self.syntax_validator.is_valid(interpretation, text_utils=text_utils)
-                    self.logger.debug('Nonsense detector: text="%s" p=%5.3f', interpretation, p_valid)
-                    all_interpretations.append((interpretation, req_interpretation * p_valid))
+                    # может получится так, что возникнет 2 одинаковые интерпретации из формально разных контекстов.
+                    # избегаем добавления дублирующей интерпретации.
+                    if not any((interpretation == z[0]) for z in all_interpretations):
+                        # Отсекаем дефектные тексты.
+                        p_valid = self.syntax_validator.is_valid(interpretation, text_utils=self.text_utils)
+                        if p_valid > min_nonsense_threshold:
+                            all_interpretations.append((interpretation, req_interpretation * p_valid))
+                        else:
+                            self.logger.debug('Nonsense detector@320: text="%s" p=%5.3f', interpretation, p_valid)
 
         all_interpretations = sorted(all_interpretations, key=lambda z: -z[1])
 
@@ -304,37 +337,64 @@ class BotCore:
         mapped_premises = dict()
 
         for interpretation, p_interp in all_interpretations:
-            #normalized_phrase = self.interpreter.normalize_person(interpretation, text_utils)
-
             if must_answer_question:
-                # Просим конфабулятор придумать варианты предпосылок.
-                confabul_context = interpretation
-                confabul_context = self.interpreter.flip_person(confabul_context, text_utils)
-                # TODO - первый запуск делать с num_return_sequences=10, второй с num_return_sequences=100
-                confabulations = self.confabulator.generate_output(context=confabul_context, num_return_sequences=20)
-                self.logger.debug('Confabulation@315: context="%s" outputs=%s', confabul_context, format_outputs(confabulations))
-
+                # Ветка ответа на явный вопрос.
                 confab_premises = []
-                for confab_text in confabulations:
-                    if '|' in confab_text:
-                        premises = [z.strip() for z in confab_text.split('|')]
-                        confab_premises.append(premises)
-                    else:
-                        confab_premises.append([confab_text])
+
+                # Интерпретация может содержать 2 предложения, типа "я люблю фильмы. ты любишь фильмы?"
+                # В таких случаях нам нужен ТОЛЬКО вопрос.
+                if '.' in interpretation:
+                    i2 = interpretation.rindex('.')
+                    question_text = interpretation[i2+1:].strip()
+                else:
+                    question_text = interpretation
+
+                # Сначала поищем релевантную информацию в базе фактов
+                normalized_phrase_1 = self.interpreter.normalize_person(question_text, self.text_utils)
+                premises = []
+                rels = []
+                premises0, rels0 = self.relevancy_detector.get_most_relevant(normalized_phrase_1, memory_phrases, self.text_utils, nb_results=2)
+                for premise, premise_rel in zip(premises0, rels0):
+                    if premise_rel >= pqa_rel_threshold:
+                        premises.append(premise)
+                        rels.append(premise_rel)
+                self.logger.debug('KB lookup@359: query="%s" premises=[%s]', normalized_phrase_1, ' '.join('{}({:5.3f})'.format(p, r) for p, r in zip(premises, rels)))
+
+                # С помощью каждого найденного факта (предпосылки) генерируем варианты ответа, используя модель PQA
+                for premise, premise_relevancy in zip(premises, rels):
+                    if premise_relevancy >= pqa_rel_threshold:  # Если найденная в БД предпосылка достаточно релевантна вопросу...
+                        confab_premises.append(([premise], premise_relevancy))
+
+                if len(confab_premises) == 0:
+                    # Просим конфабулятор придумать варианты предпосылок.
+                    confabul_context = interpretation
+                    confabul_context = self.interpreter.flip_person(confabul_context, self.text_utils)
+                    # TODO - первый запуск делать с num_return_sequences=10, второй с num_return_sequences=100
+                    confabulations = self.confabulator.generate_output(context=confabul_context, num_return_sequences=10)
+                    self.logger.debug('Confabulation@358: context="%s" outputs="%s"', confabul_context, format_outputs(confabulations))
+
+                    for confab_text in confabulations:
+                        if '|' in confab_text:
+                            premises = [z.strip() for z in confab_text.split('|')]
+                            confab_premises.append((premises, 1.0))
+                        else:
+                            confab_premises.append(([confab_text], 1.0))
 
                 processed_chitchat_contexts = set()
 
-                for premises in confab_premises:
+                for premises, premises_rel in confab_premises:
                     premise_facts = []
                     total_proba = 1.0
+                    unmapped_confab_facts = []
                     for confab_premise in premises:
                         if confab_premise in mapped_premises:
                             memory_phrase, rel = mapped_premises[confab_premise]
                             premise_facts.append(memory_phrase)
                         else:
-                            memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, text_utils, nb_results=1)
+                            memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
                             if rel > 0.5:
-                                self.logger.debug('Synonymy@337 text1="%s" text2="%s" score=%5.3f', confab_premise, memory_phrase, rel)
+                                if memory_phrase != confab_premise:
+                                    self.logger.debug('Synonymy@381 text1="%s" text2="%s" score=%5.3f', confab_premise, memory_phrase, rel)
 
                                 total_proba *= rel
                                 if memory_phrase[-1] not in '.?!':
@@ -343,7 +403,14 @@ class BotCore:
                                     memory_phrase2 = memory_phrase
 
                                 premise_facts.append(memory_phrase2)
-                                mapped_premises[confab_premise] = (memory_phrase2, rel)
+                                mapped_premises[confab_premise] = (memory_phrase2, rel * premises_rel)
+                            else:
+                                # Для этого придуманного факта нет подтверждения в БД. Попробуем его использовать,
+                                # и потом в случае успеха генерации ответа внесем этот факт в БД.
+                                unmapped_confab_facts.append(confab_premise)
+                                premise_facts.append(confab_premise)
+                                mapped_premises[confab_premise] = (confab_premise, 0.80 * premises_rel)
+
 
                     if len(premise_facts) == len(premises):
                         # Нашли для всех конфабулированных предпосылок соответствия в базе знаний.
@@ -355,24 +422,27 @@ class BotCore:
                                 processed_chitchat_contexts.add(chitchat_context_str)
                                 chitchat_context0 = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None)
                                 chitchat_outputs = self.chitchat.generate_output(context_replies=chitchat_context, num_return_sequences=5)
-                                self.logger.debug('Chitchat@346: context="%s" outputs=%s', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
+                                self.logger.debug('Chitchat@409: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
                                 for chitchat_output in chitchat_outputs:
                                     # Оценка синтаксической валидности реплики
-                                    p_valid = self.syntax_validator.is_valid(chitchat_output, text_utils=text_utils)
-                                    self.logger.debug('Nonsense detector@350: text="%s" p=%5.3f', chitchat_output, p_valid)
+                                    p_valid = self.syntax_validator.is_valid(chitchat_output, text_utils=self.text_utils)
+                                    if p_valid < min_nonsense_threshold:
+                                        # Игнорируем поломанные тексты
+                                        self.logger.debug('Nonsense detector@415: text="%s" p=%5.3f', chitchat_output, p_valid)
+                                        continue
 
                                     # Оцениваем, насколько этот результат вписывается в контекст диалога
                                     p_entail = self.entailment.predict1(' | '.join(chitchat_context0), chitchat_output)
-                                    self.logger.debug('Entailment@354: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
+                                    self.logger.debug('Entailment@420: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
 
                                     p_total = p_valid * p_entail * total_proba
-                                    self.logger.debug('Chitchat response scoring@357: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
+                                    self.logger.debug('Chitchat response scoring@423: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
                                         ' | '.join(chitchat_context), chitchat_output, p_valid, p_entail, p_total)
-                                    responses.append(GeneratedResponse('chitchat@359',
+                                    responses.append(GeneratedResponse('chitchat@425',
                                                                        prev_utterance_interpretation=interpretation,
                                                                        text=chitchat_output,
                                                                        p=p_interp * p_total,
-                                                                       confabulated_fact=None))
+                                                                       confabulated_facts=unmapped_confab_facts))
 
             else:
                 message_labels = []
@@ -382,24 +452,26 @@ class BotCore:
                 chitchat_context0 = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None)
 
                 chitchat_outputs = self.chitchat.generate_output(context_replies=chitchat_context, num_return_sequences=5)
-                self.logger.debug('Chitchat@373: context="%s" outputs=%s', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
+                self.logger.debug('Chitchat@439: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
                 for chitchat_output in chitchat_outputs:
                     # Оценка синтаксической валидности реплики
-                    p_valid = self.syntax_validator.is_valid(chitchat_output, text_utils=text_utils)
-                    self.logger.debug('Nonsense detector@377: text="%s" p=%5.3f', chitchat_output, p_valid)
+                    p_valid = self.syntax_validator.is_valid(chitchat_output, text_utils=self.text_utils)
+                    if p_valid < min_nonsense_threshold:
+                        self.logger.debug('Nonsense detector@444: text="%s" p=%5.3f', chitchat_output, p_valid)
+                        continue
 
                     # Оцениваем, насколько этот результат вписывается в контекст диалога
                     p_entail = self.entailment.predict1(' | '.join(chitchat_context0), chitchat_output)
-                    self.logger.debug('Entailment@381: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
+                    self.logger.debug('Entailment@449: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
 
                     p_total = p_valid * p_entail
-                    self.logger.debug('Chitchat response scoring@384: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
+                    self.logger.debug('Chitchat response scoring@452: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
                         ' | '.join(chitchat_context), chitchat_output, p_valid, p_entail, p_total)
-                    responses.append(GeneratedResponse('chitchat@386',
+                    responses.append(GeneratedResponse('chitchat@454',
                                                        prev_utterance_interpretation=interpretation,
                                                        text=chitchat_output,
                                                        p=p_interp * p_total,
-                                                       confabulated_fact=None))
+                                                       confabulated_facts=None))
 
         # ===================================================
         # Генерация вариантов ответной реплики закончена.
@@ -410,7 +482,13 @@ class BotCore:
 
         self.logger.debug('Generated responses:')
         for i, r in enumerate(responses, start=1):
-            self.logger.debug('[%d] p=%5.3f text=%s', i, r.get_proba(), r.get_text())
+            self.logger.debug('[%d] p=%5.3f text="%s" \t\tsource=%s', i, r.get_proba(), r.get_text(), r.get_algo())
+
+        if len(responses) == 0:
+            self.logger.error('No response generated in context: message="%s" interlocutor="%s" bot="%s"',
+                             dialog.get_last_message().get_text(), interlocutor, profile.get_id())
+            self.print_dialog(dialog)
+            return []
 
         best_response = responses[0]
 
@@ -425,16 +503,17 @@ class BotCore:
             if not new_fact:
                 new_fact = dialog.get_last_message().get_text()
 
-            fact_text2 = self.interpreter.flip_person(new_fact, text_utils)
+            fact_text2 = self.interpreter.flip_person(new_fact, self.text_utils)
             self.store_new_fact(fact_text2, '(((dialog)))', dialog, profile, facts)
 
         # Если при генерации ответной реплики использован вымышленный факт, то его надо запомнить в базе знаний.
-        if best_response.get_confabulated_fact():
-            self.store_new_fact(best_response.get_confabulated_fact(), '(((confabulation)))', dialog, profile, facts)
+        if best_response.get_confabulated_facts():
+            for f in best_response.get_confabulated_facts():
+                self.store_new_fact(f, '(((confabulation)))', dialog, profile, facts)
 
         # Вполне может оказаться, что наша ответная реплика - краткая, и мы можем попытаться восстановить полную реплику...
         self_interpretation = None
-        req_interpretation = self.req_interpretation.require_interpretation_proba(best_response.get_text(), text_utils)
+        req_interpretation = self.req_interpretation.require_interpretation_proba(best_response.get_text(), self.text_utils)
         #self.logger.debug('req_interpretation №2: text="%s" p=%5.3f', dialog.get_last_message().get_text(), req_interpretation)
         if req_interpretation > 0.5:
             prevm = dialog.get_last_message().get_interpretation()
@@ -444,7 +523,7 @@ class BotCore:
 
             #interpretations = self.interpreter.generate_output(interpreter_context, num_return_sequences=1)
             #self_interpretation = interpretations[0]
-            self_interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], text_utils)
+            self_interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], self.text_utils)
 
         # Добавляем в историю диалога выбранную ответную реплику
         self.logger.debug('Response for input message "%s" from interlocutor="%s": text="%s" self_interpretation="%s" algorithm="%s" score=%5.3f', dialog.get_last_message().get_text(),
@@ -529,7 +608,7 @@ def get_user_id(update: Update) -> str:
     return user_id
 
 
-def start(update, context) -> None:
+def tg_start(update, context) -> None:
     user_id = get_user_id(update)
 
     if user_id in user2dialog:
@@ -540,7 +619,7 @@ def start(update, context) -> None:
 
     logging.debug('Entering START callback with user_id=%s', user_id)
     #context.bot.send_message(chat_id=update.message.chat_id, text='Привет, {}!\nЭто отладочная консоль чат-бота.\nОбщайтесь!'.format(update.message.from_user.full_name))
-    msg1 = 'Привет!'
+    msg1 = random.choice(scripting.greetings)
     dialog.add_bot_message(msg1)
     context.bot.send_message(chat_id=update.message.chat_id, text=msg1)
     logging.debug('Leaving START callback with user_id=%s', user_id)
@@ -552,7 +631,7 @@ DISLIKE = '_Dislike_'
 last_bot_reply = dict()
 
 
-def echo(update, context):
+def tg_echo(update, context):
     # update.chat.first_name
     # update.chat.last_name
     try:
@@ -590,14 +669,78 @@ def echo(update, context):
         last_bot_reply[user_id] = reply
     except Exception as ex:
         logging.error(ex)  # sys.exc_info()[0]
+        logging.error('Error occured when message "%s" from interlocutor "%s" was being processed: %s', update.message.text, user_id, traceback.format_exc())
+
+# ==================== КОД ВЕБ-СЕРВИСА =======================
+flask_app = Flask(__name__)
+
+
+class SessionFactory(object):
+    def __init__(self):
+        self.intercolutor2session = dict()
+
+    def get_session(self, interlocutor_id):
+        if interlocutor_id not in self.intercolutor2session:
+            session = DialogHistory(interlocutor_id)
+            self.intercolutor2session[interlocutor_id] = session
+            return session
+        else:
+            return self.intercolutor2session[interlocutor_id]
+
+    def start_conversation(self, interlocutor_id):
+        # Забываем предыдущю сессию этого пользователя...
+        # TODO - удалять записи в БД.
+        session = DialogHistory(interlocutor_id)
+        self.intercolutor2session[interlocutor_id] = session
+        return session
+
+
+session_factory = SessionFactory()
+
+
+@flask_app.route('/start_conversation', methods=["GET"])
+def start_conversation():
+    user = request.args.get('user', 'anonymous')
+    session = session_factory.start_conversation(user)
+    msg1 = request.args.get('phrase', random.choice(scripting.greetings))
+    logging.debug('start_conversation user="%s" message="%s"', user, msg1)
+    session.add_bot_message(msg1)
+    session.enqueue_replies([msg1])
+    return jsonify({'processed': True})
+
+
+# response = requests.get(chatbot_url + '/' + 'push_phrase?user={}&phrase={}'.format(user_id, phrase))
+@flask_app.route('/push_phrase', methods=["GET"])
+def service_push():
+    user_id = request.args.get('user', 'anonymous')
+    phrase = request.args['phrase']
+    logging.debug('push_phrase user="%s" phrase="%s"', user_id, phrase)
+
+    session = session_factory.get_session(user_id)
+    session.add_human_message(phrase)
+
+    replies = bot.process_human_message(session, profile, facts)
+    session.enqueue_replies(replies)
+
+    response = {'processed': True}
+    return jsonify(response)
+
+
+@flask_app.route('/pop_phrase', methods=["GET"])
+def pop_phrase():
+    user = request.args.get('user', 'anonymous')
+    session = session_factory.get_session(user)
+    reply = session.pop_reply()
+    return jsonify({'reply': reply})
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Telegram chatbot v3')
+    parser = argparse.ArgumentParser(description='Сhatbot v4')
     parser.add_argument('--token', type=str, default='', help='Telegram token')
-    parser.add_argument('--mode', type=str, default='console', choices='console telegram'.split())
+    parser.add_argument('--mode', type=str, default='console', choices='console telegram service'.split())
     parser.add_argument('--chatbot_dir', type=str, default='/home/inkoziev/polygon/chatbot')
-    parser.add_argument('--log', type=str, default='../../../tmp/core_v3_for_debug.log')
+    parser.add_argument('--log', type=str, default='../../../tmp/core_v4_for_debug.log')
+    parser.add_argument('--profile', type=str, default='../../../data/profile_1.json')
 
     args = parser.parse_args()
 
@@ -607,16 +750,19 @@ if __name__ == '__main__':
     models_dir = os.path.join(chatbot_dir, 'tmp')
     data_dir = os.path.join(chatbot_dir, 'data')
     tmp_dir = os.path.join(chatbot_dir, 'tmp')
-    profile_path = os.path.join(data_dir, 'profile_1.json')
+    profile_path = args.profile
 
     init_trainer_logging(args.log, True)
 
     # Настроечные параметры аватара собраны в профиле - файле в json формате.
-    profile = BotProfile("bot_v2")
+    profile = BotProfile("bot_v4")
     profile.load(profile_path, data_dir, models_dir)
 
     text_utils = TextUtils()
     text_utils.load_dictionaries(data_dir, models_dir)
+
+    scripting = BotScripting(data_dir)
+    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
 
     # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
     facts = ProfileFactsReader(text_utils=text_utils,
@@ -653,10 +799,10 @@ if __name__ == '__main__':
         updater = Updater(token=telegram_token)
         dispatcher = updater.dispatcher
 
-        start_handler = CommandHandler('start', start)
+        start_handler = CommandHandler('start', tg_start)
         dispatcher.add_handler(start_handler)
 
-        echo_handler = MessageHandler(Filters.text, echo)
+        echo_handler = MessageHandler(Filters.text, tg_echo)
         dispatcher.add_handler(echo_handler)
 
         logging.getLogger('telegram.bot').setLevel(logging.INFO)
@@ -665,7 +811,7 @@ if __name__ == '__main__':
         logging.info('Start polling messages for bot %s', tg_bot.name)
         updater.start_polling()
         updater.idle()
-    else:
+    elif mode == 'console':
         # Консольный интерактивный режим.
         msg1 = 'Привет!'
         interlocutor = 'test_human'
@@ -679,8 +825,13 @@ if __name__ == '__main__':
             h = input('H: ').strip()
             if h:
                 dialog.add_human_message(h)
-                replyes = bot.process_human_message(dialog, profile, facts)
+                replies = bot.process_human_message(dialog, profile, facts)
             else:
                 break
+    elif mode == 'service':
+        listen_ip = '127.0.0.1'
+        listen_port = '9098'
+        logging.info('Going to run flask_app listening %s:%s profile_path=%s', listen_ip, listen_port, profile_path)
+        flask_app.run(debug=True, host=listen_ip, port=listen_port)
 
     print('All done.')
