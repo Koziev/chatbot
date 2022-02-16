@@ -507,9 +507,9 @@ class BotCore:
 
         # Вполне может оказаться, что наша ответная реплика - краткая, и мы можем попытаться восстановить полную реплику...
         self_interpretation = None
-        req_interpretation = self.req_interpretation.require_interpretation_proba(best_response.get_text(), self.text_utils)
+        #req_interpretation = self.req_interpretation.require_interpretation_proba(best_response.get_text(), self.text_utils)
         #self.logger.debug('req_interpretation №2: text="%s" p=%5.3f', dialog.get_last_message().get_text(), req_interpretation)
-        if req_interpretation > 0.5:
+        if True:  #req_interpretation > 0.5:
             prevm = dialog.get_last_message().get_interpretation()
             if prevm is None:
                 prevm = dialog.get_last_message().get_text()
