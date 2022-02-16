@@ -1,6 +1,8 @@
 """
 Экспериментальная версия диалогового ядра версии 4.
 Основная идея - использование конфабулятора для выбора предпосылок.
+
+16.02.2022 Эксперимент - полностью отказываемся от модели req_interpretation, пусть gpt-модель интерпретатора всегда обрабатывает реплики собеседника.
 """
 
 import sys
@@ -27,7 +29,7 @@ from ruchatbot.bot.nn_interpreter6 import NN_InterpreterNew6
 
 from ruchatbot.bot.bot_scripting import BotScripting
 from ruchatbot.bot.text_utils import TextUtils
-from ruchatbot.bot.lgb_req_interpretation import LGB_ReqInterpretation
+#from ruchatbot.bot.lgb_req_interpretation import LGB_ReqInterpretation
 from ruchatbot.bot.nn_syntax_validator import NN_SyntaxValidator
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
@@ -36,10 +38,10 @@ from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
-from ruchatbot.bot.rugpt_base import RugptBase
+#from ruchatbot.bot.rugpt_base import RugptBase
 #from rugpt_pqa import RugptPQA
 from ruchatbot.bot.rugpt_chitchat2 import RugptChitchat
-from ruchatbot.bot.answer_builder import AnswerBuilder
+#from ruchatbot.bot.answer_builder import AnswerBuilder
 from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
 from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
 
@@ -236,8 +238,8 @@ class BotCore:
         self.syntax_validator = NN_SyntaxValidator()
         self.syntax_validator.load(models_dir)
 
-        self.req_interpretation = LGB_ReqInterpretation()
-        self.req_interpretation.load(models_dir)
+        #self.req_interpretation = LGB_ReqInterpretation()
+        #self.req_interpretation.load(models_dir)
 
         self.entailment = EntailmentModel()
         self.entailment.load(models_dir)
@@ -296,35 +298,26 @@ class BotCore:
         elif phrase_person == 2:
             must_answer_question = True
 
-        # Интерпретация последней реплики
-        # проверяем необходимость интерпретации
-        req_interpretation = self.req_interpretation.require_interpretation_proba(dialog.get_last_message().get_text(), self.text_utils)
-        self.logger.debug('req_interpretation@297: text="%s" p=%5.3f', dialog.get_last_message().get_text(), req_interpretation)
+        # 16-02-2022 интерпретация реплики пользователя выполняется всегда, полагаемся на устойчивость генеративной модели интерпретатора.
+        all_interpretations = []
+        interpreter_contexts = dialog.constuct_interpreter_contexts()
+        for interpreter_context in interpreter_contexts:
+            interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], self.text_utils)
+            interpretations = [interpretation]
 
-        all_interpretations = []  # здесь накопим все варианты интерпретации фразы человека, включая исходную введенную реплику.
+            self.logger.debug('Interpretation@317: context="%s" output="%s"', interpreter_context, interpretation)
 
-        # добавляем нулевую интерпретацию как вариант
-        all_interpretations.append((dialog.get_last_message().get_text(), (1.0 - req_interpretation)))
-
-        if req_interpretation > 0.5:
-            interpreter_contexts = dialog.constuct_interpreter_contexts()
-            for interpreter_context in interpreter_contexts:
-                interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], self.text_utils)
-                interpretations = [interpretation]
-
-                self.logger.debug('Interpretation@315: context="%s" output="%s"', interpreter_context, interpretation)
-
-                # Оцениваем "разумность" получившейся интерпретации, чтобы отсеять заведомо поломанные результаты
-                for interpretation in interpretations:
-                    # может получится так, что возникнет 2 одинаковые интерпретации из формально разных контекстов.
-                    # избегаем добавления дублирующей интерпретации.
-                    if not any((interpretation == z[0]) for z in all_interpretations):
-                        # Отсекаем дефектные тексты.
-                        p_valid = self.syntax_validator.is_valid(interpretation, text_utils=self.text_utils)
-                        if p_valid > min_nonsense_threshold:
-                            all_interpretations.append((interpretation, req_interpretation * p_valid))
-                        else:
-                            self.logger.debug('Nonsense detector@320: text="%s" p=%5.3f', interpretation, p_valid)
+            # Оцениваем "разумность" получившейся интерпретации, чтобы отсеять заведомо поломанные результаты
+            for interpretation in interpretations:
+                # может получится так, что возникнет 2 одинаковые интерпретации из формально разных контекстов.
+                # избегаем добавления дублирующей интерпретации.
+                if not any((interpretation == z[0]) for z in all_interpretations):
+                    # Отсекаем дефектные тексты.
+                    p_valid = self.syntax_validator.is_valid(interpretation, text_utils=self.text_utils)
+                    if p_valid > min_nonsense_threshold:
+                        all_interpretations.append((interpretation, p_valid))
+                    else:
+                        self.logger.debug('Nonsense detector@320: text="%s" p=%5.3f', interpretation, p_valid)
 
         all_interpretations = sorted(all_interpretations, key=lambda z: -z[1])
 
@@ -349,6 +342,7 @@ class BotCore:
                 else:
                     question_text = interpretation
 
+                self.logger.debug('Question to process@343: "%s"', question_text)
                 # Сначала поищем релевантную информацию в базе фактов
                 normalized_phrase_1 = self.interpreter.normalize_person(question_text, self.text_utils)
                 premises = []
