@@ -185,26 +185,15 @@ class DialogHistory:
         return len(self.messages)
 
 
-def split_message_text(message):
+def split_message_text(message, text_utils):
     assertions = []
     questions = []
 
-    # Интерпретация может содержать 2 предложения, типа "я люблю фильмы. ты любишь фильмы?"
-    # Более сложные ситуации, когда там > 2 клауз, например 2 вопроса - не учитываем.
-    if message[-1] == '?':
-        if '.' in message:
-            assertion_text = message[:message.index('.')]
-            assertions.append(assertion_text)
-
-            i2 = message.rindex('.')
-            question_text = message[i2 + 1:].strip()
-            questions.append(question_text)
+    for clause in text_utils.split_clauses(message):
+        if clause.endswith('?'):
+            questions.append(clause)
         else:
-            question_text = message
-            questions.append(question_text)
-    else:
-        assertion_text = message
-        assertions.append(assertion_text)
+            assertions.append(clause)
 
     return assertions, questions
 
@@ -330,7 +319,7 @@ class BotCore:
             interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], self.text_utils)
             interpretations = [interpretation]
 
-            self.logger.debug('Interpretation@332: context="%s" output="%s"', interpreter_context, interpretation)
+            self.logger.debug('Interpretation@322: context="%s" output="%s"', interpreter_context, interpretation)
 
             # Оцениваем "разумность" получившейся интерпретации, чтобы отсеять заведомо поломанные результаты
             for interpretation in interpretations:
@@ -342,7 +331,7 @@ class BotCore:
                     if p_valid > min_nonsense_threshold:
                         all_interpretations.append((interpretation, p_valid))
                     else:
-                        self.logger.debug('Nonsense detector@320: text="%s" p=%5.3f', interpretation, p_valid)
+                        self.logger.debug('Nonsense detector@334: text="%s" p=%5.3f', interpretation, p_valid)
 
         all_interpretations = sorted(all_interpretations, key=lambda z: -z[1])
 
@@ -357,14 +346,14 @@ class BotCore:
         for interpretation, p_interp in all_interpretations:
             # Интерпретация может содержать 2 предложения, типа "я люблю фильмы. ты любишь фильмы?"
             # Каждую клаузу пытаемся обработать отдельно.
-            assertionx, questionx = split_message_text(interpretation)
+            assertionx, questionx = split_message_text(interpretation, self.text_utils)
 
             input_clauses = [(q, 1.0, True) for q in questionx] + [(a, 0.8, False) for a in assertionx]
             for question_text, question_w, use_confabulation in input_clauses:
                 # Ветка ответа на вопрос, в том числе выраженный неявно, например "хочу твое имя узнать!"
                 confab_premises = []
 
-                self.logger.debug('Question to process@366: "%s"', question_text)
+                self.logger.debug('Question to process@356: "%s"', question_text)
                 # Сначала поищем релевантную информацию в базе фактов
                 normalized_phrase_1 = self.interpreter.normalize_person(question_text, self.text_utils)
                 premises = []
@@ -374,58 +363,64 @@ class BotCore:
                     if premise_rel >= pqa_rel_threshold:
                         premises.append(premise)
                         rels.append(premise_rel)
-                self.logger.debug('KB lookup@371: query="%s" premises=[%s]', normalized_phrase_1, ' '.join('{}({:5.3f})'.format(p, r) for p, r in zip(premises, rels)))
+                        self.logger.debug('KB lookup@366: query="%s" premise="%s" rel=%f', normalized_phrase_1, premise, premise_rel)
 
                 # С помощью каждого найденного факта (предпосылки) генерируем варианты ответа, используя модель PQA
                 for premise, premise_relevancy in zip(premises, rels):
                     if premise_relevancy >= pqa_rel_threshold:  # Если найденная в БД предпосылка достаточно релевантна вопросу...
-                        confab_premises.append(([premise], premise_relevancy*question_w))
+                        confab_premises.append(([premise], premise_relevancy*question_w, 'knowledgebase'))
 
                 if len(confab_premises) == 0 and use_confabulation:
+                    # В базе знаний ничего релевантного не нашлось.
                     # Просим конфабулятор придумать варианты предпосылок.
                     confabul_context = interpretation
                     confabul_context = self.interpreter.flip_person(confabul_context, self.text_utils)
                     # TODO - первый запуск делать с num_return_sequences=10, второй с num_return_sequences=100
                     confabulations = self.confabulator.generate_output(context=confabul_context, num_return_sequences=10)
-                    self.logger.debug('Confabulation@390: context="%s" outputs="%s"', confabul_context, format_outputs(confabulations))
+                    self.logger.debug('Confabulation@380: context="%s" outputs="%s"', confabul_context, format_outputs(confabulations))
 
                     for confab_text in confabulations:
                         if '|' in confab_text:
                             premises = [z.strip() for z in confab_text.split('|')]
-                            confab_premises.append((premises, 1.0))
+                            confab_premises.append((premises, 1.0, 'confabulation'))
                         else:
-                            confab_premises.append(([confab_text], 1.0))
+                            confab_premises.append(([confab_text], 1.0, 'confabulation'))
 
                 processed_chitchat_contexts = set()
 
-                for premises, premises_rel in confab_premises:
+                for premises, premises_rel, source in confab_premises:
                     premise_facts = []
                     total_proba = 1.0
                     unmapped_confab_facts = []
-                    for confab_premise in premises:
-                        if confab_premise in mapped_premises:
-                            memory_phrase, rel = mapped_premises[confab_premise]
-                            premise_facts.append(memory_phrase)
-                        else:
-                            memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
-                            if rel > 0.5:
-                                if memory_phrase != confab_premise:
-                                    self.logger.debug('Synonymy@413 text1="%s" text2="%s" score=%5.3f', confab_premise, memory_phrase, rel)
 
-                                total_proba *= rel
-                                if memory_phrase[-1] not in '.?!':
-                                    memory_phrase2 = memory_phrase + '.'
-                                else:
-                                    memory_phrase2 = memory_phrase
-
-                                premise_facts.append(memory_phrase2)
-                                mapped_premises[confab_premise] = (memory_phrase2, rel * premises_rel)
+                    if source == 'knowledgebase':
+                        premise_facts = premises
+                        total_proba = 1.0
+                    else:
+                        for confab_premise in premises:
+                            if confab_premise in mapped_premises:
+                                memory_phrase, rel = mapped_premises[confab_premise]
+                                premise_facts.append(memory_phrase)
                             else:
-                                # Для этого придуманного факта нет подтверждения в БД. Попробуем его использовать,
-                                # и потом в случае успеха генерации ответа внесем этот факт в БД.
-                                unmapped_confab_facts.append(confab_premise)
-                                premise_facts.append(confab_premise)
-                                mapped_premises[confab_premise] = (confab_premise, 0.80 * premises_rel)
+                                memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
+                                if rel > 0.5:
+                                    if memory_phrase != confab_premise:
+                                        self.logger.debug('Synonymy@413 text1="%s" text2="%s" score=%5.3f', confab_premise, memory_phrase, rel)
+
+                                    total_proba *= rel
+                                    if memory_phrase[-1] not in '.?!':
+                                        memory_phrase2 = memory_phrase + '.'
+                                    else:
+                                        memory_phrase2 = memory_phrase
+
+                                    premise_facts.append(memory_phrase2)
+                                    mapped_premises[confab_premise] = (memory_phrase2, rel * premises_rel)
+                                else:
+                                    # Для этого придуманного факта нет подтверждения в БД. Попробуем его использовать,
+                                    # и потом в случае успеха генерации ответа внесем этот факт в БД.
+                                    unmapped_confab_facts.append(confab_premise)
+                                    premise_facts.append(confab_premise)
+                                    mapped_premises[confab_premise] = (confab_premise, 0.80 * premises_rel)
 
                     if len(premise_facts) == len(premises):
                         # Нашли для всех конфабулированных предпосылок соответствия в базе знаний.
@@ -437,21 +432,21 @@ class BotCore:
                                 processed_chitchat_contexts.add(chitchat_context_str)
                                 chitchat_context0 = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None)
                                 chitchat_outputs = self.chitchat.generate_output(context_replies=chitchat_context, num_return_sequences=5)
-                                self.logger.debug('Chitchat@440: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
+                                self.logger.debug('Chitchat@446: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
                                 for chitchat_output in chitchat_outputs:
                                     # Оценка синтаксической валидности реплики
                                     p_valid = self.syntax_validator.is_valid(chitchat_output, text_utils=self.text_utils)
                                     if p_valid < min_nonsense_threshold:
                                         # Игнорируем поломанные тексты
-                                        self.logger.debug('Nonsense detector@446: text="%s" p=%5.3f', chitchat_output, p_valid)
+                                        self.logger.debug('Nonsense detector@452: text="%s" p=%5.3f', chitchat_output, p_valid)
                                         continue
 
                                     # Оцениваем, насколько этот результат вписывается в контекст диалога
                                     p_entail = self.entailment.predict1(' | '.join(chitchat_context0), chitchat_output)
-                                    self.logger.debug('Entailment@451: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
+                                    self.logger.debug('Entailment@457: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
 
                                     p_total = p_valid * p_entail * total_proba
-                                    self.logger.debug('Chitchat response scoring@454: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
+                                    self.logger.debug('Chitchat response scoring@460: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
                                         ' | '.join(chitchat_context), chitchat_output, p_valid, p_entail, p_total)
                                     responses.append(GeneratedResponse('pqa_response',
                                                                        prev_utterance_interpretation=interpretation,
@@ -467,20 +462,20 @@ class BotCore:
                 chitchat_context0 = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None)
 
                 chitchat_outputs = self.chitchat.generate_output(context_replies=chitchat_context, num_return_sequences=5)
-                self.logger.debug('Chitchat@464: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
+                self.logger.debug('Chitchat@476: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
                 for chitchat_output in chitchat_outputs:
                     # Оценка синтаксической валидности реплики
                     p_valid = self.syntax_validator.is_valid(chitchat_output, text_utils=self.text_utils)
                     if p_valid < min_nonsense_threshold:
-                        self.logger.debug('Nonsense detector@469: text="%s" p=%5.3f', chitchat_output, p_valid)
+                        self.logger.debug('Nonsense detector@481: text="%s" p=%5.3f', chitchat_output, p_valid)
                         continue
 
                     # Оцениваем, насколько этот результат вписывается в контекст диалога
                     p_entail = self.entailment.predict1(' | '.join(chitchat_context0), chitchat_output)
-                    self.logger.debug('Entailment@474: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
+                    self.logger.debug('Entailment@487: context="%s" output="%s" p=%5.3f', ' | '.join(chitchat_context0), chitchat_output, p_entail)
 
                     p_total = p_valid * p_entail
-                    self.logger.debug('Chitchat response scoring@477: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
+                    self.logger.debug('Chitchat response scoring@489: context="%s" response="%s" p_valid=%5.3f p_entail=%5.3f p_total=%5.3f',
                         ' | '.join(chitchat_context), chitchat_output, p_valid, p_entail, p_total)
                     responses.append(GeneratedResponse('chitchat_response',
                                                        prev_utterance_interpretation=interpretation,
@@ -518,11 +513,11 @@ class BotCore:
             # Если входная обрабатываемая реплика содержит какой-то факт, то его надо учитывать сейчас при поиске
             # релевантных предпосылок. Но так как мы еще не уверены, что именно данный вариант интерпретации входной
             # реплики правильный, то просто соберем временный список с добавленной интерпретацией.
-            input_assertions, input_questions = split_message_text(best_response.prev_utterance_interpretation)
+            input_assertions, input_questions = split_message_text(best_response.prev_utterance_interpretation, self.text_utils)
             memory_phrases2 = list(memory_phrases)
             for assertion_text in input_assertions:
                 fact_text2 = self.interpreter.flip_person(assertion_text, self.text_utils)
-                memory_phrases2.append((fact_text2, '', '(((tmp@526)))'))
+                memory_phrases2.append((fact_text2, '', '(((tmp@531)))'))
 
             # Вполне может оказаться, что наша ответная реплика - краткая, и мы должны попытаться восстановить
             # полную реплику перед семантическими и прагматическими проверками.
@@ -534,19 +529,20 @@ class BotCore:
 
             is_good_reply = True
 
-            self_assertions, self_questions = split_message_text(self_interpretation)
+            self_assertions, self_questions = split_message_text(self_interpretation, self.text_utils)
             for question_text in self_questions:
                 # Реплика содержит вопрос. Проверим, что мы ранее не задавали такой вопрос, и что
                 # мы не знаем ответ на этот вопрос. Благодаря этому бот не будет спрашивать снова то, что уже
                 # спрашивал или что он просто знает.
-                self.logger.debug('Question to process@534: "%s"', question_text)
+                self.logger.debug('Question to process@548: "%s"', question_text)
                 premise, rel = self.relevancy_detector.get_most_relevant(question_text, memory_phrases2, self.text_utils, nb_results=1)
+                self.logger.debug('KB lookup@551: query="%s" premise="%s" rel=%f', question_text, premise, rel)
                 if rel >= pqa_rel_threshold:
-                    self.logger.debug('KB lookup@546: query="%s" premise="%s" rel=%f', question_text, premise, rel)
+                    #self.logger.debug('KB lookup@551: query="%s" premise="%s" rel=%f', question_text, premise, rel)
                     # Так как в БД найден релевантный факт, то бот уже знает ответ на этот вопрос, и нет смысла задавать его
                     # собеседнику снова.
                     is_good_reply = False
-                    self.logger.debug('Output response "%s" contains a question "%s" with known answer, so skipping it @550', best_response.get_text(), question_text)
+                    self.logger.debug('Output response "%s" contains a question "%s" with known answer, so skipping it @555', best_response.get_text(), question_text)
                     break
 
             if not is_good_reply:
@@ -559,12 +555,12 @@ class BotCore:
                     # Ищем релевантный факт в БД
                     premise, rel = self.relevancy_detector.get_most_relevant(assertion_text, memory_phrases2, self.text_utils, nb_results=1)
                     if rel >= pqa_rel_threshold:
-                        self.logger.debug('KB lookup@553: query="%s" premise="%s" rel=%f', assertion_text, premise, rel)
+                        self.logger.debug('KB lookup@558: query="%s" premise="%s" rel=%f', assertion_text, premise, rel)
 
                         # Формируем запрос на генерацию ответа через gpt читчата...
                         chitchat_context = '[' + premise + '.] ' + assertion_text + '?'
                         chitchat_outputs = self.chitchat.generate_output(context_replies=[chitchat_context], num_return_sequences=5)
-                        self.logger.debug('PQA@568: context="%s" outputs="%s"', chitchat_context, format_outputs(chitchat_outputs))
+                        self.logger.debug('PQA@563: context="%s" outputs="%s"', chitchat_context, format_outputs(chitchat_outputs))
                         for chitchat_output in chitchat_outputs:
                             # Заглушка - ищем отрицательные частицы
                             words = self.text_utils.tokenize(chitchat_output)
@@ -582,17 +578,17 @@ class BotCore:
         # Если для генерации этой ответной реплики использована интерпретация предыдущей реплики собеседника,
         # то надо запомнить эту интерпретацию в истории диалога.
         dialog.set_last_message_interpretation(best_response.prev_utterance_interpretation)
-        input_assertions, input_questions = split_message_text(best_response.prev_utterance_interpretation)
+        input_assertions, input_questions = split_message_text(best_response.prev_utterance_interpretation, self.text_utils)
 
         for assertion_text in input_assertions:
             # Запоминаем сообщенный во входящей реплике собеседниким факт в базе знаний.
             fact_text2 = self.interpreter.flip_person(assertion_text, self.text_utils)
-            self.store_new_fact(fact_text2, '(((dialog@581)))', dialog, profile, facts)
+            self.store_new_fact(fact_text2, '(((dialog@586)))', dialog, profile, facts)
 
         # Если при генерации ответной реплики использован вымышленный факт, то его надо запомнить в базе знаний.
         if best_response.get_confabulated_facts():
             for f in best_response.get_confabulated_facts():
-                self.store_new_fact(f, '(((confabulation@586)))', dialog, profile, facts)
+                self.store_new_fact(f, '(((confabulation@591)))', dialog, profile, facts)
 
         # Добавляем в историю диалога выбранную ответную реплику
         self.logger.debug('Response for input message "%s" from interlocutor="%s": text="%s" self_interpretation="%s" algorithm="%s" score=%5.3f', dialog.get_last_message().get_text(),
