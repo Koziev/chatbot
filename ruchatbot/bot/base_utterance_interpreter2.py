@@ -83,21 +83,28 @@ class BaseUtteranceInterpreter2(BaseUtteranceInterpreter):
         inwords = text_utils.tokenize(src_phrase)
         outwords = []
         for word in inwords:
-            if word in self.hard_replacement:
-                outwords.append(self.hard_replacement[word])
+            uword = word.lower()
+            is_Aa = uword != word
+
+            new_word = word
+            if uword in self.hard_replacement:
+                new_word = self.hard_replacement[uword]
             else:
-                if word in self.person_change_1s_2s:
-                    outwords.append(self.person_change_1s_2s[word])
-                elif word in self.person_change_2s_1s:
-                    outwords.append(self.person_change_2s_1s[word])
-                elif word in self.person_change_2p_1s:
-                    outwords.append(self.person_change_2p_1s[word])
+                if uword in self.person_change_1s_2s:
+                    new_word = self.person_change_1s_2s[uword]
+                elif uword in self.person_change_2s_1s:
+                    new_word = self.person_change_2s_1s[uword]
+                elif uword in self.person_change_2p_1s:
+                    new_word = self.person_change_2p_1s[uword]
                 else:
                     # немного хардкода.
-                    if word in self.special_changes_3:
-                        outwords.append(self.special_changes_3[word])
-                    else:
-                        outwords.append(word)
+                    if uword in self.special_changes_3:
+                        new_word = self.special_changes_3[uword]
+
+            if new_word != word and is_Aa:
+                new_word = new_word[0].upper() + new_word[1:]
+
+            outwords.append(new_word)
 
         return self.normalize_delimiters(' '.join(outwords))
 
