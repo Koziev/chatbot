@@ -2,6 +2,7 @@
 """
 29.06.2020 Добавлены динамические факты "current_day_month" со строкой типа "сегодня 29 июня" и
            "current_year" со строкой типа "сейчас 2020 год"
+03.03.2022 Добавлены динамическме факты "сейчас утро|день|вечер|ночь"
 """
 
 
@@ -64,6 +65,18 @@ class SimpleFactsStorage(BaseFactsStorage):
                   6: u'лето', 7: u'лето', 8: u'лето',
                   9: u'осень', 10: u'осень', 11: u'осень'}[cur_month]
         memory_phrases.append((u'сейчас ' + season, '3', 'current_season'))
+
+        # 03.03.2022 Часть суток
+        current_hour = datetime.datetime.now().hour
+        if current_hour >= 23 or current_hour < 6:
+            tod_fact = 'сейчас ночь.'
+        elif current_hour in [6, 7, 8, 9]:
+            tod_fact = 'сейчас утро.'
+        elif current_hour in [10, 11, 12, 13, 14, 15, 16, 17, 18]:
+            tod_fact = 'сейчас день.'
+        else:
+            tod_fact = 'сейчас вечер.'
+        memory_phrases.append((tod_fact, '3', 'current_times_of_day'))
 
         # === Текущий месяц ===
         month = {1: u'январь', 2: u'февраль', 3: u'март',
