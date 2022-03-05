@@ -363,7 +363,7 @@ class BotCore:
                     if p_valid > min_nonsense_threshold:
                         all_interpretations.append((interpretation, p_valid))
                     else:
-                        self.logger.debug('Nonsense detector@357: text="%s" p=%5.3f', interpretation, p_valid)
+                        self.logger.debug('Nonsense detector@366: text="%s" p=%5.3f', interpretation, p_valid)
 
         # В целях оптимизации пока оставляем только самую достоверную интерпретацию.
         # Но вообще мы должны попытаться использовать все сделанные варианты интерпретации и
@@ -550,7 +550,7 @@ class BotCore:
             input_assertions, input_questions = split_message_text(best_response.prev_utterance_interpretation, self.text_utils)
             memory_phrases2 = list(memory_phrases)
             for assertion_text in input_assertions:
-                fact_text2 = self.interpreter.flip_person(assertion_text, self.text_utils)
+                fact_text2 = self.flip_person(assertion_text)
                 memory_phrases2.append((fact_text2, '', '(((tmp@554)))'))
 
             # Вполне может оказаться, что наша ответная реплика - краткая, и мы должны попытаться восстановить
