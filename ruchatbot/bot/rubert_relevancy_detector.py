@@ -40,6 +40,7 @@ class RubertRelevancyDetector(nn.Module):
         self.to(device)
 
     def save_weights(self, weights_path):
+        # Не сохраняем веса rubert, так как они не меняются при обучении.
         state = dict((k, v) for (k, v) in self.state_dict().items() if not k.startswith('bert_model'))
         torch.save(state, weights_path)
 
@@ -115,7 +116,7 @@ class RubertRelevancyDetector(nn.Module):
         else:
             return tokens
 
-    def calc_relevancy1(self, premise, query):
+    def calc_relevancy1(self, premise, query, **kwargs):
         tokens1 = self.pad_tokens(self.bert_tokenizer.encode(premise))
         tokens2 = self.pad_tokens(self.bert_tokenizer.encode(query))
 
@@ -124,3 +125,17 @@ class RubertRelevancyDetector(nn.Module):
 
         y = self.forward(z1, z2)[0].item()
         return y
+
+    def get_most_relevant(self, query, premises, text_utils, nb_results=1):
+        premises_tx = [self.pad_tokens(self.bert_tokenizer.encode(premise)) for premise, _, _ in premises]
+        query_t1 = self.pad_tokens(self.bert_tokenizer.encode(query))
+        query_tx = [query_t1 for _ in range(len(premises))]
+
+        z1 = torch.tensor(premises_tx).to(self.device)
+        z2 = torch.tensor(query_tx).to(self.device)
+
+        y = self.forward(z1, z2).squeeze()
+        res = [(premise[0], yi.item()) for (premise, yi) in zip(premises, y)]
+        res = sorted(res, key=lambda z: -z[1])[:nb_results]
+        return [x[0] for x in res], [x[1] for x in res]
+
