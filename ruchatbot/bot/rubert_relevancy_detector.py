@@ -1,5 +1,8 @@
 """
-Модель детектора PQ-релевантности с ипользованием претренированной модели BERT на PyTorch
+Модель детектора PQ-релевантности с использованием претренированной модели BERT на PyTorch
+
+Подготовка обучающего датасета - в preparation/prepare_relevancy_dataset.py
+Тренировка - в trainers/train_rubert_pq_relevancy_detector.py
 
 09.03.2022 Начальная реализация на базе кода детектора перефразировок
 10.03.2022 Переделан код сохранения и загрузки модели, чтобы не дублировать веса rubert.
@@ -40,7 +43,8 @@ class RubertRelevancyDetector(nn.Module):
         self.to(device)
 
     def save_weights(self, weights_path):
-        # Не сохраняем веса rubert, так как они не меняются при обучении.
+        # !!! Не сохраняем веса rubert, так как они не меняются при обучении и одна и та же rubert используется
+        # несколькими моделями !!!
         state = dict((k, v) for (k, v) in self.state_dict().items() if not k.startswith('bert_model'))
         torch.save(state, weights_path)
 
