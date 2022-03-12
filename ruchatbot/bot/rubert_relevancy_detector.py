@@ -70,10 +70,10 @@ class RubertRelevancyDetector(nn.Module):
             output = torch.sigmoid(merged)
 
         elif self.arch == 2:
-            out1, (hidden1, cell1) = self.rnn(b1)
+            out1, (hidden1, cell1) = self.rnn1(b1)
             v1 = out1[:, -1, :]
 
-            out2, (hidden2, cell2) = self.rnn(b2)
+            out2, (hidden2, cell2) = self.rnn2(b2)
             v2 = out2[:, -1, :]
 
             v_sub = torch.sub(v1, v2)
@@ -127,15 +127,23 @@ class RubertRelevancyDetector(nn.Module):
         return y
 
     def get_most_relevant(self, query, premises, text_utils, nb_results=1):
-        premises_tx = [self.pad_tokens(self.bert_tokenizer.encode(premise)) for premise, _, _ in premises]
         query_t1 = self.pad_tokens(self.bert_tokenizer.encode(query))
-        query_tx = [query_t1 for _ in range(len(premises))]
 
-        z1 = torch.tensor(premises_tx).to(self.device)
-        z2 = torch.tensor(query_tx).to(self.device)
+        res = []
 
-        y = self.forward(z1, z2).squeeze()
-        res = [(premise[0], yi.item()) for (premise, yi) in zip(premises, y)]
+        batch_size = 100
+        while premises:
+            premises_batch = premises[:batch_size]
+            premises = premises[batch_size:]
+            premises_tx = [self.pad_tokens(self.bert_tokenizer.encode(premise)) for premise, _, _ in premises_batch]
+            query_tx = [query_t1 for _ in range(len(premises_batch))]
+
+            z1 = torch.tensor(premises_tx).to(self.device)
+            z2 = torch.tensor(query_tx).to(self.device)
+
+            y = self.forward(z1, z2).squeeze()
+            delta = [(premise[0], yi.item()) for (premise, yi) in zip(premises_batch, y)]
+            res.extend(delta)
+
         res = sorted(res, key=lambda z: -z[1])[:nb_results]
         return [x[0] for x in res], [x[1] for x in res]
-
