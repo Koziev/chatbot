@@ -8,6 +8,8 @@
 10.03.2022 Переделан код сохранения и загрузки модели, чтобы не дублировать веса rubert.
 10.03.2022 Сделан фриз весов rubert при обучении
 11.03.2022 Класс RubertRelevancyDetector выделен в отдельный модуль, чтобы унифицировать использование в диалоговом движке
+18.03.2022 Правка в методе get_most_relevant: оказывается, если прогонять батч размером 1, то torch формирует не вектор размерностью 1,
+           а тензор-"скаляр"
 """
 
 import torch.utils.data
@@ -117,6 +119,8 @@ class RubertRelevancyDetector(nn.Module):
         l = len(tokens)
         if l < self.max_len:
             return tokens + [0] * (self.max_len - l)
+        elif l > self.max_len:
+            return tokens[:self.max_len]
         else:
             return tokens
 
@@ -146,8 +150,11 @@ class RubertRelevancyDetector(nn.Module):
             z2 = torch.tensor(query_tx).to(self.device)
 
             y = self.forward(z1, z2).squeeze()
-            delta = [(premise[0], yi.item()) for (premise, yi) in zip(premises_batch, y)]
-            res.extend(delta)
+            if len(y.shape) == 0:
+                res.append((premises_batch[0][0], y.item()))
+            else:
+                delta = [(premise[0], yi.item()) for (premise, yi) in zip(premises_batch, y)]
+                res.extend(delta)
 
         res = sorted(res, key=lambda z: -z[1])[:nb_results]
         return [x[0] for x in res], [x[1] for x in res]
