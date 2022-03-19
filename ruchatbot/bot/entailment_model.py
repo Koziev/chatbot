@@ -1,3 +1,9 @@
+"""
+Обертка для инференса модели диалогового entailment'а
+
+15-03-2022 Добавлен метод predictN для обработки батча вариантов ответа
+"""
+
 import os
 import json
 
@@ -28,7 +34,6 @@ class EntailmentModel:
         self.model.eval()
         self.model.bert_model = bert_model
         self.bert_tokenizer = bert_tokenizer
-        #self.model.bert_tokenizer = bert_tokenizer
 
     def pad_tokens(self, tokens):
         l = len(tokens)
@@ -42,8 +47,8 @@ class EntailmentModel:
     def predict1(self, dialog_context, response):
         assert(isinstance(dialog_context, str))
         assert(isinstance(response, str))
-        tokens1 = self.bert_tokenizer.encode(dialog_context.lower())
-        tokens2 = self.bert_tokenizer.encode(response.lower())
+        tokens1 = self.bert_tokenizer.encode(dialog_context)
+        tokens2 = self.bert_tokenizer.encode(response)
 
         z1 = torch.tensor(self.pad_tokens(tokens1)).reshape(1, self.max_len).to(self.device)
         z2 = torch.tensor(self.pad_tokens(tokens2)).reshape(1, self.max_len).to(self.device)
@@ -51,6 +56,29 @@ class EntailmentModel:
         with torch.no_grad():
             y = self.model(z1, z2).cpu()
             return y[0].item()
+
+    def predictN(self, dialog_context, responses):
+        assert(isinstance(dialog_context, str))
+
+        # диалоговый контекст у всех вариантов реплик одинаковый!
+        tokens1 = self.pad_tokens(self.bert_tokenizer.encode(dialog_context))
+
+        matrix1 = []
+        matrix2 = []
+        for response in responses:
+            matrix1.append(tokens1)
+            tokens2 = self.pad_tokens(self.bert_tokenizer.encode(response))
+            matrix2.append(tokens2)
+
+        z1 = torch.tensor(matrix1).to(self.device)
+        z2 = torch.tensor(matrix2).to(self.device)
+
+        with torch.no_grad():
+            y = self.model(z1, z2).cpu()
+            if len(y.shape) == 0:
+                return [y.item()]
+            else:
+                return [yy[0].item() for yy in y]
 
 
 if __name__ == '__main__':
