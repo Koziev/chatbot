@@ -7,7 +7,9 @@
 """
 
 import logging
-import os
+import math
+
+import torch
 
 from ruchatbot.bot.rugpt_base import RugptBase
 
@@ -17,11 +19,11 @@ class RugptChitchat(RugptBase):
         super(RugptChitchat, self).__init__()
         self.beam_k = 50
         self.beam_p = 0.9
+        self.temperature = 1.0
 
-    def load(self, models_dir):
-        p = os.path.join(models_dir, 'rugpt_chitchat')
-        logging.debug('Start loading generative model from "%s"', p)
-        self.load_from_path(p)
+    def load(self, model_path):
+        logging.debug('Start loading generative model from "%s"', model_path)
+        self.load_from_path(model_path)
 
     def generate_chitchat(self, context_replies, num_return_sequences):
         outputs = set()
@@ -39,7 +41,7 @@ class RugptChitchat(RugptBase):
                 input_dialog.append('- ' + r)
 
         prompt_text = '<s>{chitchat}\n' + '\n'.join(input_dialog) + '\n'
-        raw_outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=1.1)
+        raw_outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=self.temperature)
         for o in raw_outputs:
             lines = o.split('\n')
             line1 = lines[0].strip()
@@ -48,6 +50,20 @@ class RugptChitchat(RugptBase):
             outputs.add(line1)
 
         return list(outputs)
+
+    def score_dialogues(self, dialogues):
+        # из-за разной длины текстов придется выполнять вычисления по 1 тексту за раз :(
+        scores = []
+        for dialog in dialogues:
+            encoded_text = self.tokenizer.encode('<s>{chitchat}\n' + '\n'.join(dialog))
+            t = torch.tensor(encoded_text, dtype=torch.long, device=self.device).unsqueeze(0)
+            with torch.no_grad():
+                loss = self.model(t, labels=t)
+            #perplexity = math.exp(loss[0].item())
+            score = loss[0].item()
+            scores.append(math.exp(-score))
+
+        return scores
 
     def generate_autoquestions(self, context_replies, num_return_sequences):
         outputs = set()
@@ -64,7 +80,7 @@ class RugptChitchat(RugptBase):
                 input_dialog.append('- ' + r)
 
         prompt_text = '<s>{autoquestion}\n' + '\n'.join(input_dialog) + '\n'
-        raw_outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=1.1)
+        raw_outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=self.temperature)
         for o in raw_outputs:
             lines = o.split('\n')
             line1 = lines[0].strip()
@@ -89,7 +105,7 @@ class RugptChitchat(RugptBase):
                 input_dialog.append('- ' + r)
 
         prompt_text = '<s>{confabulation}\n' + '\n'.join(input_dialog) + '\n'
-        raw_outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=1.1)
+        raw_outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=self.temperature)
         for o in raw_outputs:
             lines = o.split('\n')
             line1 = lines[0].strip()
@@ -112,7 +128,7 @@ class RugptChitchat(RugptBase):
                 input_context.append('- ' + r)
 
         prompt_text = '<s>' + '\n'.join(input_context) + ' #'
-        outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=1.0)
+        outputs = self.generate_output_from_prompt(prompt_text, num_return_sequences, temperature=self.temperature)
         return list(set(outputs))
 
 
@@ -121,7 +137,8 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.ERROR)
 
     model = RugptChitchat()
-    model.load('/home/inkoziev/polygon/chatbot/tmp')
+    model.load('/home/inkoziev/polygon/chatbot/tmp/rugpt_chitchat')
+    #model.load('/home/inkoziev/corpora/EmbeddingModels/rugpt3small_based_on_gpt2')
 
     # Отладочное тестирование
 
@@ -156,6 +173,18 @@ if __name__ == '__main__':
                 # Пустая реплика - значит надо начать новый диалог
                 context = []
     elif False:
+        # ENRICHED CHITCHAT
+        # Интерактивная сессия с вводом вопроса и релевантной предпосылки для тестирования PQA-сценария.
+        while True:
+            q = input('question:> ').strip()
+            p = input('premise:>  ').strip()
+            context = [q, '['+p+'.]']
+            px = model.generate_chitchat(context, num_return_sequences=5)
+            print('Сгенерированные варианты ответа:')
+            for i, p in enumerate(px):
+                print('[{}]  {}'.format(i, p))
+            print('')
+    elif False:
         context = ['Привет, Вика!']
         px = model.generate_autoquestions(context, num_return_sequences=5)
         print('Сгенерированные варианты автовопроса:')
@@ -169,16 +198,33 @@ if __name__ == '__main__':
         for i, p in enumerate(px):
             print('[{}]  {}'.format(i, p))
         print('')
-    elif False:
-        context = ['Какую музыку предпочитаешь?']
+    elif True:
+        context = ['В какой стране живет Владимир Глуховский?']
         px = model.generate_confabulations(context, num_return_sequences=5)
         print('Сгенерированные конфабуляции:')
         for i, p in enumerate(px):
             print('[{}]  {}'.format(i, p))
         print('')
+    elif False:
+        while True:
+            q = input('Question:> ').strip()
+            px = model.generate_confabulations([q], num_return_sequences=5)
+            print('Сгенерированные конфабуляции:')
+            for i, p in enumerate(px):
+                print('[{}]  {}'.format(i, p))
+            print('')
+    elif False:
+        # НАЧАЛО ОТЛАДКИ
+        prompt_text = '<s>{chitchat}\n' + '- Как тебя зовут?\n[уклониться от ответа.]\n'
+        px = model.generate_output_from_prompt(prompt_text, 5)
+        for i, p in enumerate(px):
+            print('[{}]  {}'.format(i, p))
+        print('')
+        # КОНЕЦ ОТЛАДКИ
     else:
-        context = ['[приветствие.]']
-        px = model.generate_chitchat(context, num_return_sequences=5)
+        #context = ['[приветствие. сейчас вечер.]']
+        context = ['Как ты относишься к украинцам?', '[уклониться от ответа.]']
+        px = model.generate_chitchat(context, num_return_sequences=10)
         print('Сгенерированные реплики диалога:')
         for i, p in enumerate(px):
             print('[{}]  {}'.format(i, p))
