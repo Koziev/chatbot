@@ -124,3 +124,30 @@ class RubertSynonymyDetector(nn.Module):
 
         y = self.forward(z1, z2)[0].item()
         return y
+
+    def get_most_similar(self, probe_phrase, phrases, text_utils, nb_results=1):
+        tokens1 = self.pad_tokens(self.bert_tokenizer.encode(probe_phrase))
+
+        phrases2 = list(phrases)
+        sims = []
+        batch_size = 100
+        while phrases2:
+            bs = min(batch_size, len(phrases2))
+            batch_phrases = phrases2[:bs]
+            phrases2 = phrases2[bs:]
+
+            tx1 = [tokens1 for _ in range(bs)]
+            tx2 = [self.pad_tokens(self.bert_tokenizer.encode(s[0])) for s in batch_phrases]
+
+            z1 = torch.tensor(tx1).to(self.device)
+            z2 = torch.tensor(tx2).to(self.device)
+            yx = self.forward(z1, z2)
+            batch_y = [y.item() for y in yx]
+            sims.extend(batch_y)
+
+        phrase_wx = list(zip(phrases, sims))
+        phrase_wx = sorted(phrase_wx, key=lambda z: -z[1])[:nb_results]
+        return [s[0] for s, sim in phrase_wx], [sim for s, sim in phrase_wx]
+
+
+

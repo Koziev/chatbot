@@ -6,6 +6,7 @@
 02.03.2022 Эксперимент - начальный сценарий приветствия теперь активизируется специальной командой в формате [...]
 04.02.2022 Эксперимент - объединенная генеративная модель вместо отдельных для читчата, интерпретации, конфабуляции
 11.03.2022 Эксперимент - используем новую модель для pq-релевантность на базе rubert+классификатор
+28.03.2022 Эксперимент - переходим на новую модель детектора синонимичности фраз на базе rubert+классификатор
 """
 
 import sys
@@ -41,8 +42,11 @@ from ruchatbot.bot.text_utils import TextUtils
 #from ruchatbot.bot.lgb_req_interpretation import LGB_ReqInterpretation
 from ruchatbot.bot.nn_syntax_validator import NN_SyntaxValidator
 from ruchatbot.utils.logging_helpers import init_trainer_logging
-from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
-from ruchatbot.bot.lgb_relevancy_detector import LGB_RelevancyDetector
+
+#from ruchatbot.bot.lgb_synonymy_detector import LGB_SynonymyDetector
+#from ruchatbot.bot.lgb_relevancy_detector import LGB_RelevancyDetector
+from ruchatbot.bot.rubert_synonymy_detector import RubertSynonymyDetector
+
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.bot_profile import BotProfile
@@ -66,6 +70,9 @@ class Utterance:
     def get_text(self):
         return self.text
 
+    def __repr__(self):
+        return '{}: {}'.format(self.who, self.text)
+
     def is_command(self):
         return self.who == 'X'
 
@@ -76,7 +83,7 @@ class Utterance:
         self.interpretation = text
 
 
-class DialogHistory:
+class DialogHistory(object):
     def __init__(self, user_id):
         self.user_id = user_id
         self.messages = []
@@ -102,6 +109,7 @@ class DialogHistory:
 
     def add_bot_message(self, text, self_interpretation=None):
         self.messages.append(Utterance('B', text, self_interpretation))
+        self.replies_queue.append(text)
 
     def add_command(self, command_text):
         self.messages.append(Utterance('X', command_text))
@@ -210,17 +218,37 @@ class DialogHistory:
         return len(self.messages)
 
 
-def split_message_text(message, text_utils):
-    assertions = []
-    questions = []
+class ConversationSession(object):
+    def __init__(self, interlocutor_id, bot_profile, text_utils):
+        self.interlocutor_id = interlocutor_id
+        self.bot_profile = bot_profile
+        self.dialog = DialogHistory(interlocutor_id)
+        self.facts = ProfileFactsReader(text_utils=text_utils,
+                                        profile_path=bot_profile.premises_path,
+                                        constants=bot_profile.constants)
+    def pop_reply(self):
+        return self.dialog.pop_reply()
 
-    for clause in text_utils.split_clauses(message):
-        if clause.endswith('?'):
-            questions.append(clause)
+    def enqueue_replies(self, replies):
+        self.dialog.enqueue_replies(replies)
+
+
+class SessionFactory(object):
+    def __init__(self, bot_profile, text_utils):
+        self.bot_profile = bot_profile
+        self.text_utils = text_utils
+        self.interlocutor2session = dict()
+
+    def get_session(self, interlocutor_id):
+        if interlocutor_id not in self.interlocutor2session:
+            return self.start_conversation(interlocutor_id)
         else:
-            assertions.append(clause)
+            return self.interlocutor2session[interlocutor_id]
 
-    return assertions, questions
+    def start_conversation(self, interlocutor_id):
+        session = ConversationSession(interlocutor_id, self.bot_profile, self.text_utils)
+        self.interlocutor2session[interlocutor_id] = session
+        return session
 
 
 class GeneratedResponse:
@@ -255,25 +283,6 @@ class GeneratedResponse:
         return self.algo
 
 
-def format_confabulations_list(confabulations):
-    sx = []
-    if confabulations:
-        for s in confabulations:
-            if s[-1] not in '.!?':
-                sx.append(s+'.')
-            else:
-                sx.append(s)
-
-    return ' '.join(sx)
-
-
-def format_outputs(outputs):
-    sx = []
-    for i, s in enumerate(outputs, start=1):
-        sx.append('〚{}〛«{}»'.format(i, s))
-    return ' '.join(sx)
-
-
 class BotCore:
     def __init__(self):
         use_cuda = torch.cuda.is_available()
@@ -295,8 +304,14 @@ class BotCore:
         # =============================
         # Грузим модели.
         # =============================
-        self.synonymy_detector = LGB_SynonymyDetector()
-        self.synonymy_detector.load(models_dir)
+        #self.synonymy_detector = LGB_SynonymyDetector()
+        #self.synonymy_detector.load(models_dir)
+        with open(os.path.join(models_dir, 'rubert_synonymy_model.cfg'), 'r') as f:
+            cfg = json.load(f)
+            self.synonymy_detector = RubertSynonymyDetector(device=self.device, **cfg)
+            self.synonymy_detector.load_weights(os.path.join(models_dir, 'rubert_synonymy_model.pt'))
+            self.synonymy_detector.bert_model = self.bert_model
+            self.synonymy_detector.bert_tokenizer = self.bert_tokenizer
 
         #self.relevancy_detector = LGB_RelevancyDetector()
         #self.relevancy_detector.load(models_dir)
@@ -314,8 +329,8 @@ class BotCore:
         self.syntax_validator = NN_SyntaxValidator()
         self.syntax_validator.load(models_dir)
 
-        self.entailment = EntailmentModel(self.device)
-        self.entailment.load(models_dir, self.bert_model, self.bert_tokenizer)
+        #self.entailment = EntailmentModel(self.device)
+        #self.entailment.load(models_dir, self.bert_model, self.bert_tokenizer)
 
         self.generative_model = RugptChitchat()
         self.generative_model.load(os.path.join(models_dir, 'rugpt_chitchat'))
@@ -341,7 +356,8 @@ class BotCore:
         self.logger.debug('Storing new fact "%s" in bot="%s" database', fact_text, profile.get_id())
         facts.store_new_fact(dialog.get_interlocutor(), (fact_text, 'unknown', label), True)
 
-    def start_greeting_scenario(self, dialog):
+    def start_greeting_scenario(self, session):
+        dialog = session.dialog
         if random.random() < 0.5:
             command = '[приветствие.]'
         else:
@@ -358,7 +374,7 @@ class BotCore:
         dialog.add_command(command)
         chitchat_context = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None, include_commands=True)
         chitchat_outputs = self.generative_model.generate_chitchat(context_replies=chitchat_context, num_return_sequences=1)
-        self.logger.debug('Chitchat@349 start greeting scenario: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
+        self.logger.debug('Chitchat@370 start greeting scenario: context="%s" outputs="%s"', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
         greeting_text = chitchat_outputs[0]
         dialog.add_bot_message(greeting_text)
         return greeting_text
@@ -369,8 +385,12 @@ class BotCore:
     def flip_person(self, utterance_text):
         return self.base_interpreter.flip_person(utterance_text, self.text_utils)
 
-    def process_human_message(self, dialog, profile, facts):
+    def process_human_message(self, session):
         # Начинаем обработку реплики собеседника
+        dialog = session.dialog
+        profile = session.bot_profile
+        facts = session.facts
+
         interlocutor = dialog.get_interlocutor()
         self.logger.info('Start "process_human_message": message="%s" interlocutor="%s" bot="%s"',
                      dialog.get_last_message().get_text(), interlocutor, profile.get_id())
@@ -503,10 +523,13 @@ class BotCore:
                                 memory_phrase, rel = mapped_premises[confab_premise]
                                 premise_facts.append(memory_phrase)
                             else:
-                                memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
+                                #memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
+                                fx, rels = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
+                                memory_phrase = fx[0]
+                                rel = rels[0]
                                 if rel > 0.5:
                                     if memory_phrase != confab_premise:
-                                        self.logger.debug('Synonymy@507 text1="%s" text2="%s" score=%5.3f', confab_premise, memory_phrase, rel)
+                                        self.logger.debug('Synonymy@523 text1="%s" text2="%s" score=%5.3f', confab_premise, memory_phrase, rel)
 
                                     total_proba *= rel
                                     if memory_phrase[-1] not in '.?!':
@@ -564,7 +587,9 @@ class BotCore:
 
         # Делаем оценку сгенерированных реплик - насколько хорошо они вписываются в текущий контекст диалога
         chitchat_context0 = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None, include_commands=False)
-        px_entail = self.entailment.predictN(' | '.join(chitchat_context0), [r.get_text() for r in responses])
+        #px_entail = self.entailment.predictN(' | '.join(chitchat_context0), [r.get_text() for r in responses])
+        px_entail = self.generative_model.score_dialogues([(chitchat_context0 + [r.get_text()]) for r in responses])
+
         for r, p_entail in zip(responses, px_entail):
             r.set_p_entail(p_entail)
 
@@ -598,7 +623,7 @@ class BotCore:
             memory_phrases2 = list(memory_phrases)
             for assertion_text in input_assertions:
                 fact_text2 = self.flip_person(assertion_text)
-                memory_phrases2.append((fact_text2, '', '(((tmp@599)))'))
+                memory_phrases2.append((fact_text2, '', '(((tmp@601)))'))
 
             # Вполне может оказаться, что наша ответная реплика - краткая, и мы должны попытаться восстановить
             # полную реплику перед семантическими и прагматическими проверками.
@@ -607,7 +632,7 @@ class BotCore:
                 prevm = dialog.get_last_message().get_text()
             interpreter_context = prevm + ' | ' + best_response.get_text()
             self_interpretation = self.generative_model.generate_interpretations([z.strip() for z in interpreter_context.split('|')], num_return_sequences=1)[0]
-            self.logger.debug('Self interpretation@608: context="%s" output="%s"', interpreter_context, self_interpretation)
+            self.logger.debug('Self interpretation@610: context="%s" output="%s"', interpreter_context, self_interpretation)
 
             is_good_reply = True
 
@@ -616,17 +641,16 @@ class BotCore:
                 # Реплика содержит вопрос. Проверим, что мы ранее не задавали такой вопрос, и что
                 # мы не знаем ответ на этот вопрос. Благодаря этому бот не будет спрашивать снова то, что уже
                 # спрашивал или что он просто знает.
-                self.logger.debug('Question to process@617: "%s"', question_text)
+                self.logger.debug('Question to process@619: "%s"', question_text)
                 premises, rels = self.relevancy_detector.get_most_relevant(question_text, memory_phrases2, self.text_utils, nb_results=1)
                 premise = premises[0]
                 rel = rels[0]
-                self.logger.debug('KB lookup@621: query="%s" premise="%s" rel=%f', question_text, premise, rel)
                 if rel >= self.pqa_rel_threshold:
-                    #self.logger.debug('KB lookup@551: query="%s" premise="%s" rel=%f', question_text, premise, rel)
+                    self.logger.debug('KB lookup@624: query="%s" premise="%s" rel=%f', question_text, premise, rel)
                     # Так как в БД найден релевантный факт, то бот уже знает ответ на этот вопрос, и нет смысла задавать его
                     # собеседнику снова.
                     is_good_reply = False
-                    self.logger.debug('Output response "%s" contains a question "%s" with known answer, so skipping it @627', best_response.get_text(), question_text)
+                    self.logger.debug('Output response "%s" contains a question "%s" with known answer, so skipping it @628', best_response.get_text(), question_text)
                     break
 
             if not is_good_reply:
@@ -862,6 +886,39 @@ class BotCore:
                                                    context=' | '.join(chitchat_context)))
         return responses
 
+
+def split_message_text(message, text_utils):
+    assertions = []
+    questions = []
+
+    for clause in text_utils.split_clauses(message):
+        if clause.endswith('?'):
+            questions.append(clause)
+        else:
+            assertions.append(clause)
+
+    return assertions, questions
+
+
+def format_confabulations_list(confabulations):
+    sx = []
+    if confabulations:
+        for s in confabulations:
+            if s[-1] not in '.!?':
+                sx.append(s+'.')
+            else:
+                sx.append(s)
+
+    return ' '.join(sx)
+
+
+def format_outputs(outputs):
+    sx = []
+    for i, s in enumerate(outputs, start=1):
+        sx.append('〚{}〛«{}»'.format(i, s))
+    return ' '.join(sx)
+
+
 def get_user_id(update: Update) -> str:
     user_id = str(update.message.from_user.id)
     return user_id
@@ -871,13 +928,9 @@ def tg_start(update, context) -> None:
     user_id = get_user_id(update)
     logging.debug('Entering START callback with user_id=%s', user_id)
 
-    # Старый диалог полностью забываем!
-    dialog = DialogHistory(user_id)
-    user2dialog[user_id] = dialog
+    session = session_factory.start_conversation(user_id)
 
-    #msg1 = random.choice(scripting.greetings)
-    #dialog.add_bot_message(msg1)
-    msg1 = bot.start_greeting_scenario(dialog)
+    msg1 = bot.start_greeting_scenario(session)
     context.bot.send_message(chat_id=update.message.chat_id, text=msg1)
     logging.debug('Leaving START callback with user_id=%s', user_id)
 
@@ -894,11 +947,7 @@ def tg_echo(update, context):
     try:
         user_id = get_user_id(update)
 
-        if user_id in user2dialog:
-            dialog = user2dialog[user_id]
-        else:
-            dialog = DialogHistory(user_id)
-            user2dialog[user_id] = dialog
+        session = session_factory.get_session(user_id)
 
         if update.message.text == LIKE:
             logging.info('LIKE user_id="%s" bot_reply="%s"', user_id, last_bot_reply[user_id])
@@ -911,8 +960,8 @@ def tg_echo(update, context):
         q = update.message.text
         logging.info('Will reply to "%s" for user="%s" id=%s in chat=%s', q, update.message.from_user.name, user_id, str(update.message.chat_id))
 
-        dialog.add_human_message(q)
-        replies = bot.process_human_message(dialog, profile, facts)
+        session.dialog.add_human_message(q)
+        replies = bot.process_human_message(session)
         for reply in replies:
             logging.info('Bot reply="%s" to user="%s"', reply, user_id)
 
@@ -928,41 +977,24 @@ def tg_echo(update, context):
         logging.error(ex)  # sys.exc_info()[0]
         logging.error('Error occured when message "%s" from interlocutor "%s" was being processed: %s', update.message.text, user_id, traceback.format_exc())
 
+
 # ==================== КОД ВЕБ-СЕРВИСА =======================
 flask_app = Flask(__name__)
-
-
-class SessionFactory(object):
-    def __init__(self):
-        self.intercolutor2session = dict()
-
-    def get_session(self, interlocutor_id):
-        if interlocutor_id not in self.intercolutor2session:
-            session = DialogHistory(interlocutor_id)
-            self.intercolutor2session[interlocutor_id] = session
-            return session
-        else:
-            return self.intercolutor2session[interlocutor_id]
-
-    def start_conversation(self, interlocutor_id):
-        # Забываем предыдущю сессию этого пользователя...
-        # TODO - удалять записи в БД.
-        session = DialogHistory(interlocutor_id)
-        self.intercolutor2session[interlocutor_id] = session
-        return session
-
-
-session_factory = SessionFactory()
 
 
 @flask_app.route('/start_conversation', methods=["GET"])
 def start_conversation():
     user = request.args.get('user', 'anonymous')
     session = session_factory.start_conversation(user)
-    msg1 = request.args.get('phrase', random.choice(scripting.greetings))
-    logging.debug('start_conversation user="%s" message="%s"', user, msg1)
-    session.add_bot_message(msg1)
-    session.enqueue_replies([msg1])
+    msg1 = request.args.get('phrase')
+    if msg1:
+        session.dialog.add_bot_message(msg1)
+    else:
+        msg1 = bot.start_greeting_scenario(session)
+
+    logging.debug('start_conversation interlocutor="%s" message="%s"', user, msg1)
+    #session.add_bot_message(msg1)
+    #session.enqueue_replies([msg1])
     return jsonify({'processed': True})
 
 
@@ -974,10 +1006,10 @@ def service_push():
     logging.debug('push_phrase user="%s" phrase="%s"', user_id, phrase)
 
     session = session_factory.get_session(user_id)
-    session.add_human_message(phrase)
+    session.dialog.add_human_message(phrase)
 
-    replies = bot.process_human_message(session, profile, facts)
-    session.enqueue_replies(replies)
+    replies = bot.process_human_message(session)
+    #session.enqueue_replies(replies)
 
     response = {'processed': True}
     return jsonify(response)
@@ -1012,20 +1044,15 @@ if __name__ == '__main__':
 
     init_trainer_logging(args.log, True)
 
-    # Настроечные параметры аватара собраны в профиле - файле в json формате.
-    profile = BotProfile("bot_v4")
-    profile.load(profile_path, data_dir, models_dir)
+    # Настроечные параметры бота собраны в профиле - файле в json формате.
+    bot_profile = BotProfile("bot_v4")
+    bot_profile.load(profile_path, data_dir, models_dir)
 
     text_utils = TextUtils()
     text_utils.load_dictionaries(data_dir, models_dir)
 
-    scripting = BotScripting(data_dir)
-    scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
-
-    # Конкретная реализация хранилища фактов - плоские файлы в utf-8, с минимальным форматированием
-    facts = ProfileFactsReader(text_utils=text_utils,
-                               profile_path=profile.premises_path,
-                               constants=profile.constants)
+    #scripting = BotScripting(data_dir)
+    #scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
 
     # 19-03-2022 запрещаем тензорфлоу резервировать всю память в гпу по дефолту, так как
     # это мешает потом нормально работать моделям на торче.
@@ -1036,19 +1063,21 @@ if __name__ == '__main__':
     bot.load_bert(args.bert)
     bot.load(models_dir, text_utils)
 
+    # Фабрика для создания новых диалоговых сессий и хранения текущих сессий для всех онлайн-собеседников
+    session_factory = SessionFactory(bot_profile, text_utils)
+
     if mode == 'debug':
         # Чисто отладочный режим без интерактива.
         # Формируем историю диалога для отладки
         interlocutor = 'test_human'
-        dialog = DialogHistory(interlocutor)
-        dialog.add_human_message('тебя как зовут?')
-        replies = bot.process_human_message(dialog, profile, facts)
+        session = session_factory.start_conversation(interlocutor)
+        session.dialog.add_human_message('тебя как зовут?')
+        replies = bot.process_human_message(session)
         for reply in replies:
             print('B:  {}'.format(reply))
     elif mode == 'telegram':
         # телеграм-бот
         logging.info('Starting telegram bot')
-        user2dialog = dict()
 
         telegram_token = args.token
         if len(telegram_token) == 0:
@@ -1077,21 +1106,21 @@ if __name__ == '__main__':
     elif mode == 'console':
         # Консольный интерактивный режим для отладки.
         interlocutor = 'test_human'
-        dialog = DialogHistory(interlocutor)
+        session = session_factory.start_conversation(interlocutor)
 
         # Начинаем со сценария приветствия.
-        bot.start_greeting_scenario(dialog)
+        bot.start_greeting_scenario(session)
 
         while True:
             for handler in logging.getLogger().handlers:
                 handler.flush()
             sys.stdout.flush()
 
-            print('\n'.join(dialog.get_printable()), flush=True)
+            print('\n'.join(session.dialog.get_printable()), flush=True)
             h = input('H: ').strip()
             if h:
-                dialog.add_human_message(h)
-                replies = bot.process_human_message(dialog, profile, facts)
+                session.dialog.add_human_message(h)
+                replies = bot.process_human_message(session)
             else:
                 break
     elif mode == 'service':

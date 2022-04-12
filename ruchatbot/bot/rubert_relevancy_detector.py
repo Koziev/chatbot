@@ -10,6 +10,8 @@
 11.03.2022 Класс RubertRelevancyDetector выделен в отдельный модуль, чтобы унифицировать использование в диалоговом движке
 18.03.2022 Правка в методе get_most_relevant: оказывается, если прогонять батч размером 1, то torch формирует не вектор размерностью 1,
            а тензор-"скаляр"
+24.03.2022 Разделение кода на варианты с внутренним вызовом rubert и с внешним, чтобы сделать в тренере вариант с предварительным
+           прогоном всех сэмплов через rubert.
 """
 
 import torch.utils.data
@@ -18,9 +20,9 @@ import torch.nn as nn
 import torch.utils.data
 
 
-class RubertRelevancyDetector(nn.Module):
+class RubertRelevancyDetector0(nn.Module):
     def __init__(self, device, arch, max_len, sent_emb_size):
-        super(RubertRelevancyDetector, self).__init__()
+        super(RubertRelevancyDetector0, self).__init__()
         self.max_len = max_len
         self.arch = arch
 
@@ -54,10 +56,8 @@ class RubertRelevancyDetector(nn.Module):
         self.load_state_dict(torch.load(weights_path, map_location=self.device))
         return
 
-    def forward(self, x1, x2):
-        with torch.no_grad():
-            b1 = self.bert_model(x1)[0]
-            b2 = self.bert_model(x2)[0]
+    def forward_0(self, b1, b2):
+        """b1 и b2 это результат инференса в rubert"""
 
         if self.arch == 1:
             w1 = b1.sum(dim=-2)
@@ -124,6 +124,21 @@ class RubertRelevancyDetector(nn.Module):
         else:
             return tokens
 
+
+class RubertRelevancyDetector(RubertRelevancyDetector0):
+    """Вариант с внутренним вызовом rubert"""
+    def __init__(self, device, arch, max_len, sent_emb_size):
+        super(RubertRelevancyDetector, self).__init__(device, arch, max_len, sent_emb_size)
+        self.bert_tokenizer = None
+        self.bert_model = None
+
+    def forward(self, x1, x2):
+        with torch.no_grad():
+            b1 = self.bert_model(x1)[0]
+            b2 = self.bert_model(x2)[0]
+
+        return self.forward_0(b1, b2)
+
     def calc_relevancy1(self, premise, query, **kwargs):
         tokens1 = self.pad_tokens(self.bert_tokenizer.encode(premise))
         tokens2 = self.pad_tokens(self.bert_tokenizer.encode(query))
@@ -150,6 +165,58 @@ class RubertRelevancyDetector(nn.Module):
             z2 = torch.tensor(query_tx).to(self.device)
 
             y = self.forward(z1, z2).squeeze()
+            if len(y.shape) == 0:
+                res.append((premises_batch[0][0], y.item()))
+            else:
+                delta = [(premise[0], yi.item()) for (premise, yi) in zip(premises_batch, y)]
+                res.extend(delta)
+
+        res = sorted(res, key=lambda z: -z[1])[:nb_results]
+        return [x[0] for x in res], [x[1] for x in res]
+
+
+class RubertRelevancyDetector_2(RubertRelevancyDetector0):
+    """Вариант с внешним вызовом rubert"""
+    def __init__(self, device, arch, max_len, sent_emb_size):
+        super(RubertRelevancyDetector_2, self).__init__(device, arch, max_len, sent_emb_size)
+
+    def forward(self, b1, b2):
+        return self.forward_0(b1, b2)
+
+    def calc_relevancy1(self, premise, query, **kwargs):
+        tokens1 = self.pad_tokens(self.bert_tokenizer.encode(premise))
+        tokens2 = self.pad_tokens(self.bert_tokenizer.encode(query))
+
+        z1 = torch.unsqueeze(torch.tensor(tokens1), 0).to(self.device)
+        z2 = torch.unsqueeze(torch.tensor(tokens2), 0).to(self.device)
+
+        with torch.no_grad():
+            b1 = self.bert_model(z1)[0]
+            b2 = self.bert_model(z2)[0]
+
+        y = self.forward_0(b1, b2)[0].item()
+        return y
+
+    def get_most_relevant(self, query, premises, text_utils, nb_results=1):
+        query_t1 = self.pad_tokens(self.bert_tokenizer.encode(query))
+
+        res = []
+
+        batch_size = 100
+        while premises:
+            premises_batch = premises[:batch_size]
+            premises = premises[batch_size:]
+            premises_tx = [self.pad_tokens(self.bert_tokenizer.encode(premise)) for premise, _, _ in premises_batch]
+            query_tx = [query_t1 for _ in range(len(premises_batch))]
+
+            z1 = torch.tensor(premises_tx).to(self.device)
+            z2 = torch.tensor(query_tx).to(self.device)
+
+            with torch.no_grad():
+                b1 = self.bert_model(z1)[0]
+                b2 = self.bert_model(z2)[0]
+
+            y = self.forward(b1, b2).squeeze()
             if len(y.shape) == 0:
                 res.append((premises_batch[0][0], y.item()))
             else:

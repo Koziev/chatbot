@@ -103,19 +103,19 @@ class SimpleFactsStorage(BaseFactsStorage):
         elif current_minute > 4 and (current_minute % 10) in [2, 3, 4]:
             current_time += u' минуты '
         else:
-            current_time += u' минут '
+            current_time += ' минут '
 
         memory_phrases.append((current_time, '3', 'current_time'))
 
         # Текущая дата в формате "29 июня"
         cur_day = datetime.datetime.now().day
-        month_gen = {1: u'января', 2: u'февраля', 3: u'марта',
-                     4: u'апреля', 5: u'мая', 6: u'июня', 7: u'июля',
-                     8: u'августа', 9: u'сентября', 10: u'октября', 11: u'ноября', 12: u'декабря'}[cur_month]
+        month_gen = {1: 'января',  2: 'февраля', 3: 'марта',
+                     4: 'апреля',  5: 'мая',     6: 'июня', 7: 'июля',
+                     8: 'августа', 9: 'сентября', 10: 'октября', 11: 'ноября', 12: 'декабря'}[cur_month]
         memory_phrases.append(('сегодня {} {}'.format(cur_day, month_gen), '3', 'current_day_month'))
 
         # Текущий год
-        memory_phrases.append(('сейчас {} год'.format(today.year), '3', 'current_year'))
+        memory_phrases.append(('сейчас идет {} год'.format(today.year), '3', 'current_year'))
 
         # возвращаем список фактов (потом надо переделать на выдачу по мере чтения из файла и
         # генерации через yield).

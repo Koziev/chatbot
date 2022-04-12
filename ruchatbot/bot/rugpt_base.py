@@ -8,15 +8,16 @@ class RugptBase:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = None
         self.model = None
+        self.beam_k = 10
+        self.beam_p = 0.9
 
     def load_from_path(self, model_path):
         self.tokenizer = GPT2Tokenizer.from_pretrained(model_path)
+        self.tokenizer.add_special_tokens({'bos_token': '<s>', 'eos_token': '</s>', 'pad_token': '<pad>'})
         self.model = GPT2LMHeadModel.from_pretrained(model_path)
         self.model.to(self.device)
 
-    def generate_output_from_prompt(self, prompt_text, num_return_sequences, temperature=0.9):
-        beam_k = 10
-        beam_p = 0.9
+    def generate_output_from_prompt(self, prompt_text, num_return_sequences, temperature=1.0):
         repetition_penalty = 1.0
         stop_token = "</s>"
         length = 100
@@ -28,8 +29,8 @@ class RugptBase:
             input_ids=encoded_prompt,
             max_length=length + len(encoded_prompt[0]),
             temperature=temperature,
-            top_k=beam_k,
-            top_p=beam_p,
+            top_k=self.beam_k,
+            top_p=self.beam_p,
             repetition_penalty=repetition_penalty,
             do_sample=True,
             num_return_sequences=num_return_sequences,
