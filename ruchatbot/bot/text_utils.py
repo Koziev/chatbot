@@ -12,6 +12,7 @@ NLP Pipeline чатбота
 01.12.2021 Добавляем UDPipe в пайплайн для реализации детектора гендерной самоидентификации собеседника
            и для задач аугментации.
 05.05.2021 Грузим список имен, чтобы фильтровать результаты генерации читчата
+25.04.2022 Большой рефакторинг и чистка кода в связи с переходом на новую архитектуру
 """
 
 import itertools
@@ -28,30 +29,16 @@ from ufal.udpipe import Model, Pipeline, ProcessingError
 import rutokenizer
 import rupostagger
 import rulemma
-import ruchunker
+#import ruchunker
 #import rusyntax2
 import ruword2tags
 
 from ruchatbot.utils.tokenizer import Tokenizer
 from ruchatbot.bot.language_resources import LanguageResources
-from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarDictionaries
-from ruchatbot.bot.word_embeddings import WordEmbeddings
-from ruchatbot.bot.string_constants import BEG_WORD, END_WORD, PAD_WORD
-from ruchatbot.bot.phrase_token import PhraseToken
-
-
-#class PhraseToken:
-#    def __init__(self):
-#        self.word = None
-#        self.norm_word = None
-#        self.lemma = None
-#        self.word_index = None
-#        self.chunk_index = None
-#        self.tagset = None
-#        self.is_chunk_starter = None
-#
-#    def __repr__(self):
-#        return self.word
+#from ruchatbot.generative_grammar.generative_grammar_engine import GenerativeGrammarDictionaries
+#from ruchatbot.bot.word_embeddings import WordEmbeddings
+#from ruchatbot.bot.string_constants import BEG_WORD, END_WORD, PAD_WORD
+#from ruchatbot.bot.phrase_token import PhraseToken
 
 
 class TextUtils(object):
@@ -62,31 +49,19 @@ class TextUtils(object):
         #self.lexicon = Word2Lemmas()
         self.language_resources = LanguageResources()
         self.postagger = rupostagger.RuPosTagger()
-        self.chunker = ruchunker.Chunker()
+        #self.chunker = ruchunker.Chunker()
         self.word2tags = ruword2tags.RuWord2Tags()
-        self.flexer = ruword2tags.RuFlexer()
-        self.syntan = None
-        self.gg_dictionaries = GenerativeGrammarDictionaries()
+        #self.flexer = ruword2tags.RuFlexer()
+        #self.syntan = None
+        #self.gg_dictionaries = GenerativeGrammarDictionaries()
         #self.known_words = set()
         #self.lemmatizer = Mystem()
-        self.lemmatizer = rulemma.Lemmatizer()
-        self.word_embeddings = None
+        #self.lemmatizer = rulemma.Lemmatizer()
+        #self.word_embeddings = None
         self.names = None
 
-    def load_embeddings(self, w2v_dir, wc2v_dir):
-        # Загрузка векторных словарей
-        self.word_embeddings = WordEmbeddings()
-        self.word_embeddings.load_models(w2v_dir, wc2v_dir)
-
-        if wc2v_dir:
-            p = os.path.join(wc2v_dir, 'wc2v.kv')
-            self.word_embeddings.load_wc2v_model(p)
-
-        p = os.path.join(w2v_dir, 'w2v.kv')
-        self.word_embeddings.load_w2v_model(p)
-
     def load_dictionaries(self, data_folder, models_folder):
-        self.lemmatizer.load()
+        #self.lemmatizer.load()
 
         # Общий словарь для генеративных грамматик
         #self.gg_dictionaries.load(os.path.join(models_folder, 'generative_grammar_dictionaries.bin'))
@@ -99,8 +74,8 @@ class TextUtils(object):
         self.postagger.load()
 
         self.word2tags.load()
-        self.flexer.load()
-        self.chunker.load()
+        #self.flexer.load()
+        #self.chunker.load()
 
         # Грузим dependency parser UDPipe и русскоязычную модель
         model_file = os.path.join(models_folder, 'udpipe_syntagrus.model')
@@ -154,12 +129,12 @@ class TextUtils(object):
         msg = 'Could not choose a word among {}'.format(' '.join(words))
         raise RuntimeError(msg)
 
-    def tag(self, words, with_lemmas=False):
+    def tag(self, words): #, with_lemmas=False):
         """ Частеречная разметка для цепочки слов words """
-        if with_lemmas:
-            return self.lemmatizer.lemmatize(self.postagger.tag(words))
-        else:
-            return self.postagger.tag(words)
+        #if with_lemmas:
+        #    return self.lemmatizer.lemmatize(self.postagger.tag(words))
+        #else:
+        return self.postagger.tag(words)
 
     def canonize_text(self, s):
         """ Удаляем два и более пробелов подряд, заменяя на один """
@@ -180,8 +155,8 @@ class TextUtils(object):
         #return [u''.join(z) for z in itertools.izip(*[s[i:] for i in range(n)])]
         return [''.join(z) for z in zip(*[s[i:] for i in range(n)])]
 
-    def words2str(self, words):
-        return ' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))
+    #def words2str(self, words):
+    #    return ' '.join(itertools.chain([BEG_WORD], filter(lambda z: len(z) > 0, words), [END_WORD]))
 
     def split_clauses(self, s):
         return list(self.clause_splitter.split(s))
@@ -189,27 +164,25 @@ class TextUtils(object):
     def tokenize(self, s):
         return self.tokenizer.tokenize(s)
 
-    def extract_lemma(self, token):
-        return token[0] if token[1] == 'PRON' else token[2]
+    #def extract_lemma(self, token):
+    #    return token[0] if token[1] == 'PRON' else token[2]
 
-    def lemmatize(self, s):
-        words = self.tokenizer.tokenize(s)
-        #wx = u' '.join(words)
-        #return [l for l in self.lemmatizer.lemmatize(wx) if len(l.strip()) > 0]
-        tokens = self.lemmatizer.lemmatize(self.postagger.tag(words))
-        return [self.extract_lemma(t) for t in tokens]
+    #def lemmatize(self, s):
+    #    words = self.tokenizer.tokenize(s)
+    #    tokens = self.lemmatizer.lemmatize(self.postagger.tag(words))
+    #    return [self.extract_lemma(t) for t in tokens]
 
-    def lemmatize2(self, s):
-        words = self.tokenizer.tokenize(s)
-        return self.lemmatizer.lemmatize(self.postagger.tag(words))
+    #def lemmatize2(self, s):
+    #    words = self.tokenizer.tokenize(s)
+    #    return self.lemmatizer.lemmatize(self.postagger.tag(words))
 
-    def lpad_wordseq(self, words, n):
-        """ Слева добавляем пустые слова """
-        return list(itertools.chain(itertools.repeat(PAD_WORD, n - len(words)), words))
+    #def lpad_wordseq(self, words, n):
+    #    """ Слева добавляем пустые слова """
+    #    return list(itertools.chain(itertools.repeat(PAD_WORD, n - len(words)), words))
 
-    def rpad_wordseq(self, words, n):
-        """ Справа добавляем пустые слова """
-        return list(itertools.chain(words, itertools.repeat(PAD_WORD, n - len(words))))
+    #def rpad_wordseq(self, words, n):
+    #    """ Справа добавляем пустые слова """
+    #    return list(itertools.chain(words, itertools.repeat(PAD_WORD, n - len(words))))
 
     #def get_lexicon(self):
     #    return self.lexicon
@@ -233,32 +206,32 @@ class TextUtils(object):
 
         return -1
 
-    def extract_chunks(self, sample):
-        tokens = self.tokenizer.tokenize(sample)
-        tagsets = list(self.postagger.tag(tokens))
-        lemmas = self.lemmatizer.lemmatize(tagsets)
-        #edges = syntan.parse(tokens, tagsets)
+    # def extract_chunks(self, sample):
+    #     tokens = self.tokenizer.tokenize(sample)
+    #     tagsets = list(self.postagger.tag(tokens))
+    #     lemmas = self.lemmatizer.lemmatize(tagsets)
+    #     #edges = syntan.parse(tokens, tagsets)
+    #
+    #     phrase_tokens = []
+    #     for word_index, (token, tagset, lemma) in enumerate(zip(tokens, tagsets, lemmas)):
+    #         t = PhraseToken()
+    #         t.word = token
+    #         t.norm_word = token.lower()
+    #         t.lemma = lemma[2]
+    #         t.tagset = tagset[1]
+    #         t.word_index = word_index
+    #         phrase_tokens.append(t)
+    #
+    #     chunks = self.chunker.parse(tokens)
+    #     for chunk_index, chunk in enumerate(chunks):
+    #         phrase_tokens[chunk.tokens[0].index].is_chunk_starter = True
+    #         for token in chunk.tokens:
+    #             phrase_tokens[token.index].chunk_index = chunk_index
+    #
+    #     return chunks
 
-        phrase_tokens = []
-        for word_index, (token, tagset, lemma) in enumerate(zip(tokens, tagsets, lemmas)):
-            t = PhraseToken()
-            t.word = token
-            t.norm_word = token.lower()
-            t.lemma = lemma[2]
-            t.tagset = tagset[1]
-            t.word_index = word_index
-            phrase_tokens.append(t)
-
-        chunks = self.chunker.parse(tokens)
-        for chunk_index, chunk in enumerate(chunks):
-            phrase_tokens[chunk.tokens[0].index].is_chunk_starter = True
-            for token in chunk.tokens:
-                phrase_tokens[token.index].chunk_index = chunk_index
-
-        return chunks
-
-    def word_similarity(self, word1, word2):
-        return self.word_embeddings.word_similarity(word1, word2) if self.word_embeddings is not None else 0.0
+    #def word_similarity(self, word1, word2):
+    #    return self.word_embeddings.word_similarity(word1, word2) if self.word_embeddings is not None else 0.0
 
     def parse_syntax(self, text_str):
         processed = self.udpipe_pipeline.process(text_str, self.udpipe_error)
@@ -276,55 +249,55 @@ class TextUtils(object):
 
         return ''
 
-    def change_verb_gender(self, verb_inf, new_gender):
-        """ Изменение формы глагола в прошедшем времени единственном числе """
-        required_tags = [('ВРЕМЯ', 'ПРОШЕДШЕЕ'), ('ЧИСЛО', 'ЕД')]
-        if new_gender == 'Fem':
-            required_tags.append(('РОД', 'ЖЕН'))
-        else:
-            required_tags.append(('РОД', 'МУЖ'))
+    # def change_verb_gender(self, verb_inf, new_gender):
+    #     """ Изменение формы глагола в прошедшем времени единственном числе """
+    #     required_tags = [('ВРЕМЯ', 'ПРОШЕДШЕЕ'), ('ЧИСЛО', 'ЕД')]
+    #     if new_gender == 'Fem':
+    #         required_tags.append(('РОД', 'ЖЕН'))
+    #     else:
+    #         required_tags.append(('РОД', 'МУЖ'))
+    #
+    #     forms = list(self.flexer.find_forms_by_tags(verb_inf, required_tags))
+    #     if forms:
+    #         return forms[0]
+    #     else:
+    #         return None
 
-        forms = list(self.flexer.find_forms_by_tags(verb_inf, required_tags))
-        if forms:
-            return forms[0]
-        else:
-            return None
+    # def change_adj_gender(self, adj_lemma, new_gender, variant):
+    #     if adj_lemma == 'должен':
+    #         if new_gender == 'Fem':
+    #             return 'должна'
+    #         else:
+    #             return 'должен'
+    #
+    #     required_tags = [('ЧИСЛО', 'ЕД')]
+    #     if variant == 'Short':
+    #         required_tags.append(('КРАТКИЙ', '1'))
+    #     else:
+    #         required_tags.append(('КРАТКИЙ', '0'))
+    #         required_tags.append(('ПАДЕЖ', 'ИМ'))
+    #
+    #     if new_gender == 'Fem':
+    #         required_tags.append(('РОД', 'ЖЕН'))
+    #     else:
+    #         required_tags.append(('РОД', 'МУЖ'))
+    #
+    #     forms = list(self.flexer.find_forms_by_tags(adj_lemma, required_tags))
+    #     if forms:
+    #         return forms[0]
+    #     else:
+    #         return None
 
-    def change_adj_gender(self, adj_lemma, new_gender, variant):
-        if adj_lemma == 'должен':
-            if new_gender == 'Fem':
-                return 'должна'
-            else:
-                return 'должен'
-
-        required_tags = [('ЧИСЛО', 'ЕД')]
-        if variant == 'Short':
-            required_tags.append(('КРАТКИЙ', '1'))
-        else:
-            required_tags.append(('КРАТКИЙ', '0'))
-            required_tags.append(('ПАДЕЖ', 'ИМ'))
-
-        if new_gender == 'Fem':
-            required_tags.append(('РОД', 'ЖЕН'))
-        else:
-            required_tags.append(('РОД', 'МУЖ'))
-
-        forms = list(self.flexer.find_forms_by_tags(adj_lemma, required_tags))
-        if forms:
-            return forms[0]
-        else:
-            return None
-
-    def is_premise_suitable_as_answer(self, premise_text):
-        # Можно ли текст предпосылки использовать в качестве ответа
-        tx = self.tokenize(premise_text)
-        if len(tx) > 5:
-            return False
-
-        if ',' in tx or 'и' in tx or 'или' in tx:
-            return False
-
-        return True
+    # def is_premise_suitable_as_answer(self, premise_text):
+    #     # Можно ли текст предпосылки использовать в качестве ответа
+    #     tx = self.tokenize(premise_text)
+    #     if len(tx) > 5:
+    #         return False
+    #
+    #     if ',' in tx or 'и' in tx or 'или' in tx:
+    #         return False
+    #
+    #     return True
 
     def contains_name(self, text_str) -> bool:
         parsed_data = self.parse_syntax(text_str)

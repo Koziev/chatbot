@@ -2,6 +2,11 @@
 	"premises": "$DATA/profile_facts_1.dat",
 	"faq": "$DATA/faq2.txt",
 	"rules": "$DATA/profile_rules_1.yaml",
+
+	"p_dodge1": 0.0,
+	"p_dodge2": 0.5,
+	"p_confab": 0.5,
+
 	
 	"smalltalk_enabled": true,
 	"generative_smalltalk_enabled": false,

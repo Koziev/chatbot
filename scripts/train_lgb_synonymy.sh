@@ -1,1 +1,0 @@
-python ../PyModels/lgb_relevancy.py --run_mode train --task synonymy --shingle_len 3 --num_leaves 40 --min_data_in_leaf 15 --eta 0.20 --subsample 1.0 --lemmatize 1 --input ../data/synonymy_dataset.csv --tmp ../tmp
