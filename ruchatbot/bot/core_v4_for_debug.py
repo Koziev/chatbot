@@ -401,7 +401,7 @@ class BotCore:
         interpreter_contexts = dialog.constuct_interpreter_contexts()
         for interpreter_context in interpreter_contexts:
             interpretations = self.generative_model.generate_interpretations([z.strip() for z in interpreter_context.split('|')], num_return_sequences=2)
-            self.logger.debug('Interpretation@395: context=〚%s〛 outputs="%s"', interpreter_context, format_outputs(interpretations))
+            self.logger.debug('Interpretation@404: context=〚%s〛 outputs=〚%s〛', interpreter_context, format_outputs(interpretations))
 
             # Оцениваем "разумность" получившихся интерпретаций, чтобы отсеять заведомо поломанные результаты
             for interpretation in interpretations:
@@ -902,7 +902,7 @@ def format_confabulations_list(confabulations):
 def format_outputs(outputs):
     sx = []
     for i, s in enumerate(outputs, start=1):
-        sx.append('〚{}〛«{}»'.format(i, s))
+        sx.append(' | '.format(i, s))
     return ' '.join(sx)
 
 
