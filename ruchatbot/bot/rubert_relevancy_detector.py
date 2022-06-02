@@ -54,6 +54,7 @@ class RubertRelevancyDetector0(nn.Module):
 
     def load_weights(self, weights_path):
         self.load_state_dict(torch.load(weights_path, map_location=self.device))
+        self.eval()
         return
 
     def forward_0(self, b1, b2):
