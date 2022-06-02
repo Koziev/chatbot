@@ -16,6 +16,7 @@ class RugptBase:
         self.tokenizer.add_special_tokens({'bos_token': '<s>', 'eos_token': '</s>', 'pad_token': '<pad>'})
         self.model = GPT2LMHeadModel.from_pretrained(model_path)
         self.model.to(self.device)
+        self.model.eval()
 
     def generate_output_from_prompt(self, prompt_text, num_return_sequences, temperature=1.0):
         repetition_penalty = 1.0
