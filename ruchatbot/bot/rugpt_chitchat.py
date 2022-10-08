@@ -4,6 +4,7 @@
 """
 
 import logging.handlers
+import math
 
 import torch
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
@@ -15,10 +16,10 @@ class RugptChitChat:
         self.tokenizer = None
         self.model = None
         self.logger = logging.getLogger('RugptChitChat')
-        self.temperature = 0.9
-        self.beam_k = 10
-        self.beam_p = 0.9
-        self.repetition_penalty = 1.0
+        self.temperature = 1.0
+        self.top_k = 30
+        self.top_p = 0.9
+        self.repetition_penalty = 1.2
 
     def load(self, model_name_or_path):
         self.tokenizer = GPT2Tokenizer.from_pretrained(model_name_or_path)
@@ -26,15 +27,13 @@ class RugptChitChat:
         self.model.to(self.device)
         self.model.eval()
 
-    def generate_output(self, context, num_return_sequences=10):
-        self.logger.debug('Generating chit-chat response with context=%s', context.replace('\n', ' | '))
+    def generate_chitchat(self, context_replies, num_return_sequences):
+        return self.generate_output(context_replies, num_return_sequences)
 
-        nspaces = context.count(' ')
-        if nspaces == 0:
-            # По однословным контекстам не будем генерировать отклик.
-            return []
+    def generate_output(self, lines, num_return_sequences=10):
+        self.logger.debug('Generating chit-chat response with context=%s', ' | '.join(lines))
 
-        prompt_text = context + '\n'
+        prompt_text = '\n'.join(('- '+line) for line in lines) + '\n-'
         stop_token = "</s>"
         length = 80
 
@@ -45,8 +44,8 @@ class RugptChitChat:
             input_ids=encoded_prompt,
             max_length=length + len(encoded_prompt[0]),
             temperature=self.temperature,
-            top_k=self.beam_k,
-            top_p=self.beam_p,
+            top_k=self.top_k,
+            top_p=self.top_p,
             repetition_penalty=self.repetition_penalty,
             do_sample=True,
             num_return_sequences=num_return_sequences,
@@ -59,17 +58,12 @@ class RugptChitChat:
 
         generated_sequences = set()
         for generated_sequence_idx, generated_sequence in enumerate(output_sequences):
-            #print("ruGPT2Large:".format(generated_sequence_idx + 1))
             generated_sequence = generated_sequence.tolist()
 
-            # Decode text
             text = self.tokenizer.decode(generated_sequence, clean_up_tokenization_spaces=True)
-
-            # Remove all text after the stop token
             if stop_token in text:
                 text = text[: text.find(stop_token)]
 
-            # Add the prompt at the beginning of the sequence. Remove the excess text that was used for pre-processing
             total_sequence = text[len(self.tokenizer.decode(encoded_prompt[0], clean_up_tokenization_spaces=True)):]
             if total_sequence.startswith('- '):
                 total_sequence = total_sequence[1:]
@@ -83,13 +77,28 @@ class RugptChitChat:
         self.logger.debug('Chit-chat generated %d responses: %s', len(generated_sequences), '; '.join(generated_sequences))
         return list(generated_sequences)
 
+    def score_dialogues(self, dialogues):
+        # из-за разной длины текстов придется выполнять вычисления по 1 тексту за раз :(
+        scores = []
+        for dialog in dialogues:
+            encoded_text = self.tokenizer.encode('<s>' + '\n'.join(dialog))
+            t = torch.tensor(encoded_text, dtype=torch.long, device=self.device).unsqueeze(0)
+            with torch.no_grad():
+                loss = self.model(t, labels=t)
+            #perplexity = math.exp(loss[0].item())
+            score = loss[0].item()
+            scores.append(math.exp(-score))
+
+        return scores
+
 
 if __name__ == '__main__':
     logging.basicConfig()
     logging.getLogger().setLevel(logging.ERROR)
 
     chitchat = RugptChitChat()
-    chitchat.load('/home/inkoziev/polygon/chatbot/tmp/rugpt_chitchat')
+    #chitchat.load('/home/inkoziev/polygon/chatbot/tmp/rugpt_chitchat.1')
+    chitchat.load('/home/inkoziev/polygon/chatbot/tmp/rugpt_npqa')
 
     context = []
     while True:
@@ -98,7 +107,6 @@ if __name__ == '__main__':
             context.append(q)
         else:
             if context:
-                context = '\n'.join(context)
                 px = chitchat.generate_output(context)
                 for p in px:
                     print('{}'.format(p))
