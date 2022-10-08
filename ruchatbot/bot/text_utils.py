@@ -28,7 +28,7 @@ from ufal.udpipe import Model, Pipeline, ProcessingError
 
 import rutokenizer
 import rupostagger
-import rulemma
+#import rulemma
 #import ruchunker
 #import rusyntax2
 import ruword2tags
@@ -188,7 +188,7 @@ class TextUtils(object):
     #    return self.lexicon
 
     def is_question_word(self, word):
-        return word in u'насколько где кто что почему откуда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда какой какая какое какие какого какую каких каким какими какому какой каков какова каковы'.split()
+        return word in 'насколько где кто что почему откуда куда зачем чего кого кем чем кому чему ком чем как сколько ли когда докуда какой какая какое какие какого какую каких каким какими какому какой каков какова каковы'.split()
 
     def build_output_phrase(self, words):
         s = u' '.join(words)

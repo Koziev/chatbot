@@ -8,7 +8,7 @@ class RugptBase:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = None
         self.model = None
-        self.beam_k = 10
+        self.beam_k = 20
         self.beam_p = 0.9
 
     def load_from_path(self, model_path):
@@ -19,7 +19,7 @@ class RugptBase:
         self.model.eval()
 
     def generate_output_from_prompt(self, prompt_text, num_return_sequences, temperature=1.0):
-        repetition_penalty = 1.0
+        repetition_penalty = 1.2
         stop_token = "</s>"
         length = 100
 
@@ -53,7 +53,7 @@ class RugptBase:
             if stop_token in text:
                 text = text[: text.find(stop_token)]
 
-            total_sequence = text[len(prompt_text):].strip()  # отрезаем промт
+            total_sequence = text[len(prompt_text):].replace('<pad>', '').strip()
             if total_sequence:
                 generated_sequences.add(total_sequence)
 

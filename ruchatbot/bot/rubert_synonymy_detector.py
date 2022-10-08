@@ -13,7 +13,7 @@ import torch.utils.data
 
 
 class RubertSynonymyDetector(nn.Module):
-    def __init__(self, device, arch, max_len, sent_emb_size):
+    def __init__(self, device, arch, max_len, sent_emb_size, **kwargs):
         super(RubertSynonymyDetector, self).__init__()
         self.max_len = max_len
         self.arch = arch

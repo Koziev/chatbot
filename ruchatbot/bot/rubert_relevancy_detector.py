@@ -150,7 +150,7 @@ class RubertRelevancyDetector(RubertRelevancyDetector0):
         y = self.forward(z1, z2)[0].item()
         return y
 
-    def get_most_relevant(self, query, premises, text_utils, nb_results=1):
+    def get_most_relevant(self, query, premises, nb_results=1):
         query_t1 = self.pad_tokens(self.bert_tokenizer.encode(query))
 
         res = []
