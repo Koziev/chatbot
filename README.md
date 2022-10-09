@@ -68,13 +68,11 @@ docker run -it chatbot bash -c "/chatbot/scripts/tg_bot.sh"
 
 В состав [пайплайна](https://github.com/Koziev/chatbot/blob/core_v4/ruchatbot/bot/core_v4_for_debug.py) входят модели:
 
-1) **интерпретатор** на базе ruGPT для восстановления полного текста реплки в контексте диалога, подробнее об этом [тут](https://github.com/Koziev/chatbot/blob/core_v4/docs/%D0%92%D0%BE%D1%81%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%BF%D0%BE%D0%BB%D0%BD%D1%8B%D1%85%20%D1%80%D0%B5%D0%BF%D0%BB%D0%B8%D0%BA%20%D0%B2%20%D0%B4%D0%B8%D0%B0%D0%BB%D0%BE%D0%B3%D0%B5.pdf).
+1) **интерпретатор** на базе ruGPT для восстановления полного текста реплики в контексте диалога - см. [карточка модели на huggingface](https://huggingface.co/inkoziev/rugpt_interpreter).
 
-2) **retriever** на базе ruBert с доп. слоями для подбора релевантных фактов в базе знаний.
+2) **retriever** на базе ruBert с доп. слоями для подбора релевантных фактов в базе знаний и переписывания истории диалога.
 
-3) **генеративная модель** на базе ruGPT для формирования текста ответа по найденному в базе знаний факту и заданному вопросу. См. близкий подход в [GODEL](https://github.com/microsoft/GODEL).
+3) **chitchat & reasoner** на базе ruGPT для формирования текста ответа по найденному в базе знаний факту и заданному вопросу - см. [карточка модели на huggingface](https://huggingface.co/inkoziev/rugpt_chitchat).
 
 4) **детектор перефразировок** на базе ruBert для определения синонимичности двух предложений.
-
-5) **генеративный читчат** для генерации ответов в случае, если в базе знаний нет нужного факта.
 
