@@ -1,6 +1,8 @@
 """
 Модель для генерации реплик в чит-чате
 Часть пайплайна чатбота https://github.com/Koziev/chatbot
+
+08.10.2022 Вычисление перплексии модели на диалогах переделано на прогон батчем.
 """
 
 import logging.handlers
@@ -8,6 +10,12 @@ import math
 
 import torch
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from torch.nn import CrossEntropyLoss
+
+
+def pad_tokens(tokens, max_len):
+    l = len(tokens)
+    return tokens + [0] * (max_len - l)
 
 
 class RugptChitChat:
@@ -31,7 +39,7 @@ class RugptChitChat:
         return self.generate_output(context_replies, num_return_sequences)
 
     def generate_output(self, lines, num_return_sequences=10):
-        self.logger.debug('Generating chit-chat response with context=%s', ' | '.join(lines))
+        self.logger.debug('Generating chit-chat response with context=〚%s〛', ' | '.join(lines))
 
         prompt_text = '\n'.join(('- '+line) for line in lines) + '\n-'
         stop_token = "</s>"
@@ -78,16 +86,29 @@ class RugptChitChat:
         return list(generated_sequences)
 
     def score_dialogues(self, dialogues):
-        # из-за разной длины текстов придется выполнять вычисления по 1 тексту за раз :(
+        """ Вычисляем перплексию множества диалогов одним батчем """
         scores = []
-        for dialog in dialogues:
-            encoded_text = self.tokenizer.encode('<s>' + '\n'.join(dialog))
-            t = torch.tensor(encoded_text, dtype=torch.long, device=self.device).unsqueeze(0)
-            with torch.no_grad():
-                loss = self.model(t, labels=t)
-            #perplexity = math.exp(loss[0].item())
-            score = loss[0].item()
-            scores.append(math.exp(-score))
+
+        encoded_texts = [self.tokenizer.encode('<s>' + '\n'.join(dialog) + '</s>') for dialog in dialogues]
+        max_len = max(map(len, encoded_texts))
+        padded_texts = [pad_tokens(tokens, max_len) for tokens in encoded_texts]
+        input_ids = torch.tensor(padded_texts, dtype=torch.long, device=self.device)
+
+        target_ids = input_ids.clone()
+        for row, tokens in enumerate(encoded_texts):
+            target_ids[row, len(tokens):] = -100   # хвосты из <pad>-ов не учитываем при расчете лоссов
+
+        with torch.no_grad():
+            o = self.model(input_ids)
+            for irow in range(len(dialogues)):
+                # Shift so that tokens < n predict n
+                shift_logits = o.logits[irow, :-1, :].contiguous()
+                shift_labels = target_ids[irow, 1:].contiguous()
+                # Flatten the tokens
+                loss_fct = CrossEntropyLoss()
+                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                score = math.exp(-loss)
+                scores.append(math.exp(-score))
 
         return scores
 
