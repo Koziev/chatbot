@@ -431,7 +431,7 @@ class BotCore:
         return self.base_interpreter.flip_person(utterance_text, self.text_utils)
 
     def process_human_message(self, session):
-        # Начинаем обработку реплики собеседника
+        """ Process the message from interlocutor in context of session dialogue """
         dialog = session.dialog
         profile = session.bot_profile
         facts = session.facts
