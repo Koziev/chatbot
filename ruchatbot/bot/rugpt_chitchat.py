@@ -7,6 +7,7 @@
 
 import logging.handlers
 import math
+import os.path
 
 import torch
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
@@ -38,10 +39,63 @@ class RugptChitChat:
     def generate_chitchat(self, context_replies, num_return_sequences):
         return self.generate_output(context_replies, num_return_sequences)
 
+    def prepare_prompt(self, lines):
+        prompt_text = '\n'.join(('- '+line) for line in lines) + '\n-'
+        return prompt_text
+
+    def generate_chitchat_batch(self, contexts, num_return_sequences):
+        prompts = [self.prepare_prompt(lines) for lines in contexts]
+        stop_token = "</s>"
+        length = 60
+
+        self.tokenizer.padding_side = 'left'  # вернуть потом назад?
+        encoded_prompts = self.tokenizer(prompts, add_special_tokens=False, return_tensors="pt", padding='longest')
+        encoded_prompts = encoded_prompts.to(self.device)
+
+        output_sequences = self.model.generate(
+            input_ids=encoded_prompts.input_ids,
+            attention_mask=encoded_prompts.attention_mask,
+            max_length=length + len(encoded_prompts.input_ids[0]),
+            temperature=self.temperature,
+            top_k=self.top_k,
+            top_p=self.top_p,
+            repetition_penalty=self.repetition_penalty,
+            do_sample=True,
+            num_return_sequences=num_return_sequences,
+            pad_token_id=0
+        )
+
+        # Remove the batch dimension when returning multiple sequences
+        if len(output_sequences.shape) > 2:
+            output_sequences.squeeze_()
+
+        generated_sequences = []
+        for generated_sequence_idx, generated_sequence in enumerate(output_sequences):
+            generated_sequence = generated_sequence.tolist()
+
+            text = self.tokenizer.decode(generated_sequence, clean_up_tokenization_spaces=True)
+            if stop_token in text:
+                text = text[: text.find(stop_token)]
+
+            iprompt = generated_sequence_idx // num_return_sequences
+            total_sequence = text[len(self.tokenizer.decode(encoded_prompts.input_ids[iprompt], clean_up_tokenization_spaces=True)):]
+            if total_sequence.startswith('- '):
+                total_sequence = total_sequence[1:]
+
+            if '\n' in total_sequence:
+                total_sequence = total_sequence[:total_sequence.index('\n')]
+
+            total_sequence = total_sequence.strip()
+            generated_sequences.append(total_sequence)
+
+        self.logger.debug('Chit-chat generated %d responses in batch: %s', len(generated_sequences), '; '.join(generated_sequences))
+        return list(generated_sequences)
+
     def generate_output(self, lines, num_return_sequences=10):
         self.logger.debug('Generating chit-chat response with context=〚%s〛', ' | '.join(lines))
 
-        prompt_text = '\n'.join(('- '+line) for line in lines) + '\n-'
+        prompt_text = self.prepare_prompt(lines)
+
         stop_token = "</s>"
         length = 80
 
@@ -114,12 +168,12 @@ class RugptChitChat:
 
 
 if __name__ == '__main__':
+    # Интерактивная проверка модели читчата в консоли, в автономном режиме.
     logging.basicConfig()
     logging.getLogger().setLevel(logging.ERROR)
 
     chitchat = RugptChitChat()
-    #chitchat.load('/home/inkoziev/polygon/chatbot/tmp/rugpt_chitchat.1')
-    chitchat.load('/home/inkoziev/polygon/chatbot/tmp/rugpt_npqa')
+    chitchat.load(os.path.expanduser('~/polygon/chatbot/tmp/rugpt_npqa'))
 
     context = []
     while True:
