@@ -2,7 +2,7 @@
 """
 29.06.2020 Добавлены динамические факты "current_day_month" со строкой типа "сегодня 29 июня" и
            "current_year" со строкой типа "сейчас 2020 год"
-03.03.2022 Добавлены динамическме факты "сейчас утро|день|вечер|ночь"
+03.03.2022 Добавлены динамические факты "сейчас утро|день|вечер|ночь"
 """
 
 
@@ -15,24 +15,15 @@ import itertools
 class SimpleFactsStorage(BaseFactsStorage):
     """
     Базовый класс хранилища фактов с добавленной функциональностью:
-    1) метод enumerate_smalltalk_replicas возвращает пустой список, а не
-       бросает исключение.
-    2) факты о текущем времени и дне недели добавляются в список, возвращаемый
+    1) факты о текущем времени и дне недели добавляются в список, возвращаемый
        методом enumerate_facts.
     """
 
-    def __init__(self, text_utils):
-        """
-        :param text_utils: экземпляр класса TextUtils
-        """
+    def __init__(self):
         super(SimpleFactsStorage, self).__init__()
-        self.text_utils = text_utils
 
     def reset_added_facts(self):
         pass
-
-    def enumerate_smalltalk_replicas(self):
-        return []
 
     def enumerate_facts(self, interlocutor):
         memory_phrases = []

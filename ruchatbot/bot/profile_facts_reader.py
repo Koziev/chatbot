@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Реализация хранилища фактов (Базы Знаний) в обычном текстовом файле, без персистентности новых фактов.
 
@@ -30,17 +29,18 @@ class ProfileFactsReader(SimpleFactsStorage):
     таким образом персистентность не реализована.
     """
 
-    def __init__(self, text_utils, profile_path, constants):
+    def __init__(self, text_utils, profile_path, constants, facts_db):
         """
         :param text_utils: экземпляр класса TextUtils
         :param profile_path: путь к основному текстовому файлу с фактами
         """
-        super(ProfileFactsReader, self).__init__(text_utils)
+        super(ProfileFactsReader, self).__init__()
         self.text_utils = text_utils
         self.profile_path = profile_path
         self.profile_facts = None
         self.constants = constants
-        self.new_facts = collections.defaultdict(list)  # списки новых фактов в привязке к id собеса
+        #self.new_facts = collections.defaultdict(list)  # списки новых фактов в привязке к id собеса
+        self.facts_db = facts_db
         self.logger = logging.getLogger('ProfileFactsReader')
 
     def load_profile(self):
@@ -86,11 +86,12 @@ class ProfileFactsReader(SimpleFactsStorage):
                                 self.profile_facts.append((canonized_line, current_section, self.profile_path))
             self.logger.debug('%d facts loaded from "%s"', len(self.profile_facts), self.profile_path)
 
-    def reset_added_facts(self):
-        self.new_facts = collections.defaultdict(list)
+    def reset_added_facts(self, interlocutor):
+        #self.new_facts = collections.defaultdict(list)
+        self.facts_db.reset_facts(interlocutor)
 
     def reset_all_facts(self):
-        self.reset_added_facts()
+        #self.reset_added_facts()
         self.profile_facts = None
 
     def enumerate_facts(self, interlocutor):
@@ -100,39 +101,29 @@ class ProfileFactsReader(SimpleFactsStorage):
         # родительский класс добавит факты о текущем времени и т.д.
         parent_facts = list(super(ProfileFactsReader, self).enumerate_facts(interlocutor))
 
-        for f in itertools.chain(self.new_facts[interlocutor], self.profile_facts, parent_facts):
+        # Новые факты, собранные в ходе диалогов с данным собеседником.
+        new_facts = self.facts_db.load_facts(interlocutor)
+        new_facts2 = [(fact_text, '<<<UNK@107>>>', fact_tag) for fact_text, fact_tag in new_facts]
+        for f in itertools.chain(new_facts2, self.profile_facts, parent_facts):
             yield f
 
-    def store_new_fact(self, interlocutor, fact, unique):
-        if fact[0].count(' ') == 0:
-            self.logger.error('1-word facts are not valid!: interlocutor=%s fact=%s', interlocutor, fact[0])
+    def store_new_fact(self, interlocutor, fact_text, fact_tag, unique):
+        if fact_text.count(' ') == 0:
+            self.logger.error('1-word facts are not valid!: interlocutor=%s fact_text=%s fact_tag', interlocutor, fact_text, fact_tag)
             return
 
         # Новые факты, добавляемые собеседником в ходе диалога, сохраняем только в оперативке,
         # в других реализациях хранилища будет персистентность.
-        interlocutor_facts = self.new_facts[interlocutor]
         if unique:
-            # Ищем факт с именем fact[2], если найден - заменяем, а не вносим новый.
-            found = False
-            for i, fact0 in enumerate(interlocutor_facts):
-                if fact0[2] == fact[2]:
-                    interlocutor_facts[i] = fact
-                    found = True
-                    break
-
-            if not found:
-                interlocutor_facts.append(fact)
+            assert(len(fact_tag) != 0)
+            self.facts_db.update_tagged_fact(interlocutor, fact_text, fact_tag)
         else:
-            interlocutor_facts.append(fact)
+            self.facts_db.store_fact(interlocutor, fact_text, fact_tag)
 
     def get_added_facts(self, interlocutor):
-        return self.new_facts[interlocutor]
+        return self.facts_db.load_facts(interlocutor)
 
     def find_tagged_fact(self, interlocutor, fact_tag):
         """Среди новых фактов ищем имеющий указанный тэг"""
-        for fact, section, tag in self.new_facts[interlocutor]:
-            if tag == fact_tag:
-                return fact
-
-        return None
+        return self.facts_db.find_tagged_fact(interlocutor, fact_tag)
 

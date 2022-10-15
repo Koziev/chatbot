@@ -10,6 +10,8 @@
 12.09.2022 Возвращаем разделение на модели интерпретации, читчата и конфабуляции
 05.10.2022 Эксперимент с отдельной моделью детектирования достаточности контекста для ответа на вопрос (ClosureDetector)
 07.10.2022 Переход на пакетную генерацию реплик GPT-моделью
+14.10.2022 Закончен переход на пакетную генерацию ответов читчата
+15.10.2022 Реализация персистентности фактов в SQLite (класс FactsDatabase)
 """
 
 import sys
@@ -50,10 +52,10 @@ from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
 from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
 from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
 from ruchatbot.bot.rugpt_chitchat import RugptChitChat
-#from ruchatbot.bot.rubert_pnq_relevancy_detector import RubertRelevancyDetector
 from ruchatbot.bot.rubert_relevancy_detector import RubertRelevancyDetector
 from ruchatbot.bot.closure_detector_2 import RubertClosureDetector
 from ruchatbot.bot.ruwordnet_relevancy_scorer import RelevancyScorer
+from ruchatbot.bot.facts_database import FactsDatabase
 
 
 class Utterance:
@@ -79,6 +81,8 @@ class Utterance:
 
 
 class DialogHistory(object):
+    """История диалога с одним конкретным собеседником"""
+
     def __init__(self, user_id):
         self.user_id = user_id
         self.messages = []
@@ -88,10 +92,16 @@ class DialogHistory(object):
         return self.user_id
 
     def enqueue_replies(self, replies):
-        """Добавляем в очередь реплики для выдачи собеседнику."""
+        """Добавляем в очередь сгенерированные реплики для выдачи собеседнику."""
         self.replies_queue.extend(replies)
 
     def pop_reply(self):
+        """
+        Внешний код с помощью этого метода извлекает из очереди сгенерированных реплик
+        очередную реплику для показа ее собеседнику.
+
+        Если в очереди нет реплик, то вернем пустую строку.
+        """
         if len(self.replies_queue) == 0:
             return ''
         else:
@@ -207,7 +217,6 @@ class DialogHistory(object):
 
         return steps[-max_depth:]
 
-
     def set_last_message_interpretation(self, interpretation_text):
         self.messages[-1].set_interpretation(interpretation_text)
 
@@ -216,13 +225,14 @@ class DialogHistory(object):
 
 
 class ConversationSession(object):
-    def __init__(self, interlocutor_id, bot_profile, text_utils):
+    def __init__(self, interlocutor_id, bot_profile, text_utils, facts_db):
         self.interlocutor_id = interlocutor_id
         self.bot_profile = bot_profile
         self.dialog = DialogHistory(interlocutor_id)
         self.facts = ProfileFactsReader(text_utils=text_utils,
                                         profile_path=bot_profile.premises_path,
-                                        constants=bot_profile.constants)
+                                        constants=bot_profile.constants,
+                                        facts_db=facts_db)
     def pop_reply(self):
         return self.dialog.pop_reply()
 
@@ -231,10 +241,11 @@ class ConversationSession(object):
 
 
 class SessionFactory(object):
-    def __init__(self, bot_profile, text_utils):
+    def __init__(self, bot_profile, text_utils, facts_db):
         self.bot_profile = bot_profile
         self.text_utils = text_utils
         self.interlocutor2session = dict()
+        self.facts_db = facts_db
 
     def get_session(self, interlocutor_id):
         if interlocutor_id not in self.interlocutor2session:
@@ -243,7 +254,7 @@ class SessionFactory(object):
             return self.interlocutor2session[interlocutor_id]
 
     def start_conversation(self, interlocutor_id):
-        session = ConversationSession(interlocutor_id, self.bot_profile, self.text_utils)
+        session = ConversationSession(interlocutor_id, self.bot_profile, self.text_utils, self.facts_db)
         self.interlocutor2session[interlocutor_id] = session
         return session
 
@@ -399,7 +410,7 @@ class BotCore:
     def store_new_fact(self, fact_text, label, dialog, profile, facts):
         # TODO - проверка на непротиворечивость и неповторение
         self.logger.debug('Storing new fact 〚%s〛 in bot="%s" database', fact_text, profile.get_id())
-        facts.store_new_fact(dialog.get_interlocutor(), (fact_text, 'unknown', label), True)
+        facts.store_new_fact(dialog.get_interlocutor(), fact_text, label, True)
 
     def start_greeting_scenario(self, session):
         dialog = session.dialog
@@ -497,7 +508,7 @@ class BotCore:
             if rel_p0q > self.pqa_rel_threshold:
                 p0qa_responses = self.generate_p0qa_reply(dialog=dialog, prev_utterance_interpretation=interpretation, reply_text=interpretation, rel_p0q=rel_p0q * p_interp)
                 responses.extend(p0qa_responses)
-                all_answered_texts.add(text0)
+                all_answered_texts.add(interpretation)
 
             # Интерпретация может содержать 2 предложения, типа "Я люблю фильмы. Ты любишь фильмы?"
             # Каждую клаузу пытаемся обработать отдельно.
@@ -808,12 +819,12 @@ class BotCore:
         for assertion_text in input_assertions:
             # Запоминаем сообщенный во входящей реплике собеседниким факт в базе знаний.
             fact_text2 = self.flip_person(assertion_text)
-            self.store_new_fact(fact_text2, '(((dialog@811)))', dialog, profile, facts)
+            self.store_new_fact(fact_text2, '(((dialog@822)))', dialog, profile, facts)
 
         # Если при генерации ответной реплики использован вымышленный факт, то его надо запомнить в базе знаний.
         if best_response.get_confabulated_facts():
             for f in best_response.get_confabulated_facts():
-                self.store_new_fact(f, '(((confabulation@816)))', dialog, profile, facts)
+                self.store_new_fact(f, '(((confabulation@827)))', dialog, profile, facts)
 
         # Добавляем в историю диалога выбранную ответную реплику
         self.logger.debug('Response for input message 〚%s〛 from interlocutor="%s": text=〚%s〛 self_interpretation=〚%s〛 algorithm="%s" score=%5.3f', dialog.get_last_message().get_text(),
@@ -895,9 +906,12 @@ class BotCore:
     def generate_promised_responses(self, chitchat_promises):
         responses = []
 
-        # TODO переделать на прогон одним батчем через генеративку!
-        for promise in chitchat_promises:
-            chitchat_outputs = self.chitchat.generate_chitchat(context_replies=promise.generation_promise.chitchat_generation_context, num_return_sequences=2)
+        # Делаем прогон всех контекстов генерации одним батчем:
+        num_return_sequences = 2
+        chitchat_outputs_batch = self.chitchat.generate_chitchat_batch([promise.generation_promise.chitchat_generation_context for promise in chitchat_promises], num_return_sequences=num_return_sequences)
+
+        for ipromise, promise in enumerate(chitchat_promises):
+            chitchat_outputs = chitchat_outputs_batch[ipromise*num_return_sequences: (ipromise+1)*num_return_sequences]
             for chitchat_output in chitchat_outputs:
                 # Оценка синтаксической валидности реплики
                 p_valid = 1.0  # self.syntax_validator.is_valid(chitchat_output, text_utils=self.text_utils)
@@ -1176,6 +1190,7 @@ if __name__ == '__main__':
     parser.add_argument('--log', type=str, default='../../../tmp/conversation_engine.log')
     parser.add_argument('--profile', type=str, default='../../../data/profile_1.json')
     parser.add_argument('--bert', type=str)
+    parser.add_argument('--db', type=str, default=':memory:', help='Connection string for SQLite storage file; use :memory: for no persistence')
 
     args = parser.parse_args()
 
@@ -1190,7 +1205,7 @@ if __name__ == '__main__':
     init_trainer_logging(args.log, True)
 
     # Настроечные параметры бота собраны в профиле - файле в json формате.
-    bot_profile = BotProfile("bot_v4")
+    bot_profile = BotProfile("bot_v6")
     bot_profile.load(profile_path, data_dir, models_dir)
 
     text_utils = TextUtils()
@@ -1216,8 +1231,12 @@ if __name__ == '__main__':
 
     bot.load(models_dir, text_utils)
 
+    # Хранилище новых фактов, извлекаемых из диалоговых сессий.
+    # По умолчанию размещается только в оперативной памяти.
+    facts_db = FactsDatabase(args.db)
+
     # Фабрика для создания новых диалоговых сессий и хранения текущих сессий для всех онлайн-собеседников
-    session_factory = SessionFactory(bot_profile, text_utils)
+    session_factory = SessionFactory(bot_profile, text_utils, facts_db)
 
     if mode == 'debug':
         # Чисто отладочный режим без интерактива.

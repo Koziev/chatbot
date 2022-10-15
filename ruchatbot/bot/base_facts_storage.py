@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-
-
 class BaseFactsStorage(object):
     """
     Класс описывает контракт для классов, обеспечивающих чтение
@@ -10,7 +7,7 @@ class BaseFactsStorage(object):
     новые факты только в памяти, либо на диске etc.
     """
 
-    INTERCOLUTOR_GENDER_FACT = '<<<interlocutor_gender>>>'
+    INTERLOCUTOR_GENDER_FACT = '<<<interlocutor_gender>>>'
 
     def __init__(self):
         pass
@@ -21,12 +18,6 @@ class BaseFactsStorage(object):
          используемый при чтении приватных фактов, релевантных только заданному
          пользователю.
         :return итерируемая последовательность кортежей (тест_факта, грамматическое_лицо, уникальная_метка_факта)
-        """
-        raise NotImplementedError()
-
-    def enumerate_smalltalk_replicas(self):
-        """
-        :return: итерируемая последовательность экземпляров класса SmalltalkReplicas.
         """
         raise NotImplementedError()
 
