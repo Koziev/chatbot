@@ -68,11 +68,11 @@ docker run -it chatbot bash -c "/chatbot/scripts/tg_bot.sh"
 
 В состав [пайплайна](https://github.com/Koziev/chatbot/blob/core_v4/ruchatbot/bot/core_v4_for_debug.py) входят модели:
 
-1) **интерпретатор** на базе ruGPT для восстановления полного текста реплики в контексте диалога - см. [карточка модели на huggingface](https://huggingface.co/inkoziev/rugpt_interpreter).
+1) **интерпретатор** на базе ruGPT для восстановления полного текста реплики в контексте диалога - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/rugpt_interpreter).
 
-2) **retriever** на базе ruBert с доп. слоями для подбора релевантных фактов в базе знаний и переписывания истории диалога.
+2) **retriever** - sentence transformer модель для подбора релевантных фактов в базе знаний и переписывания истории диалога, см. [карточку модели на huggingface](https://huggingface.co/inkoziev/https://huggingface.co/inkoziev/sbert_pq).
 
-3) **chitchat & reasoner** на базе ruGPT для формирования текста ответа по найденному в базе знаний факту и заданному вопросу - см. [карточка модели на huggingface](https://huggingface.co/inkoziev/rugpt_chitchat).
+3) **chitchat & reasoner** на базе ruGPT для формирования текста ответа по найденному в базе знаний факту и заданному вопросу - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/rugpt_chitchat).
 
 4) **детектор перефразировок** на базе ruBert для определения синонимичности двух предложений.
 
