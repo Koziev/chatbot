@@ -109,7 +109,7 @@ class ProfileFactsReader(SimpleFactsStorage):
 
     def store_new_fact(self, interlocutor, fact_text, fact_tag, unique):
         if fact_text.count(' ') == 0:
-            self.logger.error('1-word facts are not valid!: interlocutor=%s fact_text=%s fact_tag', interlocutor, fact_text, fact_tag)
+            self.logger.error('1-word facts are not valid!: interlocutor=%s fact_text=%s fact_tag=%s', interlocutor, fact_text, fact_tag)
             return
 
         # Новые факты, добавляемые собеседником в ходе диалога, сохраняем только в оперативке,
