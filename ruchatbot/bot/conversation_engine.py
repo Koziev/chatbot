@@ -12,6 +12,7 @@
 07.10.2022 Переход на пакетную генерацию реплик GPT-моделью
 14.10.2022 Закончен переход на пакетную генерацию ответов читчата
 15.10.2022 Реализация персистентности фактов в SQLite (класс FactsDatabase)
+17.10.2022 Эксперимент с использованием новой модели на базе sentence transformers для подбора фактов БД для вопроса (https://huggingface.co/inkoziev/sbert_pq)
 """
 
 import sys
@@ -52,7 +53,7 @@ from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
 from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
 from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
 from ruchatbot.bot.rugpt_chitchat import RugptChitChat
-from ruchatbot.bot.rubert_relevancy_detector import RubertRelevancyDetector
+from ruchatbot.bot.sbert_relevancy_detector import SbertRelevancyDetector
 from ruchatbot.bot.closure_detector_2 import RubertClosureDetector
 from ruchatbot.bot.ruwordnet_relevancy_scorer import RelevancyScorer
 from ruchatbot.bot.facts_database import FactsDatabase
@@ -343,19 +344,15 @@ class BotCore:
         # =============================
         # Грузим модели.
         # =============================
+        self.relevancy_detector = SbertRelevancyDetector(device=self.device)
+        self.relevancy_detector.load(os.path.join(models_dir, 'sbert_pq'))
+
         with open(os.path.join(models_dir, 'rubert_synonymy_model.cfg'), 'r') as f:
             cfg = json.load(f)
             self.synonymy_detector = RubertSynonymyDetector(device=self.device, **cfg)
             self.synonymy_detector.load_weights(os.path.join(models_dir, 'rubert_synonymy_model.pt'))
             self.synonymy_detector.bert_model = self.bert_model
             self.synonymy_detector.bert_tokenizer = self.bert_tokenizer
-
-        with open(os.path.join(models_dir, 'pq_relevancy_rubert_model.cfg'), 'r') as f:
-            cfg = json.load(f)
-            self.relevancy_detector = RubertRelevancyDetector(device=self.device, **cfg)
-            self.relevancy_detector.load_weights(os.path.join(models_dir, 'pq_relevancy_rubert_model.pt'))
-            self.relevancy_detector.bert_model = self.bert_model
-            self.relevancy_detector.bert_tokenizer = self.bert_tokenizer
 
         with open(os.path.join(models_dir, 'closure_detector_2.cfg'), 'r') as f:
             cfg = json.load(f)
