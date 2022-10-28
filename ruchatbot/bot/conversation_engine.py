@@ -789,12 +789,16 @@ class BotCore:
                             premise = premises[0]
                             rel = rels[0]
                             if rel >= self.pqa_rel_threshold:
-                                self.logger.debug('KB lookup@783: query=〚%s〛 premise=〚%s〛 rel=%f', assertion_text, premise, rel)
+                                self.logger.debug('KB lookup@792: query=〚%s〛 premise=〚%s〛 rel=%f', assertion_text, premise, rel)
 
                                 # Формируем запрос на генерацию ответа через gpt читчата...
-                                chitchat_context = '[' + premise + '.] ' + assertion_text + '?'
+                                chitchat_context = premise[0].upper() + premise[1:] #+ '. ' + assertion_text + '?'
+                                if premise[-1] not in '!;.':
+                                    chitchat_context += '.'
+                                chitchat_context += ' ' + assertion_text + '?'
+
                                 chitchat_outputs = self.chitchat.generate_chitchat(context_replies=[chitchat_context], num_return_sequences=5)
-                                self.logger.debug('PQA@788: context=〚%s〛 outputs=〚%s〛', chitchat_context, format_outputs(chitchat_outputs))
+                                self.logger.debug('PQA@797: context=〚%s〛 outputs=〚%s〛', chitchat_context, format_outputs(chitchat_outputs))
                                 for chitchat_output in chitchat_outputs:
                                     # Заглушка - ищем отрицательные частицы
                                     words = self.text_utils.tokenize(chitchat_output)
@@ -817,12 +821,12 @@ class BotCore:
         for assertion_text in input_assertions:
             # Запоминаем сообщенный во входящей реплике собеседниким факт в базе знаний.
             fact_text2 = self.flip_person(assertion_text)
-            self.store_new_fact(fact_text2, '(((dialog@822)))', dialog, profile, facts)
+            self.store_new_fact(fact_text2, '(((dialog@820)))', dialog, profile, facts)
 
         # Если при генерации ответной реплики использован вымышленный факт, то его надо запомнить в базе знаний.
         if best_response.get_confabulated_facts():
             for f in best_response.get_confabulated_facts():
-                self.store_new_fact(f, '(((confabulation@827)))', dialog, profile, facts)
+                self.store_new_fact(f, '(((confabulation@825)))', dialog, profile, facts)
 
         # Добавляем в историю диалога выбранную ответную реплику
         self.logger.debug('Response for input message 〚%s〛 from interlocutor="%s": text=〚%s〛 self_interpretation=〚%s〛 algorithm="%s" score=%5.3f', dialog.get_last_message().get_text(),
