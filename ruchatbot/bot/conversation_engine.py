@@ -635,11 +635,16 @@ class BotCore:
                                 premise_facts.append(memory_phrase)
                             else:
                                 fx, rels = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, nb_results=1)
-                                memory_phrase = fx[0]
-                                rel = rels[0]
+                                if fx:
+                                    memory_phrase = fx[0]
+                                    rel = rels[0]
+                                else:
+                                    memory_phrase = None
+                                    rel = 0.0
+
                                 if rel > 0.5:
                                     if memory_phrase != confab_premise:
-                                        self.logger.debug('Synonymy@642 text1=〚%s〛 text2=〚%s〛 score=%5.3f', confab_premise, memory_phrase, rel)
+                                        self.logger.debug('Synonymy@647 text1=〚%s〛 text2=〚%s〛 score=%5.3f', confab_premise, memory_phrase, rel)
 
                                     total_proba *= rel
                                     if memory_phrase[-1] not in '.?!':
