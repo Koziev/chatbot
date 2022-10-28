@@ -13,6 +13,7 @@
 14.10.2022 Закончен переход на пакетную генерацию ответов читчата
 15.10.2022 Реализация персистентности фактов в SQLite (класс FactsDatabase)
 17.10.2022 Эксперимент с использованием новой модели на базе sentence transformers для подбора фактов БД для вопроса (https://huggingface.co/inkoziev/sbert_pq)
+20.10.2022 Переходим на модель оппределения перефразировок на архитектуре sentence transformer.
 """
 
 import sys
@@ -45,7 +46,7 @@ from ruchatbot.bot.base_utterance_interpreter2 import BaseUtteranceInterpreter2
 from ruchatbot.bot.text_utils import TextUtils
 from ruchatbot.utils.udpipe_parser import UdpipeParser
 from ruchatbot.utils.logging_helpers import init_trainer_logging
-from ruchatbot.bot.rubert_synonymy_detector import RubertSynonymyDetector
+from ruchatbot.bot.sbert_paraphrase_detector import SbertSynonymyDetector
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.bot_profile import BotProfile
@@ -347,12 +348,8 @@ class BotCore:
         self.relevancy_detector = SbertRelevancyDetector(device=self.device)
         self.relevancy_detector.load(os.path.join(models_dir, 'sbert_pq'))
 
-        with open(os.path.join(models_dir, 'rubert_synonymy_model.cfg'), 'r') as f:
-            cfg = json.load(f)
-            self.synonymy_detector = RubertSynonymyDetector(device=self.device, **cfg)
-            self.synonymy_detector.load_weights(os.path.join(models_dir, 'rubert_synonymy_model.pt'))
-            self.synonymy_detector.bert_model = self.bert_model
-            self.synonymy_detector.bert_tokenizer = self.bert_tokenizer
+        self.synonymy_detector = SbertSynonymyDetector(device=self.device)
+        self.synonymy_detector.load(os.path.join(models_dir, 'sbert_synonymy'))
 
         with open(os.path.join(models_dir, 'closure_detector_2.cfg'), 'r') as f:
             cfg = json.load(f)
@@ -604,7 +601,7 @@ class BotCore:
                             #confabul_context = [interpretation]  #[self.flip_person(interpretation)]
                             # TODO - первый запуск делать с num_return_sequences=10, второй с num_return_sequences=100
                             confabulations = self.confabulator.generate_confabulations(question=interpretation, num_return_sequences=10)
-                            self.logger.debug('Confabulation@599: context=〚%s〛 outputs=〚%s〛', interpretation, format_outputs(confabulations))
+                            self.logger.debug('Confabulation@604: context=〚%s〛 outputs=〚%s〛', interpretation, format_outputs(confabulations))
 
                             for confab_text in confabulations:
                                 score = 1.0
@@ -637,13 +634,12 @@ class BotCore:
                                 memory_phrase, rel = mapped_premises[confab_premise]
                                 premise_facts.append(memory_phrase)
                             else:
-                                #memory_phrase, rel = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
-                                fx, rels = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, self.text_utils, nb_results=1)
+                                fx, rels = self.synonymy_detector.get_most_similar(confab_premise, memory_phrases, nb_results=1)
                                 memory_phrase = fx[0]
                                 rel = rels[0]
                                 if rel > 0.5:
                                     if memory_phrase != confab_premise:
-                                        self.logger.debug('Synonymy@638 text1=〚%s〛 text2=〚%s〛 score=%5.3f', confab_premise, memory_phrase, rel)
+                                        self.logger.debug('Synonymy@642 text1=〚%s〛 text2=〚%s〛 score=%5.3f', confab_premise, memory_phrase, rel)
 
                                     total_proba *= rel
                                     if memory_phrase[-1] not in '.?!':
