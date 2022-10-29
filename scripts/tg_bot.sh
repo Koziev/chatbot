@@ -1,1 +1,8 @@
-CUDA_VISIBLE_DEVICES=-1 PYTHONPATH=.. python3 ../ruchatbot/frontend/telegram_bot.py --data_folder ../data --models_folder ../tmp --w2v_folder ../tmp --tmp_folder ../tmp
+PYTHONPATH=.. \
+python3 ../ruchatbot/bot/conversation_engine.py \
+--mode telegram \
+--chatbot_dir .. \
+--log ../tmp/axioma.log \
+--profile ../data/profile_1.json \
+--bert ../tmp/rubert-tiny \
+--db ../tmp/facts_db.sqlite
