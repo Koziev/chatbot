@@ -16,7 +16,7 @@ RUN pip install --upgrade setuptools
 
 RUN pip install torch==1.8.0 tensorflow==2.4.0 transformers==4.11.3 \
 python-crfsuite colorama coloredlogs requests flask flask_sqlalchemy flask_wtf \
-python-telegram-bot pyconll pyyaml ufal.udpipe terminaltables networkx ufal.udpipe
+python-telegram-bot pyconll pyyaml ufal.udpipe terminaltables networkx ufal.udpipe sentence_transformers
 
 WORKDIR /home
 ADD ruword2tags.tar.gz /home
@@ -50,6 +50,12 @@ COPY ./ruchatbot/utils/*.py ./
 
 WORKDIR /chatbot/data
 COPY ./data/*.* ./
+
+WORKDIR /chatbot/tmp/sbert_pq
+COPY ./tmp/sbert_pq .
+
+WORKDIR /chatbot/tmp/sbert_synonymy
+COPY ./tmp/sbert_synonymy .
 
 WORKDIR /chatbot/tmp/rugpt_npqa
 COPY ./tmp/rugpt_npqa/*.* ./
