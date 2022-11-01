@@ -14,35 +14,23 @@
 15.10.2022 Реализация персистентности фактов в SQLite (класс FactsDatabase)
 17.10.2022 Эксперимент с использованием новой модели на базе sentence transformers для подбора фактов БД для вопроса (https://huggingface.co/inkoziev/sbert_pq)
 20.10.2022 Переходим на модель оппределения перефразировок на архитектуре sentence transformer.
+01.11.2022 Рефакторинг 
 """
 
-import sys
 from typing import List, Set, Dict, Tuple, Optional
 import logging.handlers
 import os
-import argparse
 import logging.handlers
 import random
-import traceback
-import itertools
 import datetime
 import json
 
 import terminaltables
 
-import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, Update
-
-from flask import Flask, request, Response
-from flask import jsonify
 import torch
 import transformers
 
-import tensorflow as tf
-
 from ruchatbot.bot.base_utterance_interpreter2 import BaseUtteranceInterpreter2
-
 from ruchatbot.bot.text_utils import TextUtils
 from ruchatbot.utils.udpipe_parser import UdpipeParser
 from ruchatbot.utils.logging_helpers import init_trainer_logging
@@ -1078,230 +1066,3 @@ def format_outputs(outputs):
     for i, s in enumerate(outputs, start=1):
         sx.append('[{}] {}'.format(i, s))
     return ' | '.join(sx)
-
-
-def get_user_id(update: Update) -> str:
-    user_id = str(update.message.from_user.id)
-    return user_id
-
-
-def tg_start(update, context) -> None:
-    user_id = get_user_id(update)
-    logging.debug('Entering START callback with user_id=%s', user_id)
-
-    session = session_factory.start_conversation(user_id)
-
-    msg1 = bot.start_greeting_scenario(session)
-    context.bot.send_message(chat_id=update.message.chat_id, text=msg1)
-    logging.debug('Leaving START callback with user_id=%s', user_id)
-
-
-LIKE = '_Like_'
-DISLIKE = '_Dislike_'
-
-last_bot_reply = dict()
-
-
-def tg_echo(update, context):
-    # update.chat.first_name
-    # update.chat.last_name
-    try:
-        user_id = get_user_id(update)
-
-        session = session_factory.get_session(user_id)
-
-        if update.message.text == LIKE:
-            logging.info('LIKE user_id="%s" bot_reply=〚%s〛', user_id, last_bot_reply[user_id])
-            return
-
-        if update.message.text == DISLIKE:
-            logging.info('DISLIKE user_id="%s" bot_reply=〚%s〛', user_id, last_bot_reply[user_id])
-            return
-
-        q = update.message.text
-        logging.info('Will reply to 〚%s〛 for user="%s" id=%s in chat=%s', q, update.message.from_user.name, user_id, str(update.message.chat_id))
-
-        session.dialog.add_human_message(q)
-        replies = bot.process_human_message(session)
-        for reply in replies:
-            logging.info('Bot reply=〚%s〛 to user="%s"', reply, user_id)
-
-        keyboard = [[LIKE, DISLIKE]]
-        reply_markup = ReplyKeyboardMarkup(keyboard,
-                                           one_time_keyboard=True,
-                                           resize_keyboard=True,
-                                           per_user=True)
-
-        context.bot.send_message(chat_id=update.message.chat_id, text=reply, reply_markup=reply_markup)
-        last_bot_reply[user_id] = reply
-    except Exception as ex:
-        logging.error(ex)  # sys.exc_info()[0]
-        logging.error('Error occured when message 〚%s〛 from interlocutor "%s" was being processed: %s', update.message.text, user_id, traceback.format_exc())
-
-
-# ==================== КОД ВЕБ-СЕРВИСА =======================
-flask_app = Flask(__name__)
-
-
-@flask_app.route('/start_conversation', methods=["GET"])
-def start_conversation():
-    user = request.args.get('user', 'anonymous')
-    session = session_factory.start_conversation(user)
-    msg1 = request.args.get('phrase')
-    if msg1:
-        session.dialog.add_bot_message(msg1)
-    else:
-        msg1 = bot.start_greeting_scenario(session)
-
-    logging.debug('start_conversation interlocutor="%s" message=〚%s〛', user, msg1)
-    #session.add_bot_message(msg1)
-    #session.enqueue_replies([msg1])
-    return jsonify({'processed': True})
-
-
-# response = requests.get(chatbot_url + '/' + 'push_phrase?user={}&phrase={}'.format(user_id, phrase))
-@flask_app.route('/push_phrase', methods=["GET"])
-def service_push():
-    user_id = request.args.get('user', 'anonymous')
-    phrase = request.args['phrase']
-    logging.debug('push_phrase user="%s" phrase=〚%s〛', user_id, phrase)
-
-    session = session_factory.get_session(user_id)
-    session.dialog.add_human_message(phrase)
-
-    replies = bot.process_human_message(session)
-    #session.enqueue_replies(replies)
-
-    response = {'processed': True}
-    return jsonify(response)
-
-
-@flask_app.route('/pop_phrase', methods=["GET"])
-def pop_phrase():
-    user = request.args.get('user', 'anonymous')
-    session = session_factory.get_session(user)
-    reply = session.pop_reply()
-    return jsonify({'reply': reply})
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Сhatbot v5')
-    parser.add_argument('--token', type=str, default='', help='Telegram token')
-    parser.add_argument('--mode', type=str, default='console', choices='console telegram service'.split())
-    parser.add_argument('--chatbot_dir', type=str, default='/home/inkoziev/polygon/chatbot')
-    parser.add_argument('--log', type=str, default='../../../tmp/conversation_engine.log')
-    parser.add_argument('--profile', type=str, default='../../../data/profile_1.json')
-    parser.add_argument('--bert', type=str)
-    parser.add_argument('--db', type=str, default=':memory:', help='Connection string for SQLite storage file; use :memory: for no persistence')
-
-    args = parser.parse_args()
-
-    mode = args.mode
-
-    chatbot_dir = args.chatbot_dir
-    models_dir = os.path.join(chatbot_dir, 'tmp')
-    data_dir = os.path.join(chatbot_dir, 'data')
-    tmp_dir = os.path.join(chatbot_dir, 'tmp')
-    profile_path = args.profile
-
-    init_trainer_logging(args.log, True)
-
-    # Настроечные параметры бота собраны в профиле - файле в json формате.
-    bot_profile = BotProfile("bot_v6")
-    bot_profile.load(profile_path, data_dir, models_dir)
-
-    text_utils = TextUtils()
-    text_utils.load_dictionaries(data_dir, models_dir)
-
-    #scripting = BotScripting(data_dir)
-    #scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
-
-    # 19-03-2022 запрещаем тензорфлоу резервировать всю память в гпу по дефолту, так как
-    # это мешает потом нормально работать моделям на торче.
-    for gpu in tf.config.experimental.list_physical_devices('GPU'):
-        tf.config.experimental.set_memory_growth(gpu, True)
-
-    bot = BotCore()
-    if args.bert is not None:
-        bot.load_bert(args.bert)
-    else:
-        # Определяем модель берта по конфигу детектора перефраз.
-        with open(os.path.join(models_dir, 'rubert_synonymy_model.cfg'), 'r') as f:
-            cfg = json.load(f)
-            bert_name = cfg['bert']
-            bot.load_bert(bert_name)
-
-    bot.load(models_dir, text_utils)
-
-    # Хранилище новых фактов, извлекаемых из диалоговых сессий.
-    # По умолчанию размещается только в оперативной памяти.
-    facts_db = FactsDatabase(args.db)
-
-    # Фабрика для создания новых диалоговых сессий и хранения текущих сессий для всех онлайн-собеседников
-    session_factory = SessionFactory(bot_profile, text_utils, facts_db)
-
-    if mode == 'debug':
-        # Чисто отладочный режим без интерактива.
-        # Формируем историю диалога для отладки
-        interlocutor = 'test_human'
-        session = session_factory.start_conversation(interlocutor)
-        session.dialog.add_human_message('тебя как зовут?')
-        replies = bot.process_human_message(session)
-        for reply in replies:
-            print('B:  {}'.format(reply))
-    elif mode == 'telegram':
-        # телеграм-бот
-        logging.info('Starting telegram bot')
-
-        telegram_token = args.token
-        if len(telegram_token) == 0:
-            telegram_token = input('Enter Telegram token:> ').strip()
-
-        # Телеграм-версия генератора
-        tg_bot = telegram.Bot(token=telegram_token).getMe()
-        bot_id = tg_bot.name
-        logging.info('Telegram bot "%s" id=%s', tg_bot.name, tg_bot.id)
-
-        updater = Updater(token=telegram_token)
-        dispatcher = updater.dispatcher
-
-        start_handler = CommandHandler('start', tg_start)
-        dispatcher.add_handler(start_handler)
-
-        echo_handler = MessageHandler(Filters.text, tg_echo)
-        dispatcher.add_handler(echo_handler)
-
-        logging.getLogger('telegram.bot').setLevel(logging.INFO)
-        logging.getLogger('telegram.vendor.ptb_urllib3.urllib3.connectionpool').setLevel(logging.INFO)
-
-        logging.info('Start polling messages for bot %s', tg_bot.name)
-        updater.start_polling()
-        updater.idle()
-    elif mode == 'console':
-        # Консольный интерактивный режим для отладки.
-        interlocutor = 'test_human'
-        session = session_factory.start_conversation(interlocutor)
-
-        # Начинаем со сценария приветствия.
-        bot.start_greeting_scenario(session)
-
-        while True:
-            for handler in logging.getLogger().handlers:
-                handler.flush()
-            sys.stdout.flush()
-
-            print('\n'.join(session.dialog.get_printable()), flush=True)
-            h = input('H: ').strip()
-            if h:
-                session.dialog.add_human_message(h)
-                replies = bot.process_human_message(session)
-            else:
-                break
-    elif mode == 'service':
-        # Запуск в режиме rest-сервиса
-        listen_ip = '127.0.0.1'
-        listen_port = '9098'
-        logging.info('Going to run flask_app listening %s:%s profile_path=%s', listen_ip, listen_port, profile_path)
-        flask_app.run(debug=True, host=listen_ip, port=listen_port)
-
-    print('All done.')
