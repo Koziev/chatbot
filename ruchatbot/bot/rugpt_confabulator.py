@@ -1,7 +1,7 @@
 import logging.handlers
 import os
 
-from rugpt_base import RugptBase
+from ruchatbot.bot.rugpt_base import RugptBase
 
 
 class RugptConfabulator(RugptBase):
@@ -10,7 +10,7 @@ class RugptConfabulator(RugptBase):
 
     def load(self, models_dir):
         p = os.path.join(models_dir, 'rugpt_premise4question')
-        logging.debug('Start loading confabulator model from "%s"', p)
+        logging.debug('Start loading confabulation model from "%s"', p)
         self.load_from_path(p)
 
     def generate_confabulations(self, question, num_return_sequences):
