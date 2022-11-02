@@ -11,6 +11,7 @@ import argparse
 import logging.handlers
 import json
 import traceback
+import getpass
 
 import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
@@ -140,7 +141,7 @@ if __name__ == '__main__':
 
     telegram_token = args.token
     if len(telegram_token) == 0:
-        telegram_token = input('Enter Telegram token:> ').strip()
+        telegram_token = getpass.getpass('Enter Telegram token:> ').strip()
 
     # Телеграм-версия генератора
     tg_bot = telegram.Bot(token=telegram_token).getMe()
