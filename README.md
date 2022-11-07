@@ -70,7 +70,7 @@ docker run -it chatbot bash -c "/chatbot/scripts/tg_bot.sh"
 
 1) **интерпретатор** на базе ruGPT для восстановления полного текста реплики в контексте диалога - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/rugpt_interpreter).
 
-2) **retriever** - sentence transformer модель для подбора релевантных фактов в базе знаний и переписывания истории диалога, см. [карточку модели на huggingface](https://huggingface.co/inkoziev/sbert_pq).
+2) **textual knowledge retriever** - модель с архитектурой sentence transformer для подбора релевантных фактов в базе знаний и переписывания истории диалога, см. [карточку модели на huggingface](https://huggingface.co/inkoziev/sbert_pq).
 
 3) **chitchat & reasoner** на базе ruGPT для формирования текста ответа по найденному в базе знаний факту и заданному вопросу - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/rugpt_chitchat).
 
