@@ -33,8 +33,8 @@ RUN apt-get clean
 WORKDIR /chatbot/ruchatbot/bot
 COPY ./ruchatbot/bot/*.py ./
 
-#WORKDIR /chatbot/ruchatbot/frontend
-#COPY ./ruchatbot/frontend/*.py ./
+WORKDIR /chatbot/ruchatbot/frontend
+COPY ./ruchatbot/frontend/*.py ./
 
 #WORKDIR /chatbot/ruchatbot/bot_service
 #COPY ./ruchatbot/bot_service/*.py ./
@@ -60,8 +60,11 @@ COPY ./tmp/sbert_synonymy .
 WORKDIR /chatbot/tmp/rugpt_npqa
 COPY ./tmp/rugpt_npqa/*.* ./
 
-WORKDIR /chatbot/tmp/rugpt_interpreter
-COPY ./tmp/rugpt_interpreter/*.* ./
+#WORKDIR /chatbot/tmp/rugpt_interpreter
+#COPY ./tmp/rugpt_interpreter/*.* ./
+
+WORKDIR /chatbot/tmp/t5_interpreter
+COPY ./tmp/t5_interpreter/*.* ./
 
 WORKDIR /chatbot/tmp/rugpt_premise4question
 COPY ./tmp/rugpt_premise4question/*.* ./
