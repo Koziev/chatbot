@@ -11,10 +11,10 @@
 
 Для запуска бота в Телеграме нужно зарегистрировать его у [@botfather](https://t.me/BotFather) и получить токен.
 
-Затем запускаем сервис в докере такой командой:
+Затем загружаем докер-образ и запускаем сервис такой командой:
 
 ```
-docker run -it chatbot bash -c "/chatbot/scripts/tg_bot.sh"
+docker run -it inkoziev/chatbot_v4 bash -c "/chatbot/scripts/tg_bot.sh"
 ``` 
 
 После старта появится приглашение ввода токена и выбора профиля бота.
@@ -68,7 +68,7 @@ docker run -it chatbot bash -c "/chatbot/scripts/tg_bot.sh"
 
 В состав [пайплайна](https://github.com/Koziev/chatbot/blob/core_v4/ruchatbot/bot/conversation_engine.py) входят модели:
 
-1) **интерпретатор** на базе ruGPT для восстановления полного текста реплики в контексте диалога - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/rugpt_interpreter).
+1) **интерпретатор** на базе ruT5 для восстановления полного текста реплики в контексте диалога.
 
 2) **textual knowledge retriever** - модель с архитектурой sentence transformer для подбора релевантных фактов в базе знаний и переписывания истории диалога, см. [карточку модели на huggingface](https://huggingface.co/inkoziev/sbert_pq).
 
