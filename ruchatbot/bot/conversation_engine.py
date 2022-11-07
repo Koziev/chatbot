@@ -14,7 +14,8 @@
 15.10.2022 Реализация персистентности фактов в SQLite (класс FactsDatabase)
 17.10.2022 Эксперимент с использованием новой модели на базе sentence transformers для подбора фактов БД для вопроса (https://huggingface.co/inkoziev/sbert_pq)
 20.10.2022 Переходим на модель оппределения перефразировок на архитектуре sentence transformer.
-01.11.2022 Рефакторинг 
+01.11.2022 Рефакторинг: код для запуска в консоли, телеграм-бота и rest api сервиса вынесен в отдельные модули, см. подкаталог frontend
+05.11.2022 Эксперимент с использованием новой модели для раскрытия неполных реплик на базе rut5
 """
 
 from typing import List, Set, Dict, Tuple, Optional
@@ -39,7 +40,8 @@ from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
-from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
+#from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
+from ruchatbot.bot.rut5_interpreter import RuT5Interpreter
 from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
 from ruchatbot.bot.rugpt_chitchat import RugptChitChat
 from ruchatbot.bot.sbert_relevancy_detector import SbertRelevancyDetector
@@ -364,7 +366,8 @@ class BotCore:
         #self.entailment = EntailmentModel(self.device)
         #self.entailment.load(models_dir, self.bert_model, self.bert_tokenizer)
 
-        self.interpreter = RugptInterpreter()
+        #self.interpreter = RugptInterpreter()
+        self.interpreter = RuT5Interpreter()
         self.interpreter.load(models_dir)
 
         self.confabulator = RugptConfabulator()
