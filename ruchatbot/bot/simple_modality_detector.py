@@ -17,7 +17,7 @@ class SimpleModalityDetectorRU(ModalityDetector):
         Определяем параметры модальности для фразы.
         Вернем пару значений: тип фразы (утверждение, вопрос, приказ) + лицо (не всегда, только для утверждений)
         """
-        word_embeddings = text_utils.word_embeddings
+        #word_embeddings = text_utils.word_embeddings
 
         person = -1
 

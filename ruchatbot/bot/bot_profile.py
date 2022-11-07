@@ -33,6 +33,18 @@ class BotProfile(object):
         self.constants = self.profile['constants']
 
     @property
+    def p_dodge1(self):
+        return self.profile.get('p_dodge1', 0.0)
+
+    @property
+    def p_dodge2(self):
+        return self.profile.get('p_dodge2', 0.0)
+
+    @property
+    def p_confab(self):
+        return self.profile.get('p_confab', 1.0)
+
+    @property
     def rules_enabled(self):
         return self.profile.get('rules_enabled', True)
 
