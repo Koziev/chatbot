@@ -68,7 +68,7 @@ docker run -it inkoziev/chatbot_v4 bash -c "/chatbot/scripts/tg_bot.sh"
 
 В состав [пайплайна](https://github.com/Koziev/chatbot/blob/core_v4/ruchatbot/bot/conversation_engine.py) входят модели:
 
-1) **интерпретатор** на базе ruT5 для восстановления полного текста реплики в контексте диалога.
+1) **интерпретатор** на базе ruT5 для восстановления полного текста реплики в контексте диалога, исправления ошибок, нормализации - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/t5_interpreter).
 
 2) **textual knowledge retriever** - модель с архитектурой sentence transformer для подбора релевантных фактов в базе знаний и переписывания истории диалога, см. [карточку модели на huggingface](https://huggingface.co/inkoziev/sbert_pq).
 
