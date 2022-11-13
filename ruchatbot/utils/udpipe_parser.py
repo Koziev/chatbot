@@ -35,7 +35,7 @@ def get_attr(token, tag_name):
 
 class Parsing(object):
     def __init__(self, tokens, text):
-        self.tokens = tokens
+        self.tokens = list(tokens)
         self.text = text
 
     def get_text(self):

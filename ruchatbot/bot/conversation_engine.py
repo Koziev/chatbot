@@ -16,8 +16,10 @@
 20.10.2022 Переходим на модель оппределения перефразировок на архитектуре sentence transformer.
 01.11.2022 Рефакторинг: код для запуска в консоли, телеграм-бота и rest api сервиса вынесен в отдельные модули, см. подкаталог frontend
 05.11.2022 Эксперимент с использованием новой модели для раскрытия неполных реплик на базе rut5
+13.11.2022 Втаскиваем код скриптования - сценарии, жадные правила.
 """
 
+import collections
 from typing import List, Set, Dict, Tuple, Optional
 import logging.handlers
 import os
@@ -25,6 +27,7 @@ import logging.handlers
 import random
 import datetime
 import json
+from collections import deque
 
 import terminaltables
 
@@ -32,13 +35,9 @@ import torch
 import transformers
 
 from ruchatbot.bot.base_utterance_interpreter2 import BaseUtteranceInterpreter2
-from ruchatbot.bot.text_utils import TextUtils
-from ruchatbot.utils.udpipe_parser import UdpipeParser
-from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.bot.sbert_paraphrase_detector import SbertSynonymyDetector
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
-from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
 #from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
 from ruchatbot.bot.rut5_interpreter import RuT5Interpreter
@@ -47,7 +46,9 @@ from ruchatbot.bot.rugpt_chitchat import RugptChitChat
 from ruchatbot.bot.sbert_relevancy_detector import SbertRelevancyDetector
 from ruchatbot.bot.closure_detector_2 import RubertClosureDetector
 from ruchatbot.bot.ruwordnet_relevancy_scorer import RelevancyScorer
-from ruchatbot.bot.facts_database import FactsDatabase
+from ruchatbot.scripting.running_scenario import RunningDialogStatus
+from ruchatbot.scripting.running_scenario import RunningScenario
+from ruchatbot.scripting.matcher.matching_cache import MatchingCache
 
 
 class Utterance:
@@ -70,6 +71,9 @@ class Utterance:
 
     def set_interpretation(self, text):
         self.interpretation = text
+
+    def is_bot_utterance(self):
+        return self.who == 'B'
 
 
 class DialogHistory(object):
@@ -107,6 +111,15 @@ class DialogHistory(object):
     def add_bot_message(self, text, self_interpretation=None):
         self.messages.append(Utterance('B', text, self_interpretation))
         self.replies_queue.append(text)
+
+    def count_bot_phrase(self, utterance_text):
+        n = 0
+        u = utterance_text.lower()
+        for msg in self.messages:
+            if msg.is_bot_utterance():
+                if msg.get_text().lower() == u:
+                    n += 1
+        return n
 
     def add_command(self, command_text):
         self.messages.append(Utterance('X', command_text))
@@ -225,11 +238,106 @@ class ConversationSession(object):
                                         profile_path=bot_profile.premises_path,
                                         constants=bot_profile.constants,
                                         facts_db=facts_db)
+        self.actor_say_hits = collections.Counter()
+        self.status = None  # экземпляр производного от RunningDialogStatus класса,
+                            # если выполняется вербальная форма или сценарий
+        self.deferred_running_items = deque()
+        self.started_scenarios = set()
+
+    def get_bot_id(self):
+        return self.bot_profile.get_bot_id()
+
+    def get_interlocutor(self):
+        return self.interlocutor_id
+
+    def count_bot_phrase(self, utterance_text):
+        return self.dialog.count_bot_phrase(utterance_text)
+
     def pop_reply(self):
         return self.dialog.pop_reply()
 
     def enqueue_replies(self, replies):
         self.dialog.enqueue_replies(replies)
+
+    def actor_say_hit(self, actor_ptr):
+        self.actor_say_hits[actor_ptr] += 1
+
+    def get_actor_say_hits(self, actor_ptr):
+        return self.actor_say_hits[actor_ptr]
+
+    def set_status(self, new_status):
+        if new_status is None:
+            # Если в стеке отложенных сценариев есть что-то, запускаем его.
+            if len(self.deferred_running_items) > 0:
+                self.status = self.deferred_running_items.pop()
+            else:
+                self.status = None
+        else:
+            assert isinstance(new_status, RunningDialogStatus)
+            self.status = new_status
+            self.started_scenarios.add(new_status.get_name())
+
+    def call_scenario(self, running_scenario):
+        assert isinstance(running_scenario, RunningDialogStatus)
+        self.started_scenarios.add(running_scenario.get_name())
+        if self.status is None:
+            self.status = running_scenario
+        else:
+            self.deferred_running_items.append(self.status)
+            self.status = running_scenario
+
+    def exit_scenario(self):
+        if len(self.deferred_running_items) > 0:
+            self.status = self.deferred_running_items.pop()
+        else:
+            self.status = None
+
+    def defer_status(self, new_status):
+        if not isinstance(new_status, RunningDialogStatus):
+            raise AssertionError()
+
+        self.deferred_running_items.append(new_status)
+
+    def raise_deferred_scenario(self, scenario_name):
+        i = [x.get_name() for x in self.deferred_running_items].index(scenario_name)
+        running_scenario = self.deferred_running_items[i]
+        del self.deferred_running_items[i]
+        self.deferred_running_items.insert(0, self.status)
+        self.status = running_scenario
+
+    def form_executed(self):
+        self.status = None
+
+    def get_status(self):
+        return self.status
+
+    def is_deferred_scenario(self, scenario_name):
+        return scenario_name in (x.get_name() for x in self.deferred_running_items)
+
+    def get_scenario_stack_depth(self):
+        """Вернет количество сценариев в сессии - один текущий и еще сколько-то в стеке отложенных"""
+        n = 0
+        if self.status:
+            n += 1
+            n += len(self.deferred_running_items)
+        return n
+
+    def list_scenario_stack(self):
+        names = []
+        if self.status:
+            names.append('0:{}@{}'.format(self.status.get_name(), self.status.get_current_step_name()))
+            for depth, item in enumerate(self.deferred_running_items, start=1):
+                names.append('-{}:{}@{}'.format(depth, item.get_name(), item.get_current_step_name()))
+        return ' '.join(names)
+
+    def cancel_all_running_items(self):
+        self.deferred_running_items = []
+        self.status = None
+
+    def scenario_already_run(self, scenario_name):
+        return scenario_name in self.started_scenarios
+
+
 
 
 class SessionFactory(object):
@@ -322,7 +430,6 @@ class BotCore:
         self.min_nonsense_threshold = 0.50  # мин. значение синтаксической валидности сгенерированной моделями фразы, чтобы использовать ее дальше
         self.pqa_rel_threshold = 0.80  # порог отсечения нерелевантных предпосылок
 
-
     def load_bert(self, bert_path):
         self.bert_tokenizer = transformers.BertTokenizer.from_pretrained(bert_path, do_lower_case=False)
         self.bert_model = transformers.BertModel.from_pretrained(bert_path)
@@ -348,12 +455,7 @@ class BotCore:
             self.closure_detector.bert_model = self.bert_model
             self.closure_detector.bert_tokenizer = self.bert_tokenizer
 
-        # Ой, тут грузим второй экземпляр синт. парсера. Надо потом оптимизировать и оставить один парсер в TextUtils()
-
-        parser = UdpipeParser()
-        parser.load(models_dir)
-
-        self.p2q_scorer = RelevancyScorer(parser)
+        self.p2q_scorer = RelevancyScorer(text_utils.parser)
         self.p2q_scorer.load(models_dir)
 
         # Модель определения модальности фраз собеседника
@@ -394,15 +496,42 @@ class BotCore:
 
     def store_new_fact(self, fact_text, label, dialog, profile, facts):
         # TODO - проверка на непротиворечивость и неповторение
-        self.logger.debug('Storing new fact 〚%s〛 in bot="%s" database', fact_text, profile.get_id())
+        self.logger.debug('Storing new fact 〚%s〛 in bot="%s" database', fact_text, profile.get_bot_id())
         facts.store_new_fact(dialog.get_interlocutor(), fact_text, label, True)
 
     def start_greeting_scenario(self, session):
         dialog = session.dialog
+
+        # 12.11.2022 ищем сценарий начала общения. Если он есть - запускаем.
+        greeting_names = []
+        current_hour = datetime.datetime.now().hour
+        if current_hour >= 23 or current_hour < 6:
+            greeting_names.append("greeting:night")
+        elif current_hour in [6, 7, 8, 9]:
+            greeting_names.append("greeting:morning")
+        elif current_hour in [10, 11, 12, 13, 14, 15, 16, 17, 18]:
+            greeting_names.append("greeting:day")
+        else:
+            greeting_names.append("greeting:evening")
+        greeting_names.append("greeting")
+
+        for scenario_name in greeting_names:
+            for scenario in session.bot_profile.scripting.scenarios:
+                if scenario.get_name() == scenario_name:
+                    actions = self.run_scenario(scenario, session)
+                    greeting_utterances = []
+                    for action in actions:
+                        response = action.get_response_text()
+                        if response:
+                            greeting_utterances.append(response)
+
+                    greeting_text = random.choice(greeting_utterances)
+                    dialog.add_bot_message(greeting_text)
+                    return greeting_text
+
         if random.random() < 0.5:
             command = 'Поприветствуй меня!'
         else:
-            current_hour = datetime.datetime.now().hour
             if current_hour >= 23 or current_hour < 6:
                 command = 'Сейчас ночь. Поприветствуй меня!'
             elif current_hour in [6, 7, 8, 9]:
@@ -415,10 +544,102 @@ class BotCore:
         dialog.add_command(command)
         chitchat_context = dialog.construct_chitchat_context(last_utterance_interpretation=None, last_utterance_labels=None, include_commands=True)
         chitchat_outputs = self.chitchat.generate_chitchat(context_replies=chitchat_context, num_return_sequences=1)
-        self.logger.debug('Chitchat@373 start greeting scenario: context=〚%s〛 outputs=%s', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
+        self.logger.debug('Chitchat@542 start greeting scenario: context=〚%s〛 outputs=%s', ' | '.join(chitchat_context), format_outputs(chitchat_outputs))
         greeting_text = chitchat_outputs[0]
         dialog.add_bot_message(greeting_text)
         return greeting_text
+
+    def run_scenario(self, scenario, session):
+        """Замещающий запуск сценария: если текущий сценарий имеет более низкий приоритет, то он
+        будет полностью прекращен. При этом будут удалены и все отложенные диалоги в стеке."""
+
+        if session.scenario_already_run(scenario.get_name()):
+            # В рамках одной диалоговой сессии сценарии запускаем только по 1 разу.
+            self.logger.debug('Scenario "%s" already activated in this session, so skipping it', scenario.get_name())
+            return
+
+        if session.get_status():
+            if scenario.get_name() == session.get_status().get_name():
+                # Новый сценарий - такой же, как уже запущенный (например, снова сработало
+                # тематическое правило, запускающие этот сценарий).
+                self.logger.warning('Could not re-start dialogue "%s"  bot=%s interlocutor=%s', scenario.get_name(), self.get_bot_id(), session.get_interlocutor())
+                return
+            elif scenario.get_priority() < session.get_status().get_priority():
+                # Текущий сценарий имеет приоритет выше, чем новый. Поэтому новый пока откладываем.
+                self.logger.warning('New status priority %d is lower than priority %d of running "%s"  bot=%s interlocutor=%s',
+                                    scenario.get_priority(), session.get_status().get_priority(),
+                                    session.get_status().get_name(), self.get_bot_id(), session.get_interlocutor())
+
+                new_status = RunningScenario(scenario, current_step_index=-1)
+                session.defer_status(new_status)
+                return
+            elif scenario.get_priority() == session.get_status().get_priority():
+                # Тут могут быть разные нюансы, которые неплохо бы регулировать попарными свойствами.
+                # Но это будет слишком муторно для разработчика сценариев.
+                # Поэтому считаем, что новый сценарий вытесняет текущий в этом случае.
+                self.logger.debug('New scenario "%s" priority=%d is same as priority of currently running "%s"  bot=%s interlocutor=%s',
+                                  scenario.get_name(), scenario.get_priority(), session.get_status().get_name(),
+                                  self.get_bot_id(), session.get_interlocutor())
+            else:
+                self.logger.debug('New scenario priority=%d is higher than currently running=%d  bot=%s interlocutor=%s',
+                                  scenario.get_priority(), session.get_status().get_priority(),
+                                  self.get_bot_id(), session.get_interlocutor())
+                # Удаляем все отложенные сценарии...
+                session.cancel_all_running_items()
+
+        else:
+            self.logger.debug('bot %s starts scenario "%s" for interlocutor %s', session.get_bot_id(), scenario.name, session.get_interlocutor())
+
+        # Запускаем новый
+        status = RunningScenario(scenario, current_step_index=-1)
+        session.set_status(status)
+        self.logger.debug('Scenario stack depth now is %d:[ %s ]  bot=%s interlocutor=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), session.get_bot_id(), session.get_interlocutor())
+        actions1 = scenario.started(running_scenario=status, session=session, text_utils=self.text_utils)
+        actions2 = self.run_scenario_step(session)
+
+        actions = []
+        if actions1:
+            actions.extend(actions1)
+        if actions2:
+            actions.extend(actions2)
+        return actions
+
+    def call_scenario(self, scenario, bot, session, interlocutor, interpreted_phrase):
+        """Запуск вложенного сценария, при этом текущий сценарий приостанавливается до окончания нового."""
+        # 09-12-2020 если уже есть работающий экземпляр запускаемого сценария, то не будем запускать его снова.
+        if session.get_status():
+            if session.get_status().get_name() == scenario.get_name():
+                # Этот сценарий и так активен, делать ничего не надо.
+                self.logger.debug('Scenario "%s" is already active in bot=%s interlocutor=%s', scenario.get_name(), bot.get_bot_id(), interlocutor)
+                return
+            elif session.is_deferred_scenario(scenario.get_name()):
+                # надо вытащить этот сценарий в топ (??? удалив все сценарии перед ним ???)
+                self.logger.debug('Scenario "%s" is deferred, raising it to the top', scenario.get_name())
+                session.raise_deferred_scenario(scenario.get_name())
+                return
+
+        status = RunningScenario(scenario, current_step_index=-1)
+        session.call_scenario(status)
+        self.logger.debug('Call scenario "%s", scenario stack depth now is %d:[ %s ]  interlocutor=%s', scenario.get_name(), session.get_scenario_stack_depth(), session.list_scenario_stack(), interlocutor)
+        scenario.started(status, bot, session, interlocutor, interpreted_phrase, text_utils=self.text_utils)
+        self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+
+    # def exit_scenario(self, bot, session, interlocutor, interpreted_phrase):
+    #     if session.get_status() is not None:
+    #         self.logger.debug('Exit scenario "%s" in bot=%s interlocutor=%s', session.get_status().get_name(), bot.get_bot_id(), interlocutor)
+    #         session.exit_scenario()
+    #         self.logger.debug('Scenario stack depth now is %d: %s  bot=%s interlocutor=%s', session.get_scenario_stack_depth(), session.list_scenario_stack(), bot.get_bot_id(), interlocutor)
+    #         if session.get_status():
+    #             if isinstance(session.get_status(), RunningScenario):
+    #                 self.run_scenario_step(bot, session, interlocutor, interpreted_phrase)
+
+    def run_scenario_step(self, session):
+        running_scenario = session.get_status()
+        if not isinstance(running_scenario, RunningScenario):
+            self.logger.error('Expected instance of RunningScenario, found %s', type(running_scenario).__name__)
+            return None
+        else:
+            return running_scenario.scenario.run_step(running_scenario, session, self.text_utils)
 
     def normalize_person(self, utterance_text):
         return self.base_interpreter.normalize_person(utterance_text, self.text_utils)
@@ -433,11 +654,32 @@ class BotCore:
         facts = session.facts
 
         interlocutor = dialog.get_interlocutor()
-        self.logger.info('Start "process_human_message": message=〚%s〛 interlocutor="%s" bot="%s"', dialog.get_last_message().get_text(), interlocutor, profile.get_id())
+        self.logger.info('Start "process_human_message": message=〚%s〛 interlocutor="%s" bot="%s"', dialog.get_last_message().get_text(), interlocutor, profile.get_bot_id())
         self.print_dialog(dialog)
 
         # Здесь будем накапливать варианты ответной реплики с различной служебной информацией
         responses = []  # [GeneratedResponse]
+
+        if session.bot_profile.rules_enabled:
+            # 13.11.2022 Пробуем обработать диалоговую ситуацию скриптовыми инструментами - жадными правилами.
+            matching_cache = MatchingCache()
+            parsing_cache = dict()
+
+            for rule in session.bot_profile.scripting.greedy_rules:
+                m = rule.match(dialog_history=session.dialog,
+                               parsing_cache=parsing_cache,
+                               matching_cache=matching_cache,
+                               session=session,
+                               text_utils=self.text_utils
+                               )
+                if m is not None:
+                    actions = m.get_actions()
+                    for action in actions:
+                        response = action.get_response_text()
+                        if response:
+                            responses = [response]
+                            dialog.add_bot_message(response, self_interpretation=response)
+                            return responses
 
         # Факты в базе знаний, известные на момент начала обработки этой входной реплики
         memory_phrases = list(facts.enumerate_facts(interlocutor))
@@ -709,7 +951,7 @@ class BotCore:
         # Сортируем по убыванию скора
         responses = sorted(responses, key=lambda z: -z.get_proba())
 
-        self.logger.debug('%d responses generated for input_message=〚%s〛 interlocutor="%s" bot="%s":', len(responses), dialog.get_last_message().get_text(), interlocutor, profile.get_id())
+        self.logger.debug('%d responses generated for input_message=〚%s〛 interlocutor="%s" bot="%s":', len(responses), dialog.get_last_message().get_text(), interlocutor, profile.get_bot_id())
         table = [['i', 'text', 'p_entail', 'score', 'algo', 'context', 'confabulations']]
         for i, r in enumerate(responses, start=1):
             table.append((str(i), r.get_text(), '{:5.3f}'.format(r.p_entail), '{:5.3f}'.format(r.get_proba()), r.get_algo(), r.get_context(), format_confabulations_list(r.get_confabulated_facts())))
@@ -719,7 +961,7 @@ class BotCore:
 
         if len(responses) == 0:
             self.logger.error('No response generated in context: message=〚%s〛 interlocutor="%s" bot="%s"',
-                             dialog.get_last_message().get_text(), interlocutor, profile.get_id())
+                             dialog.get_last_message().get_text(), interlocutor, profile.get_bot_id())
             self.print_dialog(dialog)
             return []
 
@@ -886,7 +1128,7 @@ class BotCore:
                 smalltalk_responses = sorted(smalltalk_responses, key=lambda z: -z.get_proba())
                 best_smalltalk_response = smalltalk_responses[0]
                 self.logger.debug('Best smalltalk response="%s" to user="%s" in bot="%s"',
-                                  best_smalltalk_response.get_text(), dialog.get_interlocutor(), profile.get_id())
+                                  best_smalltalk_response.get_text(), dialog.get_interlocutor(), profile.get_bot_id())
                 smalltalk_reply = best_smalltalk_response.get_text()
 
         dialog.add_bot_message(best_response.get_text(), self_interpretation)

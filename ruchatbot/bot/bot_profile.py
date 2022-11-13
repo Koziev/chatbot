@@ -16,7 +16,7 @@ class BotProfile(object):
         self.smalltalk_generative_rules = None
         self.constants = dict()
 
-    def get_id(self):
+    def get_bot_id(self):
         return self.bot_id
 
     def _replace(self, path_str, data_dir, models_dir):
@@ -28,8 +28,8 @@ class BotProfile(object):
 
         # Файлы с фактами (База Знаний), правилами и так далее
         self.premises_path = self._replace(self.profile['premises'], data_dir, models_dir) if 'premises' in self.profile else None
-        self.faq_path = self._replace(self.profile['faq'], data_dir, models_dir) if 'faq' in self.profile else None
         self.rules_path = self._replace(self.profile['rules'], data_dir, models_dir) if 'rules' in self.profile else None
+        self.scenarios_path = self._replace(self.profile['scenarios'], data_dir, models_dir) if 'scenarios' in self.profile else None
         self.constants = self.profile['constants']
 
     @property
@@ -67,10 +67,6 @@ class BotProfile(object):
     @property
     def scenarios_enabled(self):
         return self.profile.get('scenarios_enabled', True)
-
-    @property
-    def faq_enabled(self):
-        return self.profile.get('faq_enabled', True)
 
     @property
     def confabulator_enabled(self):

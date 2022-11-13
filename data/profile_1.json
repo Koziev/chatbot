@@ -1,25 +1,13 @@
 {
 	"premises": "$DATA/profile_facts_1.dat",
-	"faq": "$DATA/faq2.txt",
 	"rules": "$DATA/profile_rules_1.yaml",
+	"scenarios": "$DATA/profile_scenarios_1.yaml",
 
 	"p_dodge1": 0.0,
 	"p_dodge2": 0.5,
 	"p_confab": 0.5,
 
-	
-	"smalltalk_enabled": true,
-	"generative_smalltalk_enabled": false,
-	"rules_enabled": true,
-	"force_question_answering": false,
-	"replica_after_answering": true,
-	"personal_questions_answering_policy": "random",
-	"scenarios_enabled": true,
-    "opposite_fact_comment_proba": 0.2,
-    "max_contradiction_comments": 2,
-    "already_known_fact_comment_proba": 0.2,
-    "faq_enabled": false,
-    "confabulator_enabled": true,
+	"confabulator_enabled": true,
 	
 	"constants": {
 		"gender": "ЖЕН",

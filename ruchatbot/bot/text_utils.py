@@ -12,6 +12,7 @@ NLP Pipeline чатбота
            и для задач аугментации.
 05.05.2021 Грузим список имен, чтобы фильтровать результаты генерации читчата
 25.04.2022 Большой рефакторинг и чистка кода в связи с переходом на новую архитектуру
+13.11.2022 Используем обертку UdpipeParser
 """
 
 import re
@@ -19,8 +20,7 @@ import os
 import logging
 import pickle
 
-import pyconll
-from ufal.udpipe import Model, Pipeline, ProcessingError
+from ruchatbot.utils.udpipe_parser import UdpipeParser
 
 import rutokenizer
 import rupostagger
@@ -39,6 +39,7 @@ class TextUtils(object):
         self.postagger = rupostagger.RuPosTagger()
         self.word2tags = ruword2tags.RuWord2Tags()
         self.names = None
+        self.parser = None
 
     def load_dictionaries(self, data_folder, models_folder):
         self.postagger.load()
@@ -46,10 +47,8 @@ class TextUtils(object):
         self.word2tags.load()
 
         # Грузим dependency parser UDPipe и русскоязычную модель
-        model_file = os.path.join(models_folder, 'udpipe_syntagrus.model')
-        self.udpipe_model = Model.load(model_file)
-        self.udpipe_pipeline = Pipeline(self.udpipe_model, 'tokenize', Pipeline.DEFAULT, Pipeline.DEFAULT, 'conllu')
-        self.udpipe_error = ProcessingError()
+        self.parser = UdpipeParser()
+        self.parser.load(os.path.join(models_folder, 'udpipe_syntagrus.model'))
 
         with open(os.path.join(models_folder, 'names.pkl'), 'rb') as f:
             self.names = set(pickle.load(f).keys())
@@ -117,29 +116,17 @@ class TextUtils(object):
         return s
 
     def detect_person0(self, words):
-        if any((word in (u'ты', u'тебя', u'тебе')) for word in words):
+        if any((word in ('ты', 'тебя', 'тебе')) for word in words):
             return 2
 
-        if any((word in (u'я', u'мне', u'меня')) for word in words):
+        if any((word in ('я', 'мне', 'меня')) for word in words):
             return 1
 
         return -1
 
     def parse_syntax(self, text_str):
-        processed = self.udpipe_pipeline.process(text_str, self.udpipe_error)
-        if self.udpipe_error.occurred():
-            logging.error("An error occurred when running run_udpipe: %s", self.udpipe_error.message)
-            return None
-
-        parsed_data = pyconll.load_from_string(processed)[0]
+        parsed_data = self.parser.parse_text(text_str)[0]
         return parsed_data
-
-    def get_udpipe_attr(self, token, tag_name):
-        if tag_name in token.feats:
-            v = list(token.feats[tag_name])[0]
-            return v
-
-        return ''
 
     def contains_name(self, text_str) -> bool:
         parsed_data = self.parse_syntax(text_str)

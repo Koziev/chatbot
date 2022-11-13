@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 Простой web api для чатбота https://github.com/Koziev/chatbot на Flask.
 
 01.11.2022 Переделка на новую версию диалоговой системы
+13.11.2022 втаскиваем скриптование
 """
 
-import sys
 import os
 import argparse
 import logging.handlers
@@ -19,6 +18,7 @@ from ruchatbot.bot.text_utils import TextUtils
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.facts_database import FactsDatabase
+from ruchatbot.scripting.bot_scripting import BotScripting
 
 
 flask_app = Flask(__name__)
@@ -91,6 +91,10 @@ if __name__ == '__main__':
 
     text_utils = TextUtils()
     text_utils.load_dictionaries(data_dir, models_dir)
+
+    scripting = BotScripting()
+    scripting.load_resources(bot_profile, text_utils)
+    bot_profile.scripting = scripting
 
     # 19-03-2022 запрещаем тензорфлоу резервировать всю память в гпу по дефолту, так как
     # это мешает потом нормально работать моделям на торче.

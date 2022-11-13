@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 Реализация чатбота для Телеграмма.
 Для вопросно-ответной системы https://github.com/Koziev/chatbot.
 
 01.11.2022 переделка для новой версии диалоговой системы
+13.11.2022 втаскиваем скриптование
 """
 
 import os
@@ -22,6 +22,7 @@ from ruchatbot.bot.text_utils import TextUtils
 from ruchatbot.utils.logging_helpers import init_trainer_logging
 from ruchatbot.bot.bot_profile import BotProfile
 from ruchatbot.bot.facts_database import FactsDatabase
+from ruchatbot.scripting.bot_scripting import BotScripting
 
 
 def get_user_id(update: Update) -> str:
@@ -109,8 +110,9 @@ if __name__ == '__main__':
     text_utils = TextUtils()
     text_utils.load_dictionaries(data_dir, models_dir)
 
-    #scripting = BotScripting(data_dir)
-    #scripting.load_rules(profile.rules_path, profile.smalltalk_generative_rules, profile.constants, text_utils)
+    scripting = BotScripting()
+    scripting.load_resources(bot_profile, text_utils)
+    bot_profile.scripting = scripting
 
     # 19-03-2022 запрещаем тензорфлоу резервировать всю память в гпу по дефолту, так как
     # это мешает потом нормально работать моделям на торче.
