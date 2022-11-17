@@ -15,7 +15,7 @@ class RubertClosureDetector0(nn.Module):
         self.arch = arch
 
         if self.arch == 1:
-            self.norm = torch.nn.BatchNorm1d(num_features=sent_emb_size)
+            #self.norm = torch.nn.BatchNorm1d(num_features=sent_emb_size)
             self.fc1 = nn.Linear(sent_emb_size, 20)
             self.fc2 = nn.Linear(20, 1)
         elif self.arch == 2:
@@ -43,11 +43,17 @@ class RubertClosureDetector0(nn.Module):
         self.eval()
         return
 
-    def forward_0(self, b):
-        if self.arch == 1:
-            w = b.sum(dim=-2)
+    def forward_0(self, x, bert_output):
+        mask0 = (x != 0)
+        mask = mask0.unsqueeze(2)  # чтобы исключить pad-токены из расчета лосса
 
-            z = self.norm(w)
+        if self.arch == 1:
+            #w = b.sum(dim=-2)
+            #w = (b * mask).sum(dim=-2) / mask0.sum(dim=-1).unsqueeze(1)
+            w = bert_output.pooler_output
+
+            #z = self.norm(w)
+            z = w
 
             merged = self.fc1(z)
             merged = torch.relu(merged)
@@ -55,8 +61,15 @@ class RubertClosureDetector0(nn.Module):
             output = torch.sigmoid(merged)
 
         elif self.arch == 2:
-            out1, (hidden1, cell1) = self.rnn(b)
-            v1 = out1[:, -1, :]
+            b = bert_output.last_hidden_state
+
+            #out1, (hidden1, cell1) = self.rnn(b)
+            #v1 = out1[:, -1, :]
+
+            # исключаем pad-токены из обработки в LSTM
+            pack = torch.nn.utils.rnn.pack_padded_sequence(b, lengths=mask0.sum(dim=-1).detach().cpu().numpy(), batch_first=True, enforce_sorted=False)
+            out1, (hidden1, cell1) = self.rnn(pack)
+            v1 = torch.hstack((hidden1[0, :, :], hidden1[1, :, :]))
 
             merged = self.fc1(v1)
             merged = torch.sigmoid(merged)
@@ -64,7 +77,7 @@ class RubertClosureDetector0(nn.Module):
             output = torch.sigmoid(merged)
 
         elif self.arch == 3:
-            z = b.transpose(1, 2).contiguous()
+            z = (bert_output.last_hidden_state * mask).transpose(1, 2).contiguous()
 
             v = self.conv1(z)
             v = torch.relu(v).transpose(1, 2).contiguous()
@@ -96,9 +109,9 @@ class RubertClosureDetector(RubertClosureDetector0):
 
     def forward(self, x):
         with torch.no_grad():
-            b = self.bert_model(x)[0]
+            bb = self.bert_model(x)
 
-        return self.forward_0(b)
+        return self.forward_0(x, bb)
 
     def calc_label(self, text):
         tokens = self.pad_tokens(self.bert_tokenizer.encode(text))
