@@ -1,4 +1,3 @@
-# coding: utf-8
 """
 Сценарии - автономные, долгоживущие фрагменты диалога, выполняющие управление дискурсом.
 
@@ -21,17 +20,20 @@ from ruchatbot.utils.constant_replacer import replace_constant
 
 class ScenarioTerminationPolicy:
     def __init__(self):
+        self.on_exhaustion = True
         self.expiration = 0
         self.can_answer_question = None
         self.exit_phrases = []
 
-    def load_yaml(self, yaml_node, constants, text_utils):
+    def load_from_yaml(self, yaml_node, constants, text_utils):
         if 'expiration' in yaml_node:
             self.expiration = int(yaml_node['expiration'])
         if 'can_answer_question' in yaml_node:
             self.can_answer_question = replace_constant(yaml_node['can_answer_question'], constants, text_utils)
         if 'exit_phrases' in yaml_node:
             self.exit_phrases = list(yaml_node['exit_phrases'])
+        if 'on_exhaustion':
+            self.on_exhaustion = yaml_node['on_exhaustion']
 
 
 class ScenarioTransition:
@@ -96,9 +98,8 @@ class Scenario(object):
         self.on_finish = None
         self.steps = []
         self.steps_policy = None
-        self.smalltalk_rules = []
-        self.insteadof_rules = []
-        self.story_rules = None
+        self.rewrite_rules = []
+        self.greedy_rules = []
         self.termination_policy = ScenarioTerminationPolicy()
         self.termination_check_count = 0
 
@@ -117,7 +118,7 @@ class Scenario(object):
         return self.name
 
     @staticmethod
-    def load_from_yaml(yaml_node, constants, text_utils):
+    def load_from_yaml(yaml_node, modules, constants, named_patterns, entities, text_utils):
         scenario = Scenario()
         scenario.name = yaml_node['name']
         try:
@@ -157,29 +158,25 @@ class Scenario(object):
             if 'on_finish' in yaml_node:
                 scenario.on_finish = ActorBase.load_from_yaml(yaml_node['on_finish'], constants, text_utils)
 
-            #if 'smalltalk_rules' in yaml_node:
-            #    scenario.smalltalk_rules = SmalltalkRules()
-            #    scenario.smalltalk_rules.load_yaml(yaml_node['smalltalk_rules'], smalltalk_rule2grammar, constants, text_utils)
+            scenario.greedy_rules = []
+            if 'greedy_rules' in yaml_node:
+                for rule in yaml_node['greedy_rules']:
+                    rule = DialogRule.load_from_yaml(rule, constants, named_patterns, entities, text_utils)
+                    scenario.greedy_rules.append(rule)
 
-            scenario.insteadof_rules = []
-            if 'rules' in yaml_node:
-                for rule in yaml_node['rules']:
-                    rule = DialogRule.load_from_yaml(rule['rule'], constants, text_utils)
-                    scenario.insteadof_rules.append(rule)
+            if 'rewrite_rules' in yaml_node:
+                for rule in yaml_node['rewrite_rules']:
+                    rule = DialogRule.load_from_yaml(rule, constants, named_patterns, entities, text_utils)
+                    scenario.rewrite_rules.append(rule)
 
-            if 'insteadof_rules_import' in yaml_node:
-                insteadof_rule_import = yaml_node['insteadof_rules_import']
-                if insteadof_rule_import == 'from_global':
-                    # добавляем в список глобальные insteadof-правила
-                    #scenario.insteadof_rules.extend(global_bot_scripting.insteadof_rules)
-                    raise NotImplementedError()
-
-            if 'story_rules_import' in yaml_node:
-                insteadof_rule_import = yaml_node['story_rules_import']
-                if insteadof_rule_import == 'from_global':
-                    # добавляем в список глобальные insteadof-правила
-                    #scenario.story_rules = global_bot_scripting.story_rules
-                    raise NotImplementedError()
+            if 'import' in yaml_node:
+                for import_name in yaml_node['import']:
+                    if import_name in modules:
+                        module = modules[import_name]
+                        scenario.greedy_rules.extend(module.greedy_rules)
+                        scenario.rewrite_rules.extend(module.rewrite_rules)
+                    else:
+                        raise ValueError('Unknown import name "{}"'.format(import_name))
 
         except Exception as ex:
             print('Error occured in scenario "{}" body parsing:\n{}'.format(scenario.name, str(ex)))
@@ -293,10 +290,13 @@ class Scenario(object):
                     # Уберем инстанс сценария из списка активных
                     self.termination_check_count = 0
                     if running_scenario.scenario.on_finish:
-                        actions = running_scenario.scenario.on_finish.do_action(matching=Nine, session=session, text_utils=text_utils)
+                        actions = running_scenario.scenario.on_finish.do_action(matching=None, session=session, text_utils=text_utils)
                     else:
                         actions = None
-                    session.exit_scenario()
+
+                    if running_scenario.scenario.termination_policy.on_exhaustion:
+                        session.exit_scenario()
+
                     return actions
                 else:
                     running_scenario.current_step_index = new_step_index

@@ -24,6 +24,7 @@ class DialogRuleMatching(object):
 class DialogRule(object):
     def __init__(self):
         self.name = None
+        self.condition_keyword = None
         self.patterns = []  # list[JAICP_Pattern]
         self.actors = []
 
@@ -33,7 +34,7 @@ class DialogRule(object):
         else:
             s = ''
 
-        s += 'if {} then {}'.format(' | '.join(map(str, self.patterns)), ' '.join(map(str, self.actors)))
+        s += 'if {}: {} then {}'.format(self.condition_keyword, ' | '.join(map(str, self.patterns)), ' '.join(map(str, self.actors)))
         return s
 
     @staticmethod
@@ -42,14 +43,37 @@ class DialogRule(object):
         if 'name' in yaml_node['rule']:
             rule.name = yaml_node['rule']['name']
 
-        pattern_str = yaml_node['rule']['if']['q']
+        rule.condition_keyword = list(yaml_node['rule']['if'].keys())[0]
 
-        pattern = JAICP_Pattern.build(pattern_str, named_patterns=named_patterns, src_path='<<<UNKNOWN>>>')
-        pattern.bind_named_patterns(named_patterns)
-        pattern.bind_entities(entities)
-        pattern.optimize()
+        if rule.condition_keyword == 'h':
+            # Для обычных правил, описывающих реакцию на последнюю реплику человека
+            pattern_str = yaml_node['rule']['if'][rule.condition_keyword][0]
+            pattern = JAICP_Pattern.build(pattern_str, named_patterns=named_patterns, src_path='<<<UNKNOWN>>>')
+            pattern.bind_named_patterns(named_patterns)
+            pattern.bind_entities(entities)
+            pattern.optimize()
+            rule.patterns.append(('h1', pattern))
+        elif rule.condition_keyword in ('hb', 'bh', 'hbh'):
+            keys = []
+            if rule.condition_keyword == 'hb':
+                keys = ['h2', 'b1']
+            elif rule.condition_keyword == 'bh':
+                # предпоследняя реплика - бот
+                # последняя реплика - человек
+                keys = ['b2', 'h1']
+            elif rule.condition_keyword == 'hbh':
+                keys = ['h3', 'b2', 'h1']
+            else:
+                raise NotImplementedError()
 
-        rule.patterns.append(pattern)
+            for reply_key, pattern_str in zip(keys, yaml_node['rule']['if'][rule.condition_keyword]):
+                pattern = JAICP_Pattern.build(pattern_str, named_patterns=named_patterns, src_path='<<<UNKNOWN>>>')
+                pattern.bind_named_patterns(named_patterns)
+                pattern.bind_entities(entities)
+                pattern.optimize()
+                rule.patterns.append((reply_key, pattern))
+        else:
+            raise NotImplementedError()
 
         if isinstance(yaml_node['rule']['then'], dict):
             actor = ActorBase.load_from_yaml(yaml_node['rule']['then'], constants, text_utils)
@@ -59,15 +83,18 @@ class DialogRule(object):
 
         return rule
 
-    def match(self, dialog_history, parsing_cache, matching_cache, session, text_utils):
-        if len(dialog_history) < len(self.patterns):
+    def match(self, dialog_context, parsing_cache, matching_cache, session, text_utils):
+        if len(dialog_context) < len(self.patterns):
             # история диалога недостаточно длинная
             return None
 
         matchings = []
         total_score = 1.0
-        for ipattern, pattern in enumerate(self.patterns):
-            utterance_text = dialog_history.messages[-ipattern-1].get_text()
+        for ipattern, (reply_key, pattern) in enumerate(self.patterns):
+            if reply_key not in dialog_context:
+                return None
+
+            utterance_text = dialog_context[reply_key]
             if utterance_text in parsing_cache:
                 parsing = parsing_cache[utterance_text]
             else:

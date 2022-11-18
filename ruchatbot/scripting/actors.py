@@ -10,7 +10,7 @@ class ActorBase(object):
     @staticmethod
     def load_from_yaml(yaml_node, constants, text_utils):
         actor_keyword = list(yaml_node.keys())[0] if isinstance(yaml_node, dict) else yaml_node
-        if actor_keyword == 'say':
+        if actor_keyword in ('say', 'rewrite'):
             return ActorSay.load_from_yaml(yaml_node, constants, text_utils)
         else:
             raise NotImplementedError(actor_keyword)
@@ -45,7 +45,7 @@ class ActorSay(ActorBase):
 
         # Надо понять, тут расширенная форма описания актора или просто список реплик, возможно
         # из одного элемента.
-        yaml_node = yaml_root['say']
+        yaml_node = yaml_root[actor.actor_keyword]
         if isinstance(yaml_node, dict):
             # Расширенный формат.
             for inner_keyword in yaml_node.keys():

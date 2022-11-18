@@ -17,14 +17,14 @@ class RunningScenario(RunningDialogStatus):
         self.passed_steps = set()
         self.istep_2_chitchat_questions = collections.defaultdict(lambda: 0)
 
-    def get_insteadof_rules(self):
-        return self.scenario.insteadof_rules
+    def get_greedy_rules(self):
+        return self.scenario.greedy_rules
 
-    def get_smalltalk_rules(self):
-        return self.scenario.smalltalk_rules
+    #def get_smalltalk_rules(self):
+    #    return self.scenario.smalltalk_rules
 
-    def get_story_rules(self):
-        return self.scenario.story_rules
+    #def get_story_rules(self):
+    #    return self.scenario.story_rules
 
     def get_name(self):
         return self.scenario.get_name()

@@ -239,8 +239,7 @@ class ConversationSession(object):
                                         constants=bot_profile.constants,
                                         facts_db=facts_db)
         self.actor_say_hits = collections.Counter()
-        self.status = None  # экземпляр производного от RunningDialogStatus класса,
-                            # если выполняется вербальная форма или сценарий
+        self.status = None  # экземпляр производного от RunningDialogStatus класса, если выполняется вербальная форма или сценарий
         self.deferred_running_items = deque()
         self.started_scenarios = set()
 
@@ -665,8 +664,36 @@ class BotCore:
             matching_cache = MatchingCache()
             parsing_cache = dict()
 
+            # Есть активный сценарий?
+            running_status = session.get_status()
+            if running_status is not None:
+                context = dict()
+                context['h1'] = session.dialog.messages[-1].get_text()
+                if len(session.dialog.messages) > 1:
+                    context['b2'] = session.dialog.messages[-2].get_text()
+                    if len(session.dialog.messages) > 2:
+                        context['h3'] = session.dialog.messages[-3].get_text()
+
+                greedy_rules = running_status.get_greedy_rules()
+                if greedy_rules:
+                    for rule in greedy_rules:
+                        m = rule.match(dialog_context=context,
+                                       parsing_cache=parsing_cache,
+                                       matching_cache=matching_cache,
+                                       session=session,
+                                       text_utils=self.text_utils
+                                       )
+                        if m is not None:
+                            actions = m.get_actions()
+                            for action in actions:
+                                response = action.get_response_text()
+                                if response:
+                                    responses = [response]
+                                    dialog.add_bot_message(response, self_interpretation=response)
+                                    return responses
+
             for rule in session.bot_profile.scripting.greedy_rules:
-                m = rule.match(dialog_history=session.dialog,
+                m = rule.match(dialog_context=context,
                                parsing_cache=parsing_cache,
                                matching_cache=matching_cache,
                                session=session,

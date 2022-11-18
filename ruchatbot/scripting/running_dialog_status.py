@@ -6,14 +6,14 @@ class RunningDialogStatus(object):
     def get_priority(self):
         return self.priority
 
-    def get_insteadof_rules(self):
+    def get_greedy_rules(self):
         return None
 
-    def get_smalltalk_rules(self):
+    #def get_smalltalk_rules(self):
         return None
 
-    def get_story_rules(self):
-        return None
+    #def get_story_rules(self):
+    #    return None
 
     def get_name(self):
         raise NotImplementedError()

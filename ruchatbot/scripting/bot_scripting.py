@@ -12,12 +12,16 @@ import os
 from ruchatbot.scripting.scenario import Scenario
 from ruchatbot.scripting.dialog_rule import DialogRule
 from ruchatbot.utils.constant_replacer import replace_constant
+from ruchatbot.scripting.scripting_module import ScriptingModule
 
 
 class BotScripting(object):
     def __init__(self):
         self.scenarios = []  # список экземпляров класса Scenario
+        self.named_patterns = dict()
+        self.entities = []
         self.greedy_rules = []   # жадные правила - срабатывают вместо генеративного пайплайна
+        self.modules = dict()  # именованные группы правил
 
     @staticmethod
     def __get_node_list(node):
@@ -30,9 +34,22 @@ class BotScripting(object):
         if bot_profile.scenarios_enabled:
             with open(bot_profile.scenarios_path, 'r') as f:
                 data = yaml.safe_load(f)
+
+                for module_node in data.get('modules', []):
+                    module = ScriptingModule.load_from_yaml(module_node['module'],
+                                                            modules=self.modules,
+                                                            constants=bot_profile.constants,
+                                                            named_patterns=self.named_patterns,
+                                                            entities=self.entities,
+                                                            text_utils=text_utils)
+                    self.modules[module.name] = module
+
                 for scenario_node in data['scenarios']:
                     scenario = Scenario.load_from_yaml(scenario_node['scenario'],
+                                                       modules = self.modules,
                                                        constants=bot_profile.constants,
+                                                       named_patterns=self.named_patterns,
+                                                       entities=self.entities,
                                                        text_utils=text_utils)
                     self.scenarios.append(scenario)
         if bot_profile.rules_enabled:
