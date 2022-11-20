@@ -1,6 +1,7 @@
 import random
 
 from ruchatbot.utils.constant_replacer import replace_constant
+from ruchatbot.scripting.generator.generative_template import TemplatePattern
 
 
 class ActorBase(object):
@@ -8,10 +9,10 @@ class ActorBase(object):
         self.actor_keyword = actor_keyword
 
     @staticmethod
-    def load_from_yaml(yaml_node, constants, text_utils):
+    def load_from_yaml(yaml_node, constants, generative_named_patterns, text_utils):
         actor_keyword = list(yaml_node.keys())[0] if isinstance(yaml_node, dict) else yaml_node
         if actor_keyword in ('say', 'rewrite'):
-            return ActorSay.load_from_yaml(yaml_node, constants, text_utils)
+            return ActorSay.load_from_yaml(yaml_node, constants, generative_named_patterns, text_utils)
         else:
             raise NotImplementedError(actor_keyword)
 
@@ -40,7 +41,7 @@ class ActorSay(ActorBase):
         self.on_repeat_again = []
 
     @staticmethod
-    def load_from_yaml(yaml_root, constants, text_utils):
+    def load_from_yaml(yaml_root, constants, generative_named_patterns, text_utils):
         actor = ActorSay(list(yaml_root.keys())[0])
 
         # Надо понять, тут расширенная форма описания актора или просто список реплик, возможно
@@ -51,20 +52,24 @@ class ActorSay(ActorBase):
             for inner_keyword in yaml_node.keys():
                 if 'phrases' == inner_keyword:
                     for utterance in yaml_node['phrases']:
-                        s = replace_constant(utterance, constants, text_utils)
-                        actor.phrases.append(s)
+                        pattern_str = replace_constant(utterance, constants, text_utils)
+                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                        actor.phrases.append(pattern)
                 elif 'exhausted' == inner_keyword:
                     for utterance in yaml_node['exhausted']:
-                        s = replace_constant(utterance, constants, text_utils)
-                        actor.exhausted_phrases.append(s)
+                        pattern_str = replace_constant(utterance, constants, text_utils)
+                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                        actor.exhausted_phrases.append(pattern)
                 elif 'on_repeat' == inner_keyword:
                     for utterance in yaml_node['on_repeat']:
-                        s = replace_constant(utterance, constants, text_utils)
-                        actor.on_repeat.append(s)
+                        pattern_str = replace_constant(utterance, constants, text_utils)
+                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                        actor.on_repeat.append(pattern)
                 elif 'on_repeat_again' == inner_keyword:
                     for utterance in yaml_node['on_repeat_again']:
-                        s = replace_constant(utterance, constants, text_utils)
-                        actor.on_repeat_again.append(s)
+                        pattern_str = replace_constant(utterance, constants, text_utils)
+                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                        actor.on_repeat_again.append(pattern)
                 elif 'known_answer' == inner_keyword:
                     actor.known_answer_policy = yaml_node[inner_keyword]
                     # TODO - проверить значение флага: 'skip' | 'utter'
@@ -74,13 +79,15 @@ class ActorSay(ActorBase):
         elif isinstance(yaml_node, list):
             for utterance in yaml_node:
                 if isinstance(utterance, str):
-                    s = replace_constant(utterance, constants, text_utils)
-                    actor.phrases.append(s)
+                    pattern_str = replace_constant(utterance, constants, text_utils)
+                    pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                    actor.phrases.append(pattern)
                 else:
                     raise SyntaxError()
         elif isinstance(yaml_node, str):
-            s = replace_constant(yaml_node, constants, text_utils)
-            actor.phrases.append(s)
+            pattern_str = replace_constant(yaml_node, constants, text_utils)
+            pattern = TemplatePattern(pattern_str, generative_named_patterns)
+            actor.phrases.append(pattern)
         else:
             raise NotImplementedError()
 
@@ -89,9 +96,11 @@ class ActorSay(ActorBase):
     def __str__(self):
         return 'say "{}"'.format(' | '.join(self.phrases))
 
-    def prepare4saying(self, phrase, matching, text_utils):
+    def prepare4saying(self, generative_pattern, matching, text_utils):
         # TODO подстановка слотов из результатов сопоставления
         # ...
+        phrase = generative_pattern.run()
+        phrase = phrase.replace('  ', ' ')  # в результаты работы TemplateNodeCoalesce может появиться 2 пробела подряд, сократим ло одного
         return phrase
 
     def do_action(self, matching, session, text_utils):

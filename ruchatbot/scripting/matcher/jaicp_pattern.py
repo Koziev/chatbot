@@ -34,35 +34,39 @@ class JAICP_Pattern:
 
     @staticmethod
     def build(src_str, src_path, named_patterns):
-        p = JAICP_Pattern(src_str, src_path=src_path)
+        try:
+            p = JAICP_Pattern(src_str, src_path=src_path)
 
-        body_str = src_str
-        converter_str = None
+            body_str = src_str
+            converter_str = None
 
-        if '||' in src_str:
-            i = src_str.index('||')
-            body_str = src_str[:i].strip()
-            converter_str = src_str[i+2:].strip()
+            if '||' in src_str:
+                i = src_str.index('||')
+                body_str = src_str[:i].strip()
+                converter_str = src_str[i+2:].strip()
 
-        p.start_node = JAICP_Pattern.join_nodes(JAICP_Pattern.build_sequence(body_str, named_patterns))
-        p.converter = converter_str
+            p.start_node = JAICP_Pattern.join_nodes(JAICP_Pattern.build_sequence(body_str, named_patterns))
+            p.converter = converter_str
 
-        all_nodes = []
-        p.start_node.list_all_nodes(all_nodes)
-        for n in all_nodes:
-            if isinstance(n, JAICP_WeightNode):
-                p.weight_a = n.a
-                p.weight_b = n.b
-                break
+            all_nodes = []
+            p.start_node.list_all_nodes(all_nodes)
+            for n in all_nodes:
+                if isinstance(n, JAICP_WeightNode):
+                    p.weight_a = n.a
+                    p.weight_b = n.b
+                    break
 
-        return p
+            return p
+        except Exception as ex:
+            msg = 'Exception on pattern {}: {}'.format(src_str, str(ex))
+            raise ValueError(msg)
 
     def bind_named_patterns(self, named_patterns):
         """ Привязка именованных паттернов в узлах AST """
         self.start_node.bind_named_patterns(named_patterns)
 
     def bind_entities(self, entities):
-        """ Привязка узлов AST к словарям сущносностей """
+        """ Привязка узлов AST к словарям сущностей """
         all_nodes = []
         self.start_node.list_all_nodes(all_nodes)
         for n in all_nodes:
@@ -229,9 +233,13 @@ class JAICP_Pattern:
 
     @staticmethod
     def build_sequence(src_str, named_patterns):
-        tx = JAICP_Tokenizer.from_str(src_str)
-        nodes = JAICP_Pattern.build_sequence_from_tokens(tx, named_patterns=named_patterns, allow_or=True)
-        return nodes
+        try:
+            tx = JAICP_Tokenizer.from_str(src_str)
+            nodes = JAICP_Pattern.build_sequence_from_tokens(tx, named_patterns=named_patterns, allow_or=True)
+            return nodes
+        except Exception as ex:
+            msg = 'Exception occured while parsing the pattern {}: {}'.format(src_str, str(ex))
+            raise ValueError(msg)
 
     @staticmethod
     def load_alternatives(src_str, named_patterns):

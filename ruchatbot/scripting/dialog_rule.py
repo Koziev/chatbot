@@ -38,7 +38,7 @@ class DialogRule(object):
         return s
 
     @staticmethod
-    def load_from_yaml(yaml_node, constants, named_patterns, entities, text_utils):
+    def load_from_yaml(yaml_node, constants, named_patterns, entities, generative_named_patterns, text_utils):
         rule = DialogRule()
         if 'name' in yaml_node['rule']:
             rule.name = yaml_node['rule']['name']
@@ -47,7 +47,7 @@ class DialogRule(object):
 
         if rule.condition_keyword == 'h':
             # Для обычных правил, описывающих реакцию на последнюю реплику человека
-            pattern_str = yaml_node['rule']['if'][rule.condition_keyword][0]
+            pattern_str = yaml_node['rule']['if'][rule.condition_keyword]
             pattern = JAICP_Pattern.build(pattern_str, named_patterns=named_patterns, src_path='<<<UNKNOWN>>>')
             pattern.bind_named_patterns(named_patterns)
             pattern.bind_entities(entities)
@@ -76,7 +76,7 @@ class DialogRule(object):
             raise NotImplementedError()
 
         if isinstance(yaml_node['rule']['then'], dict):
-            actor = ActorBase.load_from_yaml(yaml_node['rule']['then'], constants, text_utils)
+            actor = ActorBase.load_from_yaml(yaml_node['rule']['then'], constants, generative_named_patterns, text_utils)
             rule.actors.append(actor)
         else:
             raise NotImplementedError()

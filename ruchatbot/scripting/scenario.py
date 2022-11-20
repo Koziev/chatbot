@@ -118,7 +118,7 @@ class Scenario(object):
         return self.name
 
     @staticmethod
-    def load_from_yaml(yaml_node, modules, constants, named_patterns, entities, text_utils):
+    def load_from_yaml(yaml_node, modules, constants, named_patterns, entities, generative_named_patterns, text_utils):
         scenario = Scenario()
         scenario.name = yaml_node['name']
         try:
@@ -150,23 +150,23 @@ class Scenario(object):
                         scenario.steps.append(step)
 
             if 'on_start' in yaml_node:
-                scenario.on_start = ActorBase.load_from_yaml(yaml_node['on_start'], constants, text_utils)
+                scenario.on_start = ActorBase.load_from_yaml(yaml_node['on_start'], constants, generative_named_patterns, text_utils)
 
             if 'termination_policy' in yaml_node:
                 scenario.termination_policy.load_from_yaml(yaml_node['termination_policy'], constants, text_utils)
 
             if 'on_finish' in yaml_node:
-                scenario.on_finish = ActorBase.load_from_yaml(yaml_node['on_finish'], constants, text_utils)
+                scenario.on_finish = ActorBase.load_from_yaml(yaml_node['on_finish'], constants, generative_named_patterns, text_utils)
 
             scenario.greedy_rules = []
             if 'greedy_rules' in yaml_node:
                 for rule in yaml_node['greedy_rules']:
-                    rule = DialogRule.load_from_yaml(rule, constants, named_patterns, entities, text_utils)
+                    rule = DialogRule.load_from_yaml(rule, constants, named_patterns, entities, generative_named_patterns, text_utils)
                     scenario.greedy_rules.append(rule)
 
             if 'rewrite_rules' in yaml_node:
                 for rule in yaml_node['rewrite_rules']:
-                    rule = DialogRule.load_from_yaml(rule, constants, named_patterns, entities, text_utils)
+                    rule = DialogRule.load_from_yaml(rule, constants, named_patterns, entities, generative_named_patterns, text_utils)
                     scenario.rewrite_rules.append(rule)
 
             if 'import' in yaml_node:
