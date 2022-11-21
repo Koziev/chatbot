@@ -660,20 +660,36 @@ class BotCore:
         responses = []  # [GeneratedResponse]
 
         if session.bot_profile.rules_enabled:
-            # 13.11.2022 Пробуем обработать диалоговую ситуацию скриптовыми инструментами - жадными правилами.
+            # 13.11.2022 Пробуем обработать диалоговую ситуацию скриптовыми инструментами - правилами.
             matching_cache = MatchingCache()
             parsing_cache = dict()
+
+            context = dict()
+            context['h1'] = session.dialog.messages[-1]
+            if len(session.dialog.messages) > 1:
+                context['b2'] = session.dialog.messages[-2]
+                if len(session.dialog.messages) > 2:
+                    context['h3'] = session.dialog.messages[-3]
+
+            # 21.11.2022 сгенерируем варианты ответной реплики с помощью глобальных smalltalk-правил
+            for rule in session.bot_profile.scripting.smalltalk_rules:
+                m = rule.match(dialog_context=context,
+                               parsing_cache=parsing_cache,
+                               matching_cache=matching_cache,
+                               session=session,
+                               text_utils=self.text_utils
+                               )
+                if m is not None:
+                    actions = m.get_actions()
+                    for action in actions:
+                        response_text = action.get_response_text()
+                        if response_text:
+                            response = ResponseGenerationPromise.make_explicit(response_text)
+                            responses.append(GeneratedResponse('smalltalk_rule', response, session.dialog.messages[-1].get_text(), 1.01))
 
             # Есть активный сценарий?
             running_status = session.get_status()
             if running_status is not None:
-                context = dict()
-                context['h1'] = session.dialog.messages[-1].get_text()
-                if len(session.dialog.messages) > 1:
-                    context['b2'] = session.dialog.messages[-2].get_text()
-                    if len(session.dialog.messages) > 2:
-                        context['h3'] = session.dialog.messages[-3].get_text()
-
                 greedy_rules = running_status.get_greedy_rules()
                 if greedy_rules:
                     for rule in greedy_rules:

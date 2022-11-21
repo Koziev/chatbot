@@ -1,18 +1,17 @@
 """
 21-01-2021 Добавлена загрузка правил в секции first_reply_rules
 12.11.2022 Перенос в новую ветку
+21.11.2022 Добавление smalltalk_rules - правила, которые генерят дополнительные варианты реплик, дополняя выдачу генеративки
 """
 
-import random
-import logging
 import yaml
-import io
 import os
 
 from ruchatbot.scripting.scenario import Scenario
 from ruchatbot.scripting.dialog_rule import DialogRule
-from ruchatbot.utils.constant_replacer import replace_constant
 from ruchatbot.scripting.scripting_module import ScriptingModule
+from ruchatbot.scripting.matcher.jaicp_pattern import JAICP_Pattern
+from ruchatbot.scripting.generator.generative_template import TemplatePattern
 
 
 class BotScripting(object):
@@ -22,6 +21,7 @@ class BotScripting(object):
         self.entities = []
         self.generative_named_patterns = dict()
         self.greedy_rules = []   # жадные правила - срабатывают вместо генеративного пайплайна
+        self.smalltalk_rules = []  # дополняющие правила - генерируют варианты реплики, которые оцениваются вместе с вариантами от генеративки
         self.modules = dict()  # именованные группы правил
 
     @staticmethod
@@ -75,3 +75,28 @@ class BotScripting(object):
                                                      generative_named_patterns=generative_named_patterns,
                                                      text_utils=text_utils)
                     self.greedy_rules.append(rule)
+
+            if 'smalltalk_rules' in data:
+                for smalltalk_rules_node in data['smalltalk_rules']:
+                    rule = DialogRule.load_from_yaml(smalltalk_rules_node,
+                                                     constants=bot_profile.constants,
+                                                     named_patterns=named_patterns,
+                                                     entities=entities,
+                                                     generative_named_patterns=generative_named_patterns,
+                                                     text_utils=text_utils)
+                    self.smalltalk_rules.append(rule)
+
+            if 'patterns' in data:
+                for pattern_name, pattern_str in data['patterns'].items():
+                    all_named_patterns = {**named_patterns, **self.named_patterns}
+                    pattern = JAICP_Pattern.build(pattern_str, named_patterns=all_named_patterns, src_path=rules_path)
+                    pattern.bind_named_patterns(named_patterns)
+                    pattern.bind_entities(entities)
+                    pattern.optimize()
+                    self.named_patterns[pattern_name] = pattern
+
+            if 'generators' in data:
+                for generator_name, generator_str in data['generators'].items():
+                    all_named_generators = {**generative_named_patterns, **self.generative_named_patterns}
+                    generator = TemplatePattern(pattern_str, all_named_generators)
+                    self.generative_named_patterns[generator_name] = generator

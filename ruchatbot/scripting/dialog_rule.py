@@ -94,20 +94,30 @@ class DialogRule(object):
             if reply_key not in dialog_context:
                 return None
 
-            utterance_text = dialog_context[reply_key]
-            if utterance_text in parsing_cache:
-                parsing = parsing_cache[utterance_text]
-            else:
-                utterance_parsings = text_utils.parser.parse_text(utterance_text)
-                parsing = Parsing(tokens=itertools.chain(*utterance_parsings), text=utterance_text)
-                parsing_cache[utterance_text] = parsing
+            utterance = dialog_context[reply_key]
+            best_score = 0.0
+            best_matching = None
+            # пробуем сопоставить паттерн правила с исходным текстом реплики и с раскрытым текстом.
+            # оставим сопоставление с максимальным скором.
+            for utterance_text in [utterance.get_text(), utterance.get_interpretation()]:
+                if utterance_text:
+                    if utterance_text in parsing_cache:
+                        parsing = parsing_cache[utterance_text]
+                    else:
+                        utterance_parsings = text_utils.parser.parse_text(utterance_text)
+                        parsing = Parsing(tokens=itertools.chain(*utterance_parsings), text=utterance_text)
+                        parsing_cache[utterance_text] = parsing
 
-            matching, score = pattern.match(parsing, matching_cache)
-            if matching is None or score == 0.0:
+                    matching, score = pattern.match(parsing, matching_cache)
+                    if matching is not None and score > 0.0 and score > best_score:
+                        best_score = score
+                        best_matching = matching
+
+            if best_matching is None:
                 return None
 
-            matchings.append(matching)
-            total_score *= score
+            matchings.append(best_matching)
+            total_score *= best_score
 
         results = [actor.do_action(matching, session, text_utils) for actor in self.actors]
         results2 = list(itertools.chain(*results))
