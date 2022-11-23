@@ -33,6 +33,15 @@ RUN apt-get clean
 WORKDIR /chatbot/ruchatbot/bot
 COPY ./ruchatbot/bot/*.py ./
 
+WORKDIR /chatbot/ruchatbot/scripting
+COPY ./ruchatbot/scripting/*.py ./
+
+WORKDIR /chatbot/ruchatbot/scripting/generator
+COPY ./ruchatbot/scripting/generator/*.py ./
+
+WORKDIR /chatbot/ruchatbot/scripting/matcher
+COPY ./ruchatbot/scripting/matcher/*.py ./
+
 WORKDIR /chatbot/ruchatbot/frontend
 COPY ./ruchatbot/frontend/*.py ./
 
