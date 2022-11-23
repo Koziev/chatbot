@@ -2,8 +2,9 @@ import itertools
 
 from ruchatbot.bot.conversation_engine import DialogHistory
 from ruchatbot.scripting.matcher.jaicp_pattern import JAICP_Pattern
-from ruchatbot.utils.udpipe_parser import Parsing
+#from ruchatbot.utils.udpipe_parser import Parsing
 from ruchatbot.scripting.actors import ActorBase
+from ruchatbot.scripting.matcher.parsing_result import ParsingResult
 
 
 class DialogRuleMatching(object):
@@ -105,7 +106,8 @@ class DialogRule(object):
                         parsing = parsing_cache[utterance_text]
                     else:
                         utterance_parsings = text_utils.parser.parse_text(utterance_text)
-                        parsing = Parsing(tokens=itertools.chain(*utterance_parsings), text=utterance_text)
+                        #parsing = Parsing(tokens=itertools.chain(*utterance_parsings), text=utterance_text)
+                        parsing = ParsingResult(tokens=itertools.chain(*utterance_parsings), text=utterance_text)
                         parsing_cache[utterance_text] = parsing
 
                     matching, score = pattern.match(parsing, matching_cache)

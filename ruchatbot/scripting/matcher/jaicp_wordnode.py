@@ -59,7 +59,7 @@ class JAICP_WordNode(JAICP_BaseNode):
             # Выход за правую границу предложения
             return []
 
-        word = words[start_index+1].form
+        word = words.get_word(start_index)
         uword = word.lower()
 
         success = False

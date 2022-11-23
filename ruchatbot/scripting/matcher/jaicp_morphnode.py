@@ -81,7 +81,7 @@ class JAICP_MorphNode(JAICP_BaseNode):
         if start_index >= len(words):
             return []
 
-        udp_token = words[start_index+1]
+        udp_token = words.get_token(start_index)  # +1
         if self.part_of_speech is not None:
             if udp_token.upos != self.part_of_speech:
                 return []

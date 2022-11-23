@@ -10,13 +10,13 @@ def extract_constit0(tokens, token):
 
 
 class ParsingResult:
-    def __init__(self, text):
+    def __init__(self, tokens, text):
         self.text = text
-        self.root_token = None
-        self.tokens = None
-        self.lemmas = None
-        self.udp_tokens = None
-        self.top_constituents = None
+        #self.root_token = None
+        #self.tokens = None
+        #self.lemmas = None
+        self.udp_tokens = list(tokens)
+        #self.top_constituents = None
 
     def __len__(self):
         return len(self.udp_tokens)
