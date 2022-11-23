@@ -88,7 +88,8 @@ class TextUtils(object):
 
     def remove_terminators(self, s):
         """ Убираем финальные пунктуаторы ! ? ."""
-        return s[:-1].strip() if s[-1] in '?!.' else s
+        #return s[:-1].strip() if s[-1] in '?!.' else s
+        return re.sub(r'([.?!;]+)$', '', s)
 
     def normalize_delimiters(self, s):
         return s.replace(' ?', '?').replace(' ,', ',').replace(' .', '.').replace(' !', '!')

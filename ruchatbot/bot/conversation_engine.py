@@ -920,7 +920,7 @@ class BotCore:
 
                                 if rel > 0.5:
                                     if memory_phrase != confab_premise:
-                                        self.logger.debug('Synonymy@647 text1=〚%s〛 text2=〚%s〛 score=%5.3f', confab_premise, memory_phrase, rel)
+                                        self.logger.debug('Synonymy@923 text1=〚%s〛 text2=〚%s〛 score=%5.3f', confab_premise, memory_phrase, rel)
 
                                     total_proba *= rel
                                     if memory_phrase[-1] not in '.?!':
@@ -1023,7 +1023,7 @@ class BotCore:
                 memory_phrases2 = list(memory_phrases)
                 for assertion_text in input_assertions:
                     fact_text2 = self.flip_person(assertion_text)
-                    memory_phrases2.append((fact_text2, '', '(((tmp@741)))'))
+                    memory_phrases2.append((fact_text2, '', '(((tmp@1026)))'))
 
                 # Вполне может оказаться, что наша ответная реплика - краткая, и мы должны попытаться восстановить
                 # полную реплику перед семантическими и прагматическими проверками.
@@ -1032,24 +1032,24 @@ class BotCore:
                     prevm = dialog.get_last_message().get_text()
                 interpreter_context = prevm + ' | ' + best_response.get_text()
                 self_interpretation = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], num_return_sequences=1)[0]
-                self.logger.debug('Self interpretation@750: context=〚%s〛 output=〚%s〛', interpreter_context, self_interpretation)
+                self.logger.debug('Self interpretation@1035: context=〚%s〛 output=〚%s〛', interpreter_context, self_interpretation)
 
                 self_assertions, self_questions = split_message_text(self_interpretation, self.text_utils)
                 for question_text in self_questions:
                     # Реплика содержит вопрос. Проверим, что мы ранее не задавали такой вопрос, и что
                     # мы не знаем ответ на этот вопрос. Благодаря этому бот не будет спрашивать снова то, что уже
                     # спрашивал или что он просто знает.
-                    self.logger.debug('Question to process@757: 〚%s〛', question_text)
+                    self.logger.debug('Question to process@1042: 〚%s〛', question_text)
                     premises, rels = self.relevancy_detector.get_most_relevant(question_text, memory_phrases2, nb_results=1)
                     if len(premises) > 0:
                         premise = premises[0]
                         rel = rels[0]
                         if rel >= self.pqa_rel_threshold:
-                            self.logger.debug('KB lookup@763: query=〚%s〛 premise=〚%s〛 rel=%f', question_text, premise, rel)
+                            self.logger.debug('KB lookup@1048: query=〚%s〛 premise=〚%s〛 rel=%f', question_text, premise, rel)
                             # Так как в БД найден релевантный факт, то бот уже знает ответ на этот вопрос, и нет смысла задавать его
                             # собеседнику снова.
                             is_good_reply = False
-                            self.logger.debug('Output response 〚%s〛 contains a question 〚%s〛 with known answer, so skipping it @759', best_response.get_text(), question_text)
+                            self.logger.debug('Output response 〚%s〛 contains a question 〚%s〛 with known answer, so skipping it @1052', best_response.get_text(), question_text)
                             break
 
                 if not is_good_reply:
@@ -1065,13 +1065,31 @@ class BotCore:
                             premise = premises[0]
                             rel = rels[0]
                             if rel >= self.pqa_rel_threshold:
-                                self.logger.debug('KB lookup@792: query=〚%s〛 premise=〚%s〛 rel=%f', assertion_text, premise, rel)
+                                self.logger.debug('KB lookup@1068: query=〚%s〛 premise=〚%s〛 rel=%f', assertion_text, premise, rel)
+
+                                # 23.11.2022 быстрая проверка на случай, когда вопрос и найденная предпосылка символьно близки
+                                str1 = self.text_utils.remove_terminators(premise).lower()
+                                str2 = self.text_utils.remove_terminators(assertion_text).lower()
+                                if str1 == str2:
+                                    # полное совпадение текста
+                                    continue
+
+                                tokens1 = self.text_utils.tokenize(str1)
+                                tokens2 = self.text_utils.tokenize(str2)
+                                if not any((t1 not in tokens2) for t1 in tokens1):
+                                    # совпадение мешков слов
+                                    continue
 
                                 # Формируем запрос на генерацию ответа через gpt читчата...
                                 chitchat_context = premise[0].upper() + premise[1:] #+ '. ' + assertion_text + '?'
                                 if premise[-1] not in '!;.':
                                     chitchat_context += '.'
-                                chitchat_context += ' ' + assertion_text + '?'
+                                if assertion_text[-1] in '.!;':
+                                    chitchat_context += ' ' + assertion_text[:-1] + '?'
+                                elif assertion_text[-1] == '?':
+                                    chitchat_context += ' ' + assertion_text
+                                else:
+                                    chitchat_context += ' ' + assertion_text + '?'
 
                                 chitchat_outputs = self.chitchat.generate_chitchat(context_replies=[chitchat_context], num_return_sequences=5)
                                 self.logger.debug('PQA@797: context=〚%s〛 outputs=〚%s〛', chitchat_context, format_outputs(chitchat_outputs))
