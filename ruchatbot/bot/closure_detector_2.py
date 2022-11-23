@@ -69,7 +69,8 @@ class RubertClosureDetector0(nn.Module):
             # исключаем pad-токены из обработки в LSTM
             pack = torch.nn.utils.rnn.pack_padded_sequence(b, lengths=mask0.sum(dim=-1).detach().cpu().numpy(), batch_first=True, enforce_sorted=False)
             out1, (hidden1, cell1) = self.rnn(pack)
-            v1 = torch.hstack((hidden1[0, :, :], hidden1[1, :, :]))
+            #v1 = torch.hstack((hidden1[0, :, :], hidden1[1, :, :]))
+            v1 = torch.cat((hidden1[0, :, :], hidden1[1, :, :]), dim=1)
 
             merged = self.fc1(v1)
             merged = torch.sigmoid(merged)

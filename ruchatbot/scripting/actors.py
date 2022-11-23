@@ -1,3 +1,4 @@
+import re
 import random
 
 from ruchatbot.utils.constant_replacer import replace_constant
@@ -101,44 +102,60 @@ class ActorSay(ActorBase):
         # ...
         phrase = generative_pattern.run()
         phrase = phrase.replace('  ', ' ')  # в результаты работы TemplateNodeCoalesce может появиться 2 пробела подряд, сократим ло одного
+        phrase = re.sub(r'\s+([.,!?])', r'\1', phrase)
+        phrase = phrase.strip()
         return phrase
 
     def do_action(self, matching, session, text_utils):
-        session.actor_say_hit(id(self))
-        if session.get_actor_say_hits(id(self)) > 1:
-            # Выдадим реплику из отдельного списка, так как в текущей сессии это повторный вопрос
-            new_utterances = []
-            if self.on_repeat_again and session.get_actor_say_hits(id(self)) > 2:
-                for utterance0 in self.on_repeat_again:
-                    utterance = self.prepare4saying(utterance0, matching, text_utils)
-                    new_utterances.append(utterance)
+        new_utterances = []
 
-            if len(new_utterances) == 0 and self.on_repeat:
-                new_utterances = []
+        session.actor_say_hit(id(self))
+        num_hits = session.get_actor_say_hits(id(self))
+        if num_hits > 1:
+            # Выдадим реплику из отдельного списка, так как в текущей сессии это повторный вопрос
+
+            # Второе исполнение правила
+            if self.on_repeat and num_hits == 2:
                 for utterance0 in self.on_repeat:
                     utterance = self.prepare4saying(utterance0, matching, text_utils)
-                    new_utterances.append(utterance)
+                    if utterance:
+                        new_utterances.append(utterance)
+
+            # Третье исполнение правила
+            if self.on_repeat_again and num_hits == 3:
+                for utterance0 in self.on_repeat_again:
+                    utterance = self.prepare4saying(utterance0, matching, text_utils)
+                    if utterance:
+                        new_utterances.append(utterance)
+
+            if len(new_utterances) == 0 and self.exhausted_phrases:
+                for utterance0 in self.exhausted_phrases:
+                    utterance = self.prepare4saying(utterance0, matching, text_utils)
+                    if utterance:
+                        if session.count_bot_phrase(utterance) == 0:
+                            # if self.known_answer_policy == 'skip' and utterance[-1] == '?':
+                            #    # Проверим, что бот еще не знает ответ на этот вопрос:
+                            #    if bot.does_bot_know_answer(utterance, session, interlocutor):
+                            #        continue
+                            new_utterances.append(utterance)
 
             if new_utterances:
                 result_text = random.choice(new_utterances)
                 return [ActorSayResult(self, result_text)]
+            else:
+                return None
 
         # Сначала попробуем убрать из списка те реплики, которые мы уже произносили.
         new_utterances = []
         for utterance0 in self.phrases:
             utterance = self.prepare4saying(utterance0, matching, text_utils)
-
-            if '$' in utterance:
-                # Не удалось подставить значение в один из $-слотов, значит
-                # надо исключить фразу.
-                continue
-
-            if session.count_bot_phrase(utterance) == 0:
-                #if self.known_answer_policy == 'skip' and utterance[-1] == '?':
-                #    # Проверим, что бот еще не знает ответ на этот вопрос:
-                #    if bot.does_bot_know_answer(utterance, session, interlocutor):
-                #        continue
-                new_utterances.append(utterance)
+            if utterance:
+                if session.count_bot_phrase(utterance) == 0:
+                    #if self.known_answer_policy == 'skip' and utterance[-1] == '?':
+                    #    # Проверим, что бот еще не знает ответ на этот вопрос:
+                    #    if bot.does_bot_know_answer(utterance, session, interlocutor):
+                    #        continue
+                    new_utterances.append(utterance)
 
         if len(new_utterances) > 0:
             # Выбираем одну из оставшихся фраз.
@@ -157,18 +174,13 @@ class ActorSay(ActorBase):
             new_utterances = []
             for utterance0 in self.exhausted_phrases:
                 utterance = self.prepare4saying(utterance0, matching, text_utils)
-
-                if '$' in utterance:
-                    # Не удалось подставить значение в один из $-слотов, значит
-                    # надо исключить фразу.
-                    continue
-
-                if session.count_bot_phrase(utterance) == 0:
-                    #if self.known_answer_policy == 'skip' and utterance[-1] == '?':
-                    #    # Проверим, что бот еще не знает ответ на этот вопрос:
-                    #    if bot.does_bot_know_answer(utterance, session, interlocutor):
-                    #        continue
-                    new_utterances.append(utterance)
+                if utterance:
+                    if session.count_bot_phrase(utterance) == 0:
+                        #if self.known_answer_policy == 'skip' and utterance[-1] == '?':
+                        #    # Проверим, что бот еще не знает ответ на этот вопрос:
+                        #    if bot.does_bot_know_answer(utterance, session, interlocutor):
+                        #        continue
+                        new_utterances.append(utterance)
 
             if new_utterances:
                 result_text = random.choice(new_utterances)

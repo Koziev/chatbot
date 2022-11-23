@@ -58,7 +58,12 @@ class TextUtils(object):
         tag = None
         if func == '$chooseAdjByGender':
             part_of_speech = 'ПРИЛАГАТЕЛЬНОЕ'
-            tag = ('РОД', constants['gender'])
+            #tag = ('РОД', constants['gender'])
+            assert(len(words) == 2)
+            if constants['gender'] == 'МУЖ':
+                return words[0]
+            elif constants['gender'] == 'ЖЕН':
+                return words[1]
         elif func == '$chooseVByGender':
             part_of_speech = 'ГЛАГОЛ'
             tag = ('РОД', constants['gender'])

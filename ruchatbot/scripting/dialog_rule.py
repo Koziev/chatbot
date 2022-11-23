@@ -122,5 +122,11 @@ class DialogRule(object):
             total_score *= best_score
 
         results = [actor.do_action(matching, session, text_utils) for actor in self.actors]
-        results2 = list(itertools.chain(*results))
-        return DialogRuleMatching(self, total_score, matchings, results2)
+        results = [result for result in results if result]
+        if results:
+            results2 = list(itertools.chain(*results))
+            return DialogRuleMatching(self, total_score, matchings, results2)
+        else:
+            # Такое может быть, если оператор say не смог сгенерировать ответ.
+            # В таком случае считаем, что правило не подошло.
+            return None

@@ -69,7 +69,7 @@ class RugptChitChat:
         if len(output_sequences.shape) > 2:
             output_sequences.squeeze_()
 
-        generated_sequences = []
+        generated_sequences = set()
         for generated_sequence_idx, generated_sequence in enumerate(output_sequences):
             generated_sequence = generated_sequence.tolist()
 
@@ -86,9 +86,10 @@ class RugptChitChat:
                 total_sequence = total_sequence[:total_sequence.index('\n')]
 
             total_sequence = total_sequence.strip()
-            generated_sequences.append(total_sequence)
+            generated_sequences.add(total_sequence)
 
-        self.logger.debug('Chit-chat generated %d responses in batch: %s', len(generated_sequences), '; '.join(generated_sequences))
+        generated_sequences = list(generated_sequences)
+        self.logger.debug('Chit-chat generated %d responses in batch: 〚%s〛', len(generated_sequences), ' | '.join(generated_sequences))
         return list(generated_sequences)
 
     def generate_output(self, lines, num_return_sequences=10):
