@@ -192,6 +192,10 @@ class TemplatePattern(object):
             tail_str = pattern_str[i+1:]
             tail_node = TemplatePattern.build_node(tail_str, named_patterns)
             return TemplateNodeCoalesce(optional_node, tail_node)
+        elif pattern_str.startswith('\\('):
+            # Круглая скобочка заэкранирована, чтобы можно было вставлять в генерацию смайлики
+            next_node = TemplatePattern.build_node(pattern_str[2:], named_patterns)
+            return TemplateNodeChar("(", next_node=next_node)
         else:
             next_node = TemplatePattern.build_node(pattern_str[1:], named_patterns)
             return TemplateNodeChar(c1, next_node=next_node)
