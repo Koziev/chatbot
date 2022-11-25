@@ -253,7 +253,7 @@ class JAICP_Tokenizer:
                 n_open_paren += 1
                 tokens.append(t)
                 # НАЧАЛО ОТЛАДКИ
-                print('DEBUG@256 t={} n_open_paren={} len={}'.format(t, n_open_paren, len(''.join(tokens))))
+                #print('DEBUG@256 t={} n_open_paren={} len={}'.format(t, n_open_paren, len(''.join(tokens))))
                 # КОНЕЦ ОТЛАДКИ
             elif t in '])}⟧':
                 n_open_paren -= 1
