@@ -424,9 +424,10 @@ class GeneratedResponse(object):
 
 class BotCore:
     def __init__(self):
+        self.logger = logging.getLogger('BotCore')
         use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if use_cuda else "cpu")
-        self.logger = logging.getLogger('BotCore')
+        self.logger.debug('BotCore: device=%s', str(self.device))
         self.min_nonsense_threshold = 0.50  # мин. значение синтаксической валидности сгенерированной моделями фразы, чтобы использовать ее дальше
         self.pqa_rel_threshold = 0.80  # порог отсечения нерелевантных предпосылок
 
