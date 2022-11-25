@@ -53,24 +53,36 @@ class ActorSay(ActorBase):
             for inner_keyword in yaml_node.keys():
                 if 'phrases' == inner_keyword:
                     for utterance in yaml_node['phrases']:
-                        pattern_str = replace_constant(utterance, constants, text_utils)
-                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
-                        actor.phrases.append(pattern)
+                        try:
+                            pattern_str = replace_constant(utterance, constants, text_utils)
+                            pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                            actor.phrases.append(pattern)
+                        except ValueError as ex:
+                            raise ValueError('Error occured when parsing generator "{}": {}'.format(pattern_str, str(ex)))
                 elif 'exhausted' == inner_keyword:
                     for utterance in yaml_node['exhausted']:
-                        pattern_str = replace_constant(utterance, constants, text_utils)
-                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
-                        actor.exhausted_phrases.append(pattern)
+                        try:
+                            pattern_str = replace_constant(utterance, constants, text_utils)
+                            pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                            actor.exhausted_phrases.append(pattern)
+                        except ValueError as ex:
+                            raise ValueError('Error occured when parsing generator "{}": {}'.format(pattern_str, str(ex)))
                 elif 'on_repeat' == inner_keyword:
                     for utterance in yaml_node['on_repeat']:
-                        pattern_str = replace_constant(utterance, constants, text_utils)
-                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
-                        actor.on_repeat.append(pattern)
+                        try:
+                            pattern_str = replace_constant(utterance, constants, text_utils)
+                            pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                            actor.on_repeat.append(pattern)
+                        except ValueError as ex:
+                            raise ValueError('Error occured when parsing generator "{}": {}'.format(pattern_str, str(ex)))
                 elif 'on_repeat_again' == inner_keyword:
                     for utterance in yaml_node['on_repeat_again']:
-                        pattern_str = replace_constant(utterance, constants, text_utils)
-                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
-                        actor.on_repeat_again.append(pattern)
+                        try:
+                            pattern_str = replace_constant(utterance, constants, text_utils)
+                            pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                            actor.on_repeat_again.append(pattern)
+                        except ValueError as ex:
+                            raise ValueError('Error occured when parsing generator "{}": {}'.format(pattern_str, str(ex)))
                 elif 'known_answer' == inner_keyword:
                     actor.known_answer_policy = yaml_node[inner_keyword]
                     # TODO - проверить значение флага: 'skip' | 'utter'
@@ -80,15 +92,21 @@ class ActorSay(ActorBase):
         elif isinstance(yaml_node, list):
             for utterance in yaml_node:
                 if isinstance(utterance, str):
-                    pattern_str = replace_constant(utterance, constants, text_utils)
-                    pattern = TemplatePattern(pattern_str, generative_named_patterns)
-                    actor.phrases.append(pattern)
+                    try:
+                        pattern_str = replace_constant(utterance, constants, text_utils)
+                        pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                        actor.phrases.append(pattern)
+                    except ValueError as ex:
+                        raise ValueError('Error occured when parsing generator "{}": {}'.format(pattern_str, str(ex)))
                 else:
                     raise SyntaxError()
         elif isinstance(yaml_node, str):
-            pattern_str = replace_constant(yaml_node, constants, text_utils)
-            pattern = TemplatePattern(pattern_str, generative_named_patterns)
-            actor.phrases.append(pattern)
+            try:
+                pattern_str = replace_constant(yaml_node, constants, text_utils)
+                pattern = TemplatePattern(pattern_str, generative_named_patterns)
+                actor.phrases.append(pattern)
+            except ValueError as ex:
+                raise ValueError('Error occured when parsing generator "{}": {}'.format(pattern_str, str(ex)))
         else:
             raise NotImplementedError()
 
