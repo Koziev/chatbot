@@ -22,7 +22,7 @@ docker run -it inkoziev/chatbot_v4 bash -c "/chatbot/scripts/tg_bot.sh"
 
 ## Архитектура бота
 
-В состав [пайплайна](https://github.com/Koziev/chatbot/blob/core_v4/ruchatbot/bot/conversation_engine.py) входят модели:
+В состав [нейросимвольного пайплайна](https://github.com/Koziev/chatbot/blob/core_v4/ruchatbot/bot/conversation_engine.py) входят следующие модели и программные компоненты:
 
 1) **интерпретатор** на базе ruT5 для восстановления полного текста реплики в контексте диалога, исправления ошибок, нормализации - см. [карточку модели на huggingface](https://huggingface.co/inkoziev/t5_interpreter).
 
@@ -32,7 +32,7 @@ docker run -it inkoziev/chatbot_v4 bash -c "/chatbot/scripts/tg_bot.sh"
 
 4) **детектор перефразировок** на базе rubert-tiny для определения синонимичности двух предложений - см [карточку модели на huggingface](https://huggingface.co/inkoziev/sbert_synonymy).
 
-5) **scripting engine** - правила и сценарии для изменения и дополнения нейропайплайна.
+5) **scripting engine** - правила и сценарии для изменения и дополнения работы вышеперечисленных моделей.
 
 
 ## Кастомизация чатбота, константы профиля
@@ -128,6 +128,7 @@ docker run -it inkoziev/chatbot_v4 bash -c "/chatbot/scripts/tg_bot.sh"
 
 ```(вариант1/вариант2)``` - с равной вероятностью будет выбран один из вариантов ```вариант1```, ```вариант2``` и т.д.
 
+Обратите внимание, что правила работают с раскрытыми репликами собеседника, в которых подставлены анафоры, заполнены эллипсисы и т.д.
 
 
 
