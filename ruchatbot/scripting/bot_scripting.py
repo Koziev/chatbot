@@ -66,6 +66,23 @@ class BotScripting(object):
                     import_path = os.path.join(os.path.dirname(rules_path), path2)
                     self.load_rules(import_path, bot_profile, text_utils, named_patterns, entities, generative_named_patterns)
 
+            if 'patterns' in data:
+                # Именованные паттерны для матчера
+                for pattern_name, pattern_str in data['patterns'].items():
+                    all_named_patterns = {**named_patterns, **self.named_patterns}
+                    pattern = JAICP_Pattern.build(pattern_str, named_patterns=all_named_patterns, src_path=rules_path)
+                    pattern.bind_named_patterns(named_patterns)
+                    pattern.bind_entities(entities)
+                    pattern.optimize()
+                    self.named_patterns[pattern_name] = pattern
+
+            if 'generators' in data:
+                # Именованные шаблоны генератора фраз
+                for generator_name, generator_str in data['generators'].items():
+                    all_named_generators = {**generative_named_patterns, **self.generative_named_patterns}
+                    generator = TemplatePattern(pattern_str, all_named_generators)
+                    self.generative_named_patterns[generator_name] = generator
+
             if 'greedy_rules' in data:
                 for greedy_rules_node in data['greedy_rules']:
                     rule = DialogRule.load_from_yaml(greedy_rules_node,
@@ -85,18 +102,3 @@ class BotScripting(object):
                                                      generative_named_patterns=generative_named_patterns,
                                                      text_utils=text_utils)
                     self.smalltalk_rules.append(rule)
-
-            if 'patterns' in data:
-                for pattern_name, pattern_str in data['patterns'].items():
-                    all_named_patterns = {**named_patterns, **self.named_patterns}
-                    pattern = JAICP_Pattern.build(pattern_str, named_patterns=all_named_patterns, src_path=rules_path)
-                    pattern.bind_named_patterns(named_patterns)
-                    pattern.bind_entities(entities)
-                    pattern.optimize()
-                    self.named_patterns[pattern_name] = pattern
-
-            if 'generators' in data:
-                for generator_name, generator_str in data['generators'].items():
-                    all_named_generators = {**generative_named_patterns, **self.generative_named_patterns}
-                    generator = TemplatePattern(pattern_str, all_named_generators)
-                    self.generative_named_patterns[generator_name] = generator
