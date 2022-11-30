@@ -40,8 +40,8 @@ from ruchatbot.bot.sbert_paraphrase_detector import SbertSynonymyDetector
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
-#from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
-from ruchatbot.bot.rut5_interpreter import RuT5Interpreter
+from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
+#from ruchatbot.bot.rut5_interpreter import RuT5Interpreter
 from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
 from ruchatbot.bot.rugpt_chitchat import RugptChitChat
 from ruchatbot.bot.sbert_relevancy_detector import SbertRelevancyDetector
@@ -50,6 +50,7 @@ from ruchatbot.bot.ruwordnet_relevancy_scorer import RelevancyScorer
 from ruchatbot.scripting.running_scenario import RunningDialogStatus
 from ruchatbot.scripting.running_scenario import RunningScenario
 from ruchatbot.scripting.matcher.matching_cache import MatchingCache
+from ruchatbot.bot.search_utils import search_among
 
 
 class Utterance:
@@ -469,8 +470,8 @@ class BotCore:
         #self.entailment = EntailmentModel(self.device)
         #self.entailment.load(models_dir, self.bert_model, self.bert_tokenizer)
 
-        #self.interpreter = RugptInterpreter()
-        self.interpreter = RuT5Interpreter()
+        self.interpreter = RugptInterpreter()
+        #self.interpreter = RuT5Interpreter()
         self.interpreter.load(models_dir)
 
         self.confabulator = RugptConfabulator()
@@ -751,10 +752,14 @@ class BotCore:
         interpreter_contexts = dialog.constuct_interpreter_contexts()
         for interpreter_context in interpreter_contexts:
             interpretations = self.interpreter.interpret([z.strip() for z in interpreter_context.split('|')], num_return_sequences=2)
-            self.logger.debug('Interpretation@471: context=〚%s〛 outputs=〚%s〛', interpreter_context, format_outputs(interpretations))
+            self.logger.debug('Interpretation@755: context=〚%s〛 outputs=〚%s〛', interpreter_context, format_outputs(interpretations))
 
             # Оцениваем "разумность" получившихся интерпретаций, чтобы отсеять заведомо поломанные результаты
             for interpretation in interpretations:
+                if search_among(interpretation, [x[0] for x in all_interpretations]):
+                    # такая интерпретация уже получена из другого контекста
+                    continue
+
                 # может получится так, что возникнет 2 одинаковые интерпретации из формально разных контекстов.
                 # избегаем добавления дублирующей интерпретации.
                 if not any((interpretation == z[0]) for z in all_interpretations):
@@ -763,7 +768,7 @@ class BotCore:
                     if p_valid > self.min_nonsense_threshold:
                         all_interpretations.append((interpretation, p_valid))
                     else:
-                        self.logger.debug('Nonsense detector@483: text=〚%s〛 p=%5.3f', interpretation, p_valid)
+                        self.logger.debug('Nonsense detector@771: text=〚%s〛 p=%5.3f', interpretation, p_valid)
 
         # В целях оптимизации пока оставляем только самую достоверную интерпретацию.
         # Но вообще мы должны попытаться использовать все сделанные варианты интерпретации и

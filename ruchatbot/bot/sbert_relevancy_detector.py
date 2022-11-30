@@ -1,8 +1,13 @@
+"""
+Обертка для модели определения релевантности контекста и вопроса (premise-question relevancy)
+с архитектурой Sentence Transformer.
+"""
+
 import sentence_transformers
+from ruchatbot.bot.search_utils import normalize_for_lookup
 
 
 class SbertRelevancyDetector(object):
-    """Вариант с внутренним вызовом rubert"""
     def __init__(self, device):
         self.device = device
         self.model = None
@@ -16,7 +21,14 @@ class SbertRelevancyDetector(object):
         return y
 
     def get_most_relevant(self, query, premises, nb_results=1):
-        embeddings = self.model.encode([p[0] for p in premises]  + [query], convert_to_tensor=True, device=self.device)
+        # 30.11.2022 иногда происходят поиски фраз, которые фактически совпадают с одним из фактов, до регистра.
+        # Можно немного улучшить производительность для таких случаев, пройдясь по списку и сделав строковое сравнение.
+        uquery = normalize_for_lookup(query)
+        for premise in premises:
+            if uquery == normalize_for_lookup(premise[0]):
+                return [premise[0]], [1.0]
+
+        embeddings = self.model.encode([p[0] for p in premises] + [query], convert_to_tensor=True, device=self.device)
         q1_v = embeddings[-1].unsqueeze(dim=0)
         px_v = embeddings[:-1]
         rx = sentence_transformers.util.semantic_search(query_embeddings=q1_v, corpus_embeddings=px_v,
