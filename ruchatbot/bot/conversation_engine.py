@@ -40,9 +40,9 @@ from ruchatbot.bot.sbert_paraphrase_detector import SbertSynonymyDetector
 from ruchatbot.bot.modality_detector import ModalityDetector
 from ruchatbot.bot.simple_modality_detector import SimpleModalityDetectorRU
 from ruchatbot.bot.profile_facts_reader import ProfileFactsReader
-from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
-#from ruchatbot.bot.rut5_interpreter import RuT5Interpreter
-from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
+#from ruchatbot.bot.rugpt_interpreter import RugptInterpreter
+from ruchatbot.bot.rut5_interpreter import RuT5Interpreter
+#from ruchatbot.bot.rugpt_confabulator import RugptConfabulator
 from ruchatbot.bot.rugpt_chitchat import RugptChitChat
 from ruchatbot.bot.sbert_relevancy_detector import SbertRelevancyDetector
 from ruchatbot.bot.closure_detector_2 import RubertClosureDetector
@@ -470,12 +470,12 @@ class BotCore:
         #self.entailment = EntailmentModel(self.device)
         #self.entailment.load(models_dir, self.bert_model, self.bert_tokenizer)
 
-        self.interpreter = RugptInterpreter()
-        #self.interpreter = RuT5Interpreter()
+        #self.interpreter = RugptInterpreter()
+        self.interpreter = RuT5Interpreter()
         self.interpreter.load(models_dir)
 
-        self.confabulator = RugptConfabulator()
-        self.confabulator.load(models_dir)
+        #self.confabulator = RugptConfabulator()
+        #self.confabulator.load(models_dir)
 
         self.chitchat = RugptChitChat()
         self.chitchat.load(os.path.join(models_dir, 'rugpt_npqa'))
@@ -873,7 +873,7 @@ class BotCore:
                     if premise_relevancy >= self.pqa_rel_threshold:  # Если найденная в БД предпосылка достаточно релевантна вопросу...
                         confab_premises.append(([premise], premise_relevancy*question_w, 'knowledgebase'))
 
-                if len(confab_premises) == 0 and use_confabulation and not dodged:
+                if False:  # 30.11.2022 отключена конфабуляция - попробуем обойтись одним читчатом  len(confab_premises) == 0 and use_confabulation and not dodged:
                     if phrase_person != '2':  # не будем выдумывать факты про собеседника!
                         # В базе знаний ничего релевантного не нашлось.
                         # Мы можем а) сгенерировать ответ с семантикой "нет информации" б) заболтать вопрос в) придумать факт и уйти в ветку PQA
