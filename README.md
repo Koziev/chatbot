@@ -130,6 +130,14 @@ docker run -it inkoziev/chatbot_v4 bash -c "/chatbot/scripts/tg_bot.sh"
 
 Обратите внимание, что правила работают с раскрытыми репликами собеседника, в которых подставлены анафоры, заполнены эллипсисы и т.д.
 
+## Датасеты
+
+Некоторые данные, которые я собирал для обучения моделей в этом чатботе, доступны публично:
+
+[inkoziev/arithmetic](https://huggingface.co/datasets/inkoziev/arithmetic) - арифметические школьные задачи.
+
+[inkoziev/paraphrases](https://huggingface.co/datasets/inkoziev/paraphrases) - перефразировки коротких предложений и диалоговых реплик.
+
 
 
 
